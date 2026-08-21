@@ -604,29 +604,27 @@ pub(super) fn compare_f64(stack: &mut Vec<Value>, opcode: u8) -> Result<(), Runt
 
 pub(super) fn convert(stack: &mut Vec<Value>, opcode: u8) -> Result<(), RuntimeError> {
     let value = match opcode {
-        0xa7 => {
-            let value = match pop_typed(stack, ValueType::I64)? {
-                Value::I64(value) => value,
-                _ => unreachable!("pop_typed established i64"),
-            };
-            Value::I32(value as i32)
-        }
+        0xa7 => Value::I32(i64_from_stack(stack)? as i32),
+        0xa8 => Value::I32(trunc_to_i32(f64::from(f32_from_stack(stack)?), true)?),
+        0xa9 => Value::I32(trunc_to_i32(f64::from(f32_from_stack(stack)?), false)?),
+        0xaa => Value::I32(trunc_to_i32(f64_from_stack(stack)?, true)?),
+        0xab => Value::I32(trunc_to_i32(f64_from_stack(stack)?, false)?),
         0xac => Value::I64(i64::from(i32_from_stack(stack)?)),
         0xad => Value::I64(i64::from(i32_from_stack(stack)? as u32)),
-        0xb6 => {
-            let value = match pop_typed(stack, ValueType::F64)? {
-                Value::F64(value) => value,
-                _ => unreachable!("pop_typed established f64"),
-            };
-            Value::F32(value as f32)
-        }
-        0xbb => {
-            let value = match pop_typed(stack, ValueType::F32)? {
-                Value::F32(value) => value,
-                _ => unreachable!("pop_typed established f32"),
-            };
-            Value::F64(f64::from(value))
-        }
+        0xae => Value::I64(trunc_to_i64(f64::from(f32_from_stack(stack)?), true)?),
+        0xaf => Value::I64(trunc_to_i64(f64::from(f32_from_stack(stack)?), false)?),
+        0xb0 => Value::I64(trunc_to_i64(f64_from_stack(stack)?, true)?),
+        0xb1 => Value::I64(trunc_to_i64(f64_from_stack(stack)?, false)?),
+        0xb2 => Value::F32(i32_from_stack(stack)? as f32),
+        0xb3 => Value::F32((i32_from_stack(stack)? as u32) as f32),
+        0xb4 => Value::F32(i64_from_stack(stack)? as f32),
+        0xb5 => Value::F32((i64_from_stack(stack)? as u64) as f32),
+        0xb6 => Value::F32(f64_from_stack(stack)? as f32),
+        0xb7 => Value::F64(f64::from(i32_from_stack(stack)?)),
+        0xb8 => Value::F64(f64::from(i32_from_stack(stack)? as u32)),
+        0xb9 => Value::F64(i64_from_stack(stack)? as f64),
+        0xba => Value::F64((i64_from_stack(stack)? as u64) as f64),
+        0xbb => Value::F64(f64::from(f32_from_stack(stack)?)),
         0xbc => Value::I32(f32_from_stack(stack)?.to_bits() as i32),
         0xbd => Value::I64(f64_from_stack(stack)?.to_bits() as i64),
         0xbe => Value::F32(f32::from_bits(i32_from_stack(stack)? as u32)),
@@ -635,4 +633,52 @@ pub(super) fn convert(stack: &mut Vec<Value>, opcode: u8) -> Result<(), RuntimeE
     };
     stack.push(value);
     Ok(())
+}
+
+fn trunc_to_i32(value: f64, signed: bool) -> Result<i32, RuntimeError> {
+    if value.is_nan() {
+        return Err(RuntimeError::InvalidConversionToInteger);
+    }
+    if !value.is_finite() {
+        return Err(RuntimeError::IntegerOverflow);
+    }
+    let value = value.trunc();
+    if signed {
+        const LOWER: f64 = -2_147_483_648.0;
+        const UPPER: f64 = 2_147_483_648.0;
+        if !(LOWER..UPPER).contains(&value) {
+            return Err(RuntimeError::IntegerOverflow);
+        }
+        Ok(value as i32)
+    } else {
+        const UPPER: f64 = 4_294_967_296.0;
+        if !(0.0..UPPER).contains(&value) {
+            return Err(RuntimeError::IntegerOverflow);
+        }
+        Ok((value as u32) as i32)
+    }
+}
+
+fn trunc_to_i64(value: f64, signed: bool) -> Result<i64, RuntimeError> {
+    if value.is_nan() {
+        return Err(RuntimeError::InvalidConversionToInteger);
+    }
+    if !value.is_finite() {
+        return Err(RuntimeError::IntegerOverflow);
+    }
+    let value = value.trunc();
+    if signed {
+        const LOWER: f64 = -9_223_372_036_854_775_808.0;
+        const UPPER: f64 = 9_223_372_036_854_775_808.0;
+        if !(LOWER..UPPER).contains(&value) {
+            return Err(RuntimeError::IntegerOverflow);
+        }
+        Ok(value as i64)
+    } else {
+        const UPPER: f64 = 18_446_744_073_709_551_616.0;
+        if !(0.0..UPPER).contains(&value) {
+            return Err(RuntimeError::IntegerOverflow);
+        }
+        Ok((value as u64) as i64)
+    }
 }

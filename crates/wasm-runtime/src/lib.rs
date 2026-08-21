@@ -706,6 +706,7 @@ pub enum RuntimeError {
     UnsupportedOpcode(u8),
     IntegerDivisionByZero,
     IntegerOverflow,
+    InvalidConversionToInteger,
     UnsupportedBlockType(u8),
     BlockTypeIndexOutOfBounds(u32),
     UnsupportedBlockResultArity {
@@ -868,7 +869,8 @@ impl fmt::Display for RuntimeError {
             }
             Self::UnsupportedOpcode(opcode) => write!(f, "unsupported opcode 0x{opcode:02x}"),
             Self::IntegerDivisionByZero => write!(f, "integer division by zero"),
-            Self::IntegerOverflow => write!(f, "integer signed division overflow"),
+            Self::IntegerOverflow => write!(f, "integer overflow"),
+            Self::InvalidConversionToInteger => write!(f, "invalid conversion to integer"),
             Self::UnsupportedBlockType(block_type) => {
                 write!(f, "unsupported block type 0x{block_type:02x}")
             }
@@ -2247,9 +2249,7 @@ impl Instance {
                 0x7c..=0x8a => numeric::binary_integer(&mut stack, opcode)?,
                 0x8b..=0x91 | 0x99..=0x9f => numeric::unary_float(&mut stack, opcode)?,
                 0x92..=0x98 | 0xa0..=0xa6 => numeric::binary_float(&mut stack, opcode)?,
-                0xa7 | 0xac | 0xad | 0xb6 | 0xbb | 0xbc..=0xbf => {
-                    numeric::convert(&mut stack, opcode)?
-                }
+                0xa7..=0xbf => numeric::convert(&mut stack, opcode)?,
                 other => return Err(RuntimeError::UnsupportedOpcode(other)),
             }
         }
@@ -2774,16 +2774,7 @@ fn build_control_map(module: &Module, code: &[u8]) -> Result<ControlMap, Runtime
             0x44 => {
                 let _ = read_fixed_u64(code, &mut pc)?;
             }
-            0x0f
-            | 0x45..=0x66
-            | 0x67..=0x8a
-            | 0x8b..=0xa6
-            | 0xa7
-            | 0xac
-            | 0xad
-            | 0xb6
-            | 0xbb
-            | 0xbc..=0xbf => {}
+            0x0f | 0x45..=0x66 | 0x67..=0x8a | 0x8b..=0xa6 | 0xa7..=0xbf => {}
             other => return Err(RuntimeError::UnsupportedOpcode(other)),
         }
     }

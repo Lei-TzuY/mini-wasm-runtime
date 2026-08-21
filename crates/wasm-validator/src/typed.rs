@@ -364,86 +364,134 @@ pub(super) fn validate_code(
             0xa0..=0xa6 => {
                 binary_same(&mut stack, &controls, ValueType::F64, function, offset)?;
             }
-            0xa7 => {
-                unary(
-                    &mut stack,
-                    &controls,
-                    ValueType::I64,
-                    ValueType::I32,
-                    function,
-                    offset,
-                )?;
-            }
-            0xac | 0xad => {
-                unary(
-                    &mut stack,
-                    &controls,
-                    ValueType::I32,
-                    ValueType::I64,
-                    function,
-                    offset,
-                )?;
-            }
-            0xb6 => {
-                unary(
-                    &mut stack,
-                    &controls,
-                    ValueType::F64,
-                    ValueType::F32,
-                    function,
-                    offset,
-                )?;
-            }
-            0xbb => {
-                unary(
-                    &mut stack,
-                    &controls,
-                    ValueType::F32,
-                    ValueType::F64,
-                    function,
-                    offset,
-                )?;
-            }
-            0xbc => {
-                unary(
-                    &mut stack,
-                    &controls,
-                    ValueType::F32,
-                    ValueType::I32,
-                    function,
-                    offset,
-                )?;
-            }
-            0xbd => {
-                unary(
-                    &mut stack,
-                    &controls,
-                    ValueType::F64,
-                    ValueType::I64,
-                    function,
-                    offset,
-                )?;
-            }
-            0xbe => {
-                unary(
-                    &mut stack,
-                    &controls,
-                    ValueType::I32,
-                    ValueType::F32,
-                    function,
-                    offset,
-                )?;
-            }
-            0xbf => {
-                unary(
-                    &mut stack,
-                    &controls,
-                    ValueType::I64,
-                    ValueType::F64,
-                    function,
-                    offset,
-                )?;
-            }
+            0xa7 => unary(
+                &mut stack,
+                &controls,
+                ValueType::I64,
+                ValueType::I32,
+                function,
+                offset,
+            )?,
+            0xa8 | 0xa9 => unary(
+                &mut stack,
+                &controls,
+                ValueType::F32,
+                ValueType::I32,
+                function,
+                offset,
+            )?,
+            0xaa | 0xab => unary(
+                &mut stack,
+                &controls,
+                ValueType::F64,
+                ValueType::I32,
+                function,
+                offset,
+            )?,
+            0xac | 0xad => unary(
+                &mut stack,
+                &controls,
+                ValueType::I32,
+                ValueType::I64,
+                function,
+                offset,
+            )?,
+            0xae | 0xaf => unary(
+                &mut stack,
+                &controls,
+                ValueType::F32,
+                ValueType::I64,
+                function,
+                offset,
+            )?,
+            0xb0 | 0xb1 => unary(
+                &mut stack,
+                &controls,
+                ValueType::F64,
+                ValueType::I64,
+                function,
+                offset,
+            )?,
+            0xb2 | 0xb3 => unary(
+                &mut stack,
+                &controls,
+                ValueType::I32,
+                ValueType::F32,
+                function,
+                offset,
+            )?,
+            0xb4 | 0xb5 => unary(
+                &mut stack,
+                &controls,
+                ValueType::I64,
+                ValueType::F32,
+                function,
+                offset,
+            )?,
+            0xb6 => unary(
+                &mut stack,
+                &controls,
+                ValueType::F64,
+                ValueType::F32,
+                function,
+                offset,
+            )?,
+            0xb7 | 0xb8 => unary(
+                &mut stack,
+                &controls,
+                ValueType::I32,
+                ValueType::F64,
+                function,
+                offset,
+            )?,
+            0xb9 | 0xba => unary(
+                &mut stack,
+                &controls,
+                ValueType::I64,
+                ValueType::F64,
+                function,
+                offset,
+            )?,
+            0xbb => unary(
+                &mut stack,
+                &controls,
+                ValueType::F32,
+                ValueType::F64,
+                function,
+                offset,
+            )?,
+            0xbc => unary(
+                &mut stack,
+                &controls,
+                ValueType::F32,
+                ValueType::I32,
+                function,
+                offset,
+            )?,
+            0xbd => unary(
+                &mut stack,
+                &controls,
+                ValueType::F64,
+                ValueType::I64,
+                function,
+                offset,
+            )?,
+            0xbe => unary(
+                &mut stack,
+                &controls,
+                ValueType::I32,
+                ValueType::F32,
+                function,
+                offset,
+            )?,
+            0xbf => unary(
+                &mut stack,
+                &controls,
+                ValueType::I64,
+                ValueType::F64,
+                function,
+                offset,
+            )?,
             other => {
                 return Err(ValidationError::UnsupportedOpcode {
                     function,
