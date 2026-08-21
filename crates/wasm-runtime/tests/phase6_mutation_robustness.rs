@@ -57,11 +57,7 @@ fn header() -> Vec<u8> {
 
 fn arithmetic_seed() -> Vec<u8> {
     let mut module = header();
-    push_section(
-        &mut module,
-        1,
-        &[0x01, 0x60, 0x02, I32, I32, 0x01, I32],
-    );
+    push_section(&mut module, 1, &[0x01, 0x60, 0x02, I32, I32, 0x01, I32]);
     push_section(&mut module, 3, &[0x01, 0x00]);
     push_section(&mut module, 7, &[0x01, 0x03, b'r', b'u', b'n', 0x00, 0x00]);
 
@@ -89,9 +85,7 @@ fn memory_data_seed() -> Vec<u8> {
     push_section(
         &mut module,
         11,
-        &[
-            0x01, 0x00, 0x41, 0x00, 0x0b, 0x04, 0x78, 0x56, 0x34, 0x12,
-        ],
+        &[0x01, 0x00, 0x41, 0x00, 0x0b, 0x04, 0x78, 0x56, 0x34, 0x12],
     );
     module
 }
@@ -101,11 +95,7 @@ fn table_global_seed() -> Vec<u8> {
     push_section(&mut module, 1, &[0x01, 0x60, 0x00, 0x01, I32]);
     push_section(&mut module, 3, &[0x01, 0x00]);
     push_section(&mut module, 4, &[0x01, 0x70, 0x00, 0x01]);
-    push_section(
-        &mut module,
-        6,
-        &[0x01, I32, 0x00, 0x41, 0x07, 0x0b],
-    );
+    push_section(&mut module, 6, &[0x01, I32, 0x00, 0x41, 0x07, 0x0b]);
 
     let mut exports = vec![0x03];
     push_name(&mut exports, "run");
@@ -116,11 +106,7 @@ fn table_global_seed() -> Vec<u8> {
     exports.extend_from_slice(&[0x03, 0x00]);
     push_section(&mut module, 7, &exports);
 
-    push_section(
-        &mut module,
-        9,
-        &[0x01, 0x00, 0x41, 0x00, 0x0b, 0x01, 0x00],
-    );
+    push_section(&mut module, 9, &[0x01, 0x00, 0x41, 0x00, 0x0b, 0x01, 0x00]);
 
     let body = [0x00, 0x23, 0x00, 0x0b];
     let mut code = vec![0x01];
@@ -164,7 +150,11 @@ fn deterministic_binary_mutations_never_panic_parser_or_validator() {
 
     for (seed_index, (seed_name, seed)) in seeds.into_iter().enumerate() {
         let baseline = exercise_pipeline(&seed, &format!("{seed_name}:baseline"));
-        assert_eq!(baseline, (true, true), "seed module must be valid: {seed_name}");
+        assert_eq!(
+            baseline,
+            (true, true),
+            "seed module must be valid: {seed_name}"
+        );
         total += 1;
         parsed += 1;
         validated += 1;
@@ -210,7 +200,10 @@ fn deterministic_binary_mutations_never_panic_parser_or_validator() {
         }
     }
 
-    assert!(total >= 1_000, "mutation corpus unexpectedly became too small");
+    assert!(
+        total >= 1_000,
+        "mutation corpus unexpectedly became too small"
+    );
     assert!(parsed >= 3, "valid baseline seeds must reach the validator");
     assert!(validated >= 3, "valid baseline seeds must remain valid");
 }
