@@ -84,7 +84,8 @@ The roadmap favors complete vertical slices over a broad but shallow decoder.
 - [x] unprefixed trapping float-to-integer and integer-to-float conversions
 - [x] saturating float-to-integer conversions (`0xfc` prefix)
 - [x] i64/f32/f64 memory instruction families
-- [ ] WebAssembly spec tests for supported features
+- [x] initial end-to-end spec-derived conformance corpus for supported semantics
+- [ ] broader upstream WebAssembly spec-test ingestion for supported features
 - [x] initial negative-conformance corpus for the supported surface
 - [ ] continue adversarial corpus expansion as new surfaces land
 
