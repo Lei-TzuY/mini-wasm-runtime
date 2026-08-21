@@ -91,16 +91,18 @@ fn missing_code_body_is_rejected_before_instantiation() {
 
 #[test]
 fn duplicate_export_names_are_rejected_before_execution() {
-    let mut module = minimal_function_module(None, &[]);
-
-    let export_section = [
-        0x02, // two exports
-        0x01, b'x', 0x00, 0x00, // x -> function 0
-        0x01, b'x', 0x00, 0x00, // duplicate x -> function 0
-    ];
-    // Export section must precede code, so rebuild with it inserted before code.
-    module.truncate(14);
-    push_section(&mut module, 7, &export_section);
+    let mut module = header();
+    push_section(&mut module, 1, &[0x01, 0x60, 0x00, 0x00]);
+    push_section(&mut module, 3, &[0x01, 0x00]);
+    push_section(
+        &mut module,
+        7,
+        &[
+            0x02, // two exports
+            0x01, b'x', 0x00, 0x00, // x -> function 0
+            0x01, b'x', 0x00, 0x00, // duplicate x -> function 0
+        ],
+    );
     push_section(&mut module, 10, &[0x01, 0x02, 0x00, 0x0b]);
 
     let error = Instance::new(parse_module(&module).unwrap())
