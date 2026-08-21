@@ -1186,6 +1186,72 @@ impl LinearMemory {
         Ok(i32::from(u16::from_le_bytes(bytes)))
     }
 
+    fn load_i64(&self, address: i32, displacement: u32) -> Result<i64, RuntimeError> {
+        let range = self.checked_range(address, displacement, 8)?;
+        let bytes: [u8; 8] = self.bytes[range]
+            .try_into()
+            .expect("checked eight-byte range");
+        Ok(i64::from_le_bytes(bytes))
+    }
+
+    fn load_f32(&self, address: i32, displacement: u32) -> Result<f32, RuntimeError> {
+        let range = self.checked_range(address, displacement, 4)?;
+        let bytes: [u8; 4] = self.bytes[range]
+            .try_into()
+            .expect("checked four-byte range");
+        Ok(f32::from_bits(u32::from_le_bytes(bytes)))
+    }
+
+    fn load_f64(&self, address: i32, displacement: u32) -> Result<f64, RuntimeError> {
+        let range = self.checked_range(address, displacement, 8)?;
+        let bytes: [u8; 8] = self.bytes[range]
+            .try_into()
+            .expect("checked eight-byte range");
+        Ok(f64::from_bits(u64::from_le_bytes(bytes)))
+    }
+
+    fn load_i64_8_s(&self, address: i32, displacement: u32) -> Result<i64, RuntimeError> {
+        let range = self.checked_range(address, displacement, 1)?;
+        Ok(i64::from(self.bytes[range.start] as i8))
+    }
+
+    fn load_i64_8_u(&self, address: i32, displacement: u32) -> Result<i64, RuntimeError> {
+        let range = self.checked_range(address, displacement, 1)?;
+        Ok(i64::from(self.bytes[range.start]))
+    }
+
+    fn load_i64_16_s(&self, address: i32, displacement: u32) -> Result<i64, RuntimeError> {
+        let range = self.checked_range(address, displacement, 2)?;
+        let bytes: [u8; 2] = self.bytes[range]
+            .try_into()
+            .expect("checked two-byte range");
+        Ok(i64::from(i16::from_le_bytes(bytes)))
+    }
+
+    fn load_i64_16_u(&self, address: i32, displacement: u32) -> Result<i64, RuntimeError> {
+        let range = self.checked_range(address, displacement, 2)?;
+        let bytes: [u8; 2] = self.bytes[range]
+            .try_into()
+            .expect("checked two-byte range");
+        Ok(i64::from(u16::from_le_bytes(bytes)))
+    }
+
+    fn load_i64_32_s(&self, address: i32, displacement: u32) -> Result<i64, RuntimeError> {
+        let range = self.checked_range(address, displacement, 4)?;
+        let bytes: [u8; 4] = self.bytes[range]
+            .try_into()
+            .expect("checked four-byte range");
+        Ok(i64::from(i32::from_le_bytes(bytes)))
+    }
+
+    fn load_i64_32_u(&self, address: i32, displacement: u32) -> Result<i64, RuntimeError> {
+        let range = self.checked_range(address, displacement, 4)?;
+        let bytes: [u8; 4] = self.bytes[range]
+            .try_into()
+            .expect("checked four-byte range");
+        Ok(i64::from(u32::from_le_bytes(bytes)))
+    }
+
     fn store_i32(
         &mut self,
         address: i32,
@@ -1216,6 +1282,71 @@ impl LinearMemory {
     ) -> Result<(), RuntimeError> {
         let range = self.checked_range(address, displacement, 2)?;
         self.bytes[range].copy_from_slice(&(value as u16).to_le_bytes());
+        Ok(())
+    }
+    fn store_i64(
+        &mut self,
+        address: i32,
+        displacement: u32,
+        value: i64,
+    ) -> Result<(), RuntimeError> {
+        let range = self.checked_range(address, displacement, 8)?;
+        self.bytes[range].copy_from_slice(&value.to_le_bytes());
+        Ok(())
+    }
+
+    fn store_f32(
+        &mut self,
+        address: i32,
+        displacement: u32,
+        value: f32,
+    ) -> Result<(), RuntimeError> {
+        let range = self.checked_range(address, displacement, 4)?;
+        self.bytes[range].copy_from_slice(&value.to_bits().to_le_bytes());
+        Ok(())
+    }
+
+    fn store_f64(
+        &mut self,
+        address: i32,
+        displacement: u32,
+        value: f64,
+    ) -> Result<(), RuntimeError> {
+        let range = self.checked_range(address, displacement, 8)?;
+        self.bytes[range].copy_from_slice(&value.to_bits().to_le_bytes());
+        Ok(())
+    }
+
+    fn store_i64_8(
+        &mut self,
+        address: i32,
+        displacement: u32,
+        value: i64,
+    ) -> Result<(), RuntimeError> {
+        let range = self.checked_range(address, displacement, 1)?;
+        self.bytes[range.start] = value as u8;
+        Ok(())
+    }
+
+    fn store_i64_16(
+        &mut self,
+        address: i32,
+        displacement: u32,
+        value: i64,
+    ) -> Result<(), RuntimeError> {
+        let range = self.checked_range(address, displacement, 2)?;
+        self.bytes[range].copy_from_slice(&(value as u16).to_le_bytes());
+        Ok(())
+    }
+
+    fn store_i64_32(
+        &mut self,
+        address: i32,
+        displacement: u32,
+        value: i64,
+    ) -> Result<(), RuntimeError> {
+        let range = self.checked_range(address, displacement, 4)?;
+        self.bytes[range].copy_from_slice(&(value as u32).to_le_bytes());
         Ok(())
     }
 }
@@ -1904,43 +2035,125 @@ impl Instance {
                             }
                         })?;
                 }
-                0x28 | 0x2c..=0x2f => {
+                0x28..=0x35 => {
                     let (_, displacement) = read_memarg(code, &mut pc)?;
                     let address = numeric::i32_from_stack(&mut stack)?;
                     let value = match opcode {
-                        0x28 => {
-                            self.with_memory(|memory| memory.load_i32(address, displacement))?
+                        0x28 => Value::I32(
+                            self.with_memory(|memory| memory.load_i32(address, displacement))?,
+                        ),
+                        0x29 => Value::I64(
+                            self.with_memory(|memory| memory.load_i64(address, displacement))?,
+                        ),
+                        0x2a => Value::F32(
+                            self.with_memory(|memory| memory.load_f32(address, displacement))?,
+                        ),
+                        0x2b => Value::F64(
+                            self.with_memory(|memory| memory.load_f64(address, displacement))?,
+                        ),
+                        0x2c => Value::I32(
+                            self.with_memory(|memory| memory.load_i8_s(address, displacement))?,
+                        ),
+                        0x2d => Value::I32(
+                            self.with_memory(|memory| memory.load_i8_u(address, displacement))?,
+                        ),
+                        0x2e => Value::I32(
+                            self.with_memory(|memory| memory.load_i16_s(address, displacement))?,
+                        ),
+                        0x2f => Value::I32(
+                            self.with_memory(|memory| memory.load_i16_u(address, displacement))?,
+                        ),
+                        0x30 => Value::I64(
+                            self.with_memory(|memory| memory.load_i64_8_s(address, displacement))?,
+                        ),
+                        0x31 => Value::I64(
+                            self.with_memory(|memory| memory.load_i64_8_u(address, displacement))?,
+                        ),
+                        0x32 => {
+                            Value::I64(self.with_memory(|memory| {
+                                memory.load_i64_16_s(address, displacement)
+                            })?)
                         }
-                        0x2c => {
-                            self.with_memory(|memory| memory.load_i8_s(address, displacement))?
+                        0x33 => {
+                            Value::I64(self.with_memory(|memory| {
+                                memory.load_i64_16_u(address, displacement)
+                            })?)
                         }
-                        0x2d => {
-                            self.with_memory(|memory| memory.load_i8_u(address, displacement))?
+                        0x34 => {
+                            Value::I64(self.with_memory(|memory| {
+                                memory.load_i64_32_s(address, displacement)
+                            })?)
                         }
-                        0x2e => {
-                            self.with_memory(|memory| memory.load_i16_s(address, displacement))?
-                        }
-                        0x2f => {
-                            self.with_memory(|memory| memory.load_i16_u(address, displacement))?
+                        0x35 => {
+                            Value::I64(self.with_memory(|memory| {
+                                memory.load_i64_32_u(address, displacement)
+                            })?)
                         }
                         _ => unreachable!(),
                     };
-                    stack.push(Value::I32(value));
+                    stack.push(value);
                 }
-                0x36 | 0x3a | 0x3b => {
+                0x36..=0x3e => {
                     let (_, displacement) = read_memarg(code, &mut pc)?;
-                    let value = numeric::i32_from_stack(&mut stack)?;
-                    let address = numeric::i32_from_stack(&mut stack)?;
                     match opcode {
-                        0x36 => self.with_memory_mut(|memory| {
-                            memory.store_i32(address, displacement, value)
-                        })?,
-                        0x3a => self.with_memory_mut(|memory| {
-                            memory.store_i8(address, displacement, value)
-                        })?,
-                        0x3b => self.with_memory_mut(|memory| {
-                            memory.store_i16(address, displacement, value)
-                        })?,
+                        0x36 | 0x3a | 0x3b => {
+                            let value = numeric::i32_from_stack(&mut stack)?;
+                            let address = numeric::i32_from_stack(&mut stack)?;
+                            match opcode {
+                                0x36 => self.with_memory_mut(|memory| {
+                                    memory.store_i32(address, displacement, value)
+                                })?,
+                                0x3a => self.with_memory_mut(|memory| {
+                                    memory.store_i8(address, displacement, value)
+                                })?,
+                                0x3b => self.with_memory_mut(|memory| {
+                                    memory.store_i16(address, displacement, value)
+                                })?,
+                                _ => unreachable!(),
+                            }
+                        }
+                        0x37 | 0x3c..=0x3e => {
+                            let value = match numeric::pop_typed(&mut stack, ValueType::I64)? {
+                                Value::I64(value) => value,
+                                _ => unreachable!("pop_typed established i64"),
+                            };
+                            let address = numeric::i32_from_stack(&mut stack)?;
+                            match opcode {
+                                0x37 => self.with_memory_mut(|memory| {
+                                    memory.store_i64(address, displacement, value)
+                                })?,
+                                0x3c => self.with_memory_mut(|memory| {
+                                    memory.store_i64_8(address, displacement, value)
+                                })?,
+                                0x3d => self.with_memory_mut(|memory| {
+                                    memory.store_i64_16(address, displacement, value)
+                                })?,
+                                0x3e => self.with_memory_mut(|memory| {
+                                    memory.store_i64_32(address, displacement, value)
+                                })?,
+                                _ => unreachable!(),
+                            }
+                        }
+                        0x38 => {
+                            let value = match numeric::pop_typed(&mut stack, ValueType::F32)? {
+                                Value::F32(value) => value,
+                                _ => unreachable!("pop_typed established f32"),
+                            };
+                            let address = numeric::i32_from_stack(&mut stack)?;
+                            self.with_memory_mut(|memory| {
+                                memory.store_f32(address, displacement, value)
+                            })?;
+                        }
+                        0x39 => {
+                            let value = match numeric::pop_typed(&mut stack, ValueType::F64)? {
+                                Value::F64(value) => value,
+                                _ => unreachable!("pop_typed established f64"),
+                            };
+                            let address = numeric::i32_from_stack(&mut stack)?;
+                            self.with_memory_mut(|memory| {
+                                memory.store_f64(address, displacement, value)
+                            })?;
+                        }
                         _ => unreachable!(),
                     }
                 }
@@ -2502,7 +2715,7 @@ fn build_control_map(module: &Module, code: &[u8]) -> Result<ControlMap, Runtime
                 let _ = read_u32_immediate(code, &mut pc)?;
                 let _ = read_u32_immediate(code, &mut pc)?;
             }
-            0x28 | 0x2c..=0x2f | 0x36 | 0x3a | 0x3b => {
+            0x28..=0x3e => {
                 let _ = read_memarg(code, &mut pc)?;
             }
             0x41 => {

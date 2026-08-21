@@ -219,7 +219,7 @@ pub(super) fn validate_code(
                     offset,
                 )?;
             }
-            0x28 | 0x2c..=0x2f => {
+            0x28..=0x35 => {
                 super::ensure_memory(module, function, offset)?;
                 super::read_memarg(
                     code,
@@ -229,9 +229,16 @@ pub(super) fn validate_code(
                     super::natural_alignment(opcode),
                 )?;
                 pop_expect(&mut stack, &controls, ValueType::I32, function, offset)?;
-                stack.push(ValueType::I32);
+                let result = match opcode {
+                    0x28 | 0x2c..=0x2f => ValueType::I32,
+                    0x29 | 0x30..=0x35 => ValueType::I64,
+                    0x2a => ValueType::F32,
+                    0x2b => ValueType::F64,
+                    _ => unreachable!(),
+                };
+                stack.push(result);
             }
-            0x36 | 0x3a | 0x3b => {
+            0x36..=0x3e => {
                 super::ensure_memory(module, function, offset)?;
                 super::read_memarg(
                     code,
@@ -240,7 +247,14 @@ pub(super) fn validate_code(
                     offset,
                     super::natural_alignment(opcode),
                 )?;
-                pop_expect(&mut stack, &controls, ValueType::I32, function, offset)?;
+                let value_type = match opcode {
+                    0x36 | 0x3a | 0x3b => ValueType::I32,
+                    0x37 | 0x3c..=0x3e => ValueType::I64,
+                    0x38 => ValueType::F32,
+                    0x39 => ValueType::F64,
+                    _ => unreachable!(),
+                };
+                pop_expect(&mut stack, &controls, value_type, function, offset)?;
                 pop_expect(&mut stack, &controls, ValueType::I32, function, offset)?;
             }
             0x3f => {
