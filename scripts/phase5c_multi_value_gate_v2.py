@@ -8,12 +8,15 @@ start = source.find(start_marker)
 if start < 0:
     raise SystemExit("could not find repeated structured-frame staging block")
 
-# The loop contains an indented `replace_once(`. The next top-level call marks
-# the exact end of this staging block without depending on the following Rust
-# source anchor text.
-end = source.find("\nreplace_once(", start + len(start_marker))
-if end < 0 or end <= start:
-    raise SystemExit("could not isolate repeated structured-frame staging block")
+# The buggy v1 block contains an indented replacement loop followed by one more
+# top-level duplicate replacement. Skip both, stopping at the following unrelated
+# top-level replacement.
+first_top_level = source.find("\nreplace_once(", start + len(start_marker))
+if first_top_level < 0:
+    raise SystemExit("could not find duplicate top-level structured-frame replacement")
+end = source.find("\nreplace_once(", first_top_level + 1)
+if end < 0 or end <= first_top_level:
+    raise SystemExit("could not isolate complete structured-frame staging block")
 
 old = """                        param_types: signature.params,\n                        result_type: signature.result,\n"""
 new = """                        param_types: signature.params,\n                        result_types: signature.results,\n"""
