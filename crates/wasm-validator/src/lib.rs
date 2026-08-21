@@ -1,7 +1,7 @@
 //! Cross-section and instruction-stream validation for the Phase-1 subset.
 
 use std::{collections::HashSet, fmt};
-use wasm_parser::{decode_i32, decode_u32, ExportKind, Module};
+use wasm_parser::{decode_i32, decode_u32, ExportKind, Module, ValueType};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ValidationError {
@@ -21,6 +21,14 @@ pub enum ValidationError {
         name: String,
     },
     DuplicateExportName(String),
+    UnsupportedResultArity {
+        function: usize,
+        results: usize,
+    },
+    UnsupportedValueType {
+        function: usize,
+        value_type: ValueType,
+    },
     LocalCountOverflow {
         function: usize,
     },
@@ -77,6 +85,17 @@ impl fmt::Display for ValidationError {
                 write!(f, "export {name:?} is not a function in the Phase-1 runtime")
             }
             Self::DuplicateExportName(name) => write!(f, "duplicate export name {name:?}"),
+            Self::UnsupportedResultArity { function, results } => write!(
+                f,
+                "function {function} has {results} results; Phase 1 supports at most one"
+            ),
+            Self::UnsupportedValueType {
+                function,
+                value_type,
+            } => write!(
+                f,
+                "function {function} uses {value_type:?}; Phase 1 execution is i32-only"
+            ),
             Self::LocalCountOverflow { function } => {
                 write!(f, "local declaration count overflows usize in function {function}")
             }
@@ -137,8 +156,34 @@ pub fn validate(module: &Module) -> Result<(), ValidationError> {
             });
         }
 
-        let mut local_count = module.types[type_index as usize].params.len();
-        for &(count, _) in &module.code[function].locals {
+        let function_type = &module.types[type_index as usize];
+        if function_type.results.len() > 1 {
+            return Err(ValidationError::UnsupportedResultArity {
+                function,
+                results: function_type.results.len(),
+            });
+        }
+        for &value_type in function_type
+            .params
+            .iter()
+            .chain(function_type.results.iter())
+        {
+            if value_type != ValueType::I32 {
+                return Err(ValidationError::UnsupportedValueType {
+                    function,
+                    value_type,
+                });
+            }
+        }
+
+        let mut local_count = function_type.params.len();
+        for &(count, value_type) in &module.code[function].locals {
+            if value_type != ValueType::I32 {
+                return Err(ValidationError::UnsupportedValueType {
+                    function,
+                    value_type,
+                });
+            }
             local_count = local_count
                 .checked_add(count as usize)
                 .ok_or(ValidationError::LocalCountOverflow { function })?;
@@ -243,7 +288,7 @@ fn read_u32_immediate(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use wasm_parser::{Export, FuncType, FunctionBody, ValueType};
+    use wasm_parser::{Export, FuncType, FunctionBody};
 
     fn valid_module() -> Module {
         Module {
@@ -287,6 +332,32 @@ mod tests {
             validate(&module),
             Err(ValidationError::TypeIndexOutOfBounds { .. })
         ));
+    }
+
+    #[test]
+    fn rejects_multi_value_results() {
+        let mut module = valid_module();
+        module.types[0].results.push(ValueType::I32);
+        assert_eq!(
+            validate(&module),
+            Err(ValidationError::UnsupportedResultArity {
+                function: 0,
+                results: 2,
+            })
+        );
+    }
+
+    #[test]
+    fn rejects_non_i32_execution_types() {
+        let mut module = valid_module();
+        module.types[0].params[0] = ValueType::I64;
+        assert_eq!(
+            validate(&module),
+            Err(ValidationError::UnsupportedValueType {
+                function: 0,
+                value_type: ValueType::I64,
+            })
+        );
     }
 
     #[test]
