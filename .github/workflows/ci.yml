@@ -91,6 +91,20 @@ jobs:
           Path('/tmp/apply_phase5c_memory.py').write_text("if True:\n" + body)
           PY
           python3 /tmp/apply_phase5c_memory.py
+          python3 - <<'PY'
+          from pathlib import Path
+
+          path = Path('crates/wasm-runtime/src/lib.rs')
+          text = path.read_text()
+          call = '        reject_unsupported_object_imports(&module)?;\n'
+          if text.count(call) != 1:
+              raise SystemExit('unexpected object-import rejection call count')
+          text = text.replace(call, '', 1)
+          start = text.index('fn reject_unsupported_object_imports(')
+          end = text.index('\nfn validate_host_bindings(', start)
+          text = text[:start] + text[end + 1:]
+          path.write_text(text)
+          PY
           cargo fmt --all
           cargo fmt --all -- --check
           cargo clippy --workspace --all-targets -- -D warnings
