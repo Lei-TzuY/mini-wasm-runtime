@@ -71,13 +71,7 @@ pub(super) fn validate_code(
                 if end_type.is_some_and(|ty| ty != ValueType::I32) {
                     legacy_compatible = false;
                 }
-                pop_expect(
-                    &mut stack,
-                    &controls,
-                    ValueType::I32,
-                    function,
-                    offset,
-                )?;
+                pop_expect(&mut stack, &controls, ValueType::I32, function, offset)?;
                 controls.push(ControlFrame {
                     kind: ControlKind::If,
                     height: stack.len(),
@@ -115,13 +109,7 @@ pub(super) fn validate_code(
             }
             0x0d => {
                 let depth = read_u32(code, &mut pc, function, offset)?;
-                pop_expect(
-                    &mut stack,
-                    &controls,
-                    ValueType::I32,
-                    function,
-                    offset,
-                )?;
+                pop_expect(&mut stack, &controls, ValueType::I32, function, offset)?;
                 require_label_value(&stack, &controls, depth, function, offset)?;
             }
             0x0f => {
@@ -175,13 +163,7 @@ pub(super) fn validate_code(
                 if signature_uses_non_i32(ty) {
                     legacy_compatible = false;
                 }
-                pop_expect(
-                    &mut stack,
-                    &controls,
-                    ValueType::I32,
-                    function,
-                    offset,
-                )?;
+                pop_expect(&mut stack, &controls, ValueType::I32, function, offset)?;
                 apply_call_signature(&mut stack, &controls, ty, function, offset)?;
             }
             0x20 => {
@@ -258,13 +240,7 @@ pub(super) fn validate_code(
                     offset,
                     super::natural_alignment(opcode),
                 )?;
-                pop_expect(
-                    &mut stack,
-                    &controls,
-                    ValueType::I32,
-                    function,
-                    offset,
-                )?;
+                pop_expect(&mut stack, &controls, ValueType::I32, function, offset)?;
                 stack.push(ValueType::I32);
             }
             0x36 | 0x3a | 0x3b => {
@@ -276,20 +252,8 @@ pub(super) fn validate_code(
                     offset,
                     super::natural_alignment(opcode),
                 )?;
-                pop_expect(
-                    &mut stack,
-                    &controls,
-                    ValueType::I32,
-                    function,
-                    offset,
-                )?;
-                pop_expect(
-                    &mut stack,
-                    &controls,
-                    ValueType::I32,
-                    function,
-                    offset,
-                )?;
+                pop_expect(&mut stack, &controls, ValueType::I32, function, offset)?;
+                pop_expect(&mut stack, &controls, ValueType::I32, function, offset)?;
             }
             0x3f => {
                 super::read_memory_index(code, &mut pc, module, function, offset)?;
@@ -297,13 +261,7 @@ pub(super) fn validate_code(
             }
             0x40 => {
                 super::read_memory_index(code, &mut pc, module, function, offset)?;
-                pop_expect(
-                    &mut stack,
-                    &controls,
-                    ValueType::I32,
-                    function,
-                    offset,
-                )?;
+                pop_expect(&mut stack, &controls, ValueType::I32, function, offset)?;
                 stack.push(ValueType::I32);
             }
             0x41 => {
@@ -325,11 +283,31 @@ pub(super) fn validate_code(
                 skip_fixed(code, &mut pc, 8, function, offset)?;
                 stack.push(ValueType::F64);
             }
-            0x45 => unary(&mut stack, &controls, ValueType::I32, ValueType::I32, function, offset)?,
-            0x46..=0x4f => binary_compare(&mut stack, &controls, ValueType::I32, function, offset)?,
+            0x45 => {
+                legacy_compatible = false;
+                unary(
+                    &mut stack,
+                    &controls,
+                    ValueType::I32,
+                    ValueType::I32,
+                    function,
+                    offset,
+                )?;
+            }
+            0x46..=0x4f => {
+                legacy_compatible = false;
+                binary_compare(&mut stack, &controls, ValueType::I32, function, offset)?;
+            }
             0x50 => {
                 legacy_compatible = false;
-                unary(&mut stack, &controls, ValueType::I64, ValueType::I32, function, offset)?;
+                unary(
+                    &mut stack,
+                    &controls,
+                    ValueType::I64,
+                    ValueType::I32,
+                    function,
+                    offset,
+                )?;
             }
             0x51..=0x5a => {
                 legacy_compatible = false;
@@ -358,19 +336,47 @@ pub(super) fn validate_code(
             }
             0xa7 => {
                 legacy_compatible = false;
-                unary(&mut stack, &controls, ValueType::I64, ValueType::I32, function, offset)?;
+                unary(
+                    &mut stack,
+                    &controls,
+                    ValueType::I64,
+                    ValueType::I32,
+                    function,
+                    offset,
+                )?;
             }
             0xac | 0xad => {
                 legacy_compatible = false;
-                unary(&mut stack, &controls, ValueType::I32, ValueType::I64, function, offset)?;
+                unary(
+                    &mut stack,
+                    &controls,
+                    ValueType::I32,
+                    ValueType::I64,
+                    function,
+                    offset,
+                )?;
             }
             0xb6 => {
                 legacy_compatible = false;
-                unary(&mut stack, &controls, ValueType::F64, ValueType::F32, function, offset)?;
+                unary(
+                    &mut stack,
+                    &controls,
+                    ValueType::F64,
+                    ValueType::F32,
+                    function,
+                    offset,
+                )?;
             }
             0xbb => {
                 legacy_compatible = false;
-                unary(&mut stack, &controls, ValueType::F32, ValueType::F64, function, offset)?;
+                unary(
+                    &mut stack,
+                    &controls,
+                    ValueType::F32,
+                    ValueType::F64,
+                    function,
+                    offset,
+                )?;
             }
             other => {
                 return Err(ValidationError::UnsupportedOpcode {
@@ -524,14 +530,13 @@ fn control_at_depth(
     function: usize,
     offset: usize,
 ) -> Result<ControlFrame, ValidationError> {
-    let index = controls
-        .len()
-        .checked_sub(depth as usize + 1)
-        .ok_or(ValidationError::BranchDepthOutOfBounds {
+    let index = controls.len().checked_sub(depth as usize + 1).ok_or(
+        ValidationError::BranchDepthOutOfBounds {
             function,
             offset,
             depth,
-        })?;
+        },
+    )?;
     Ok(controls[index])
 }
 
@@ -685,7 +690,7 @@ fn skip_fixed(
     function: usize,
     offset: usize,
 ) -> Result<(), ValidationError> {
-    let end = pc
+    let end = (*pc)
         .checked_add(width)
         .filter(|end| *end <= code.len())
         .ok_or(ValidationError::MalformedImmediate { function, offset })?;

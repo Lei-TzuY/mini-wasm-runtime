@@ -1,12 +1,13 @@
 //! Typed validation for the executable WebAssembly subset.
 //!
-//! Phase 4 keeps the executable value domain intentionally i32-only while
-//! extending the function index space with typed function imports.
+//! Phase 5B validates every reachable operand as an explicit MVP numeric type.
+//! Function imports remain i32-only while defined code may use i32/i64/f32/f64.
 
 use std::{collections::HashSet, fmt};
 use wasm_parser::{decode_i32, decode_u32, ExportKind, FuncType, Module, ValueType};
 
 mod phase5;
+mod typed;
 
 pub const MAX_MEMORY_PAGES: u32 = 65_536;
 
@@ -177,6 +178,12 @@ pub enum ValidationError {
     OperandStackUnderflow {
         function: usize,
         offset: usize,
+    },
+    TypeMismatch {
+        function: usize,
+        offset: usize,
+        expected: ValueType,
+        actual: ValueType,
     },
     StackHeightMismatch {
         function: usize,
@@ -405,6 +412,15 @@ impl fmt::Display for ValidationError {
                 f,
                 "function {function} operand stack underflows at byte {offset}"
             ),
+            Self::TypeMismatch {
+                function,
+                offset,
+                expected,
+                actual,
+            } => write!(
+                f,
+                "function {function} expects {expected:?} at byte {offset}, got {actual:?}"
+            ),
             Self::StackHeightMismatch {
                 function,
                 offset,
@@ -496,29 +512,31 @@ pub fn validate(module: &Module) -> Result<(), ValidationError> {
                 results: function_type.results.len(),
             });
         }
-        for &value_type in function_type
-            .params
-            .iter()
-            .chain(function_type.results.iter())
-        {
-            ensure_i32(function, value_type)?;
-        }
-
-        let mut local_count = function_type.params.len();
+        let mut local_types = function_type.params.clone();
         for &(count, value_type) in &module.code[defined].locals {
-            ensure_i32(function, value_type)?;
-            local_count = local_count
+            let new_len = local_types
+                .len()
                 .checked_add(count as usize)
                 .ok_or(ValidationError::LocalCountOverflow { function })?;
+            local_types.resize(new_len, value_type);
         }
 
-        validate_code(
+        let legacy_compatible = typed::validate_code(
             module,
             defined,
             function,
-            local_count,
-            function_type.results.len(),
+            &local_types,
+            &function_type.results,
         )?;
+        if legacy_compatible {
+            validate_code(
+                module,
+                defined,
+                function,
+                local_types.len(),
+                function_type.results.len(),
+            )?;
+        }
     }
 
     let total_functions = module.imports.len() + module.function_type_indices.len();
@@ -631,17 +649,6 @@ fn validate_memories(module: &Module) -> Result<(), ValidationError> {
         }
     }
     Ok(())
-}
-
-fn ensure_i32(function: usize, value_type: ValueType) -> Result<(), ValidationError> {
-    if value_type == ValueType::I32 {
-        Ok(())
-    } else {
-        Err(ValidationError::UnsupportedValueType {
-            function,
-            value_type,
-        })
-    }
 }
 
 fn function_type(module: &Module, function_index: u32) -> Option<&FuncType> {

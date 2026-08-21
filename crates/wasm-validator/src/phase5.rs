@@ -1,5 +1,5 @@
 use super::{function_type, ValidationError};
-use wasm_parser::{FuncType, Module, ValueType};
+use wasm_parser::{FuncType, Module};
 
 pub(super) fn validate_phase5(module: &Module) -> Result<(), ValidationError> {
     if module.tables.len() > 1 {
@@ -16,15 +16,6 @@ pub(super) fn validate_phase5(module: &Module) -> Result<(), ValidationError> {
                     max,
                 });
             }
-        }
-    }
-
-    for (global, entry) in module.globals.iter().enumerate() {
-        if entry.ty.value_type != ValueType::I32 {
-            return Err(ValidationError::UnsupportedGlobalValueType {
-                global,
-                value_type: entry.ty.value_type,
-            });
         }
     }
 
@@ -130,18 +121,6 @@ pub(super) fn indirect_type(
             function,
             offset,
             results: ty.results.len(),
-        });
-    }
-    if let Some(&value_type) = ty
-        .params
-        .iter()
-        .chain(ty.results.iter())
-        .find(|&&ty| ty != ValueType::I32)
-    {
-        return Err(ValidationError::UnsupportedIndirectValueType {
-            function,
-            offset,
-            value_type,
         });
     }
     Ok(ty)
