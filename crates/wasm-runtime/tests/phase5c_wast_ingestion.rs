@@ -1,3 +1,4 @@
+use std::collections::HashSet;
 use wasm_parser::parse_module;
 use wasm_runtime::{Instance, RuntimeError, Value};
 use wast::core::{NanPattern, WastArgCore, WastRetCore};
@@ -7,6 +8,7 @@ use wast::{QuoteWat, Wast, WastArg, WastDirective, WastExecute, WastRet, Wat};
 const CONTRACT_FIXTURE: &str = include_str!("fixtures/phase5c_ingestion_contract.wast");
 const UPSTREAM_MANIFEST: &str = include_str!("fixtures/phase5c_upstream_manifest.tsv");
 const UPSTREAM_FUNC_SUBSET: &str = include_str!("fixtures/phase5c_upstream_func_subset.wast");
+const UPSTREAM_I32_SUBSET: &str = include_str!("fixtures/phase5c_upstream_i32_subset.wast");
 const PINNED_UPSTREAM_SPEC_COMMIT: &str = "fc209c5ed8afc4dfeb9252024d217da3376c7a6f";
 
 #[derive(Debug, PartialEq, Eq)]
@@ -318,6 +320,7 @@ fn parse_manifest(source: &str) -> Vec<ManifestEntry<'_>> {
 fn manifest_fixture(name: &str) -> &'static str {
     match name {
         "phase5c_upstream_func_subset.wast" => UPSTREAM_FUNC_SUBSET,
+        "phase5c_upstream_i32_subset.wast" => UPSTREAM_I32_SUBSET,
         other => panic!("manifest names unregistered fixture {other:?}"),
     }
 }
@@ -347,8 +350,36 @@ fn pinned_upstream_manifest_executes_with_exact_accounting() {
         "pinned upstream manifest must not be empty"
     );
 
+    let mut seen_sources = HashSet::new();
+    let mut seen_fixtures = HashSet::new();
+
     for entry in entries {
-        let report = run_fixture(manifest_fixture(entry.fixture));
+        assert!(
+            seen_sources.insert(entry.source),
+            "pinned upstream manifest repeats source {}",
+            entry.source
+        );
+        assert!(
+            seen_fixtures.insert(entry.fixture),
+            "pinned upstream manifest repeats fixture {}",
+            entry.fixture
+        );
+
+        let fixture = manifest_fixture(entry.fixture);
+        assert!(
+            fixture.contains(PINNED_UPSTREAM_SPEC_COMMIT),
+            "fixture {} does not record pinned commit {}",
+            entry.fixture,
+            PINNED_UPSTREAM_SPEC_COMMIT
+        );
+        assert!(
+            fixture.contains(entry.source),
+            "fixture {} does not record upstream source {}",
+            entry.fixture,
+            entry.source
+        );
+
+        let report = run_fixture(fixture);
         assert_eq!(
             report.modules, entry.expected_modules,
             "upstream source {} module accounting drifted",
