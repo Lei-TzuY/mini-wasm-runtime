@@ -32,11 +32,14 @@ The roadmap favors complete vertical slices over a broad but shallow decoder.
 
 ## Phase 4 — imports and host boundary
 
-- [ ] import section
-- [ ] host function registry
-- [ ] typed host calls
-- [ ] capability-oriented API
-- [ ] resource limits
+- [x] function import section
+- [x] combined imported/defined function index space
+- [x] host function registry
+- [x] typed host calls and import resolution
+- [x] capability-oriented host context
+- [x] bounded host memory read/write access
+- [x] configurable call-depth and memory limits
+- [x] instruction fuel and host-call budgets
 
 ## Phase 5 — broader MVP + conformance
 
