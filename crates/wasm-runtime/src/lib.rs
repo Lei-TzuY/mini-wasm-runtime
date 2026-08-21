@@ -1,24 +1,17 @@
-//! Stack interpreter for the Phase-5A WebAssembly subset.
+//! Stack interpreter for the Phase-5B typed numeric WebAssembly subset.
 
 use std::{collections::HashMap, fmt};
-use wasm_parser::{decode_i32, decode_u32, ExportKind, FuncType, Module, ParseError, ValueType};
+use wasm_parser::{
+    decode_i32, decode_i64, decode_u32, Constant, ExportKind, FuncType, Module, ParseError,
+    ValueType,
+};
+
+mod numeric;
+pub use numeric::Value;
 use wasm_validator::{validate, ValidationError, MAX_MEMORY_PAGES};
 
 const DEFAULT_MAX_CALL_DEPTH: usize = 1024;
 pub const WASM_PAGE_SIZE: usize = 65_536;
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Value {
-    I32(i32),
-}
-
-impl Value {
-    pub fn as_i32(self) -> i32 {
-        match self {
-            Self::I32(value) => value,
-        }
-    }
-}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct HostCapabilities {
@@ -238,6 +231,10 @@ pub enum RuntimeError {
     },
     LocalOutOfBounds(u32),
     StackUnderflow,
+    ValueTypeMismatch {
+        expected: ValueType,
+        actual: ValueType,
+    },
     UnsupportedOpcode(u8),
     UnsupportedBlockType(u8),
     BranchDepthOutOfBounds(u32),
@@ -327,6 +324,9 @@ impl fmt::Display for RuntimeError {
             }
             Self::LocalOutOfBounds(index) => write!(f, "local index {index} is out of bounds"),
             Self::StackUnderflow => write!(f, "operand stack underflow"),
+            Self::ValueTypeMismatch { expected, actual } => {
+                write!(f, "runtime expected {expected:?}, got {actual:?}")
+            }
             Self::UnsupportedOpcode(opcode) => write!(f, "unsupported opcode 0x{opcode:02x}"),
             Self::UnsupportedBlockType(block_type) => {
                 write!(f, "unsupported block type 0x{block_type:02x}")
@@ -637,7 +637,7 @@ struct ControlInfo {
     body_pc: usize,
     else_pc: Option<usize>,
     end_pc: usize,
-    result_arity: usize,
+    result_type: Option<ValueType>,
 }
 
 #[derive(Debug, Clone)]
@@ -662,7 +662,7 @@ struct PendingControl {
     kind: ControlKind,
     body_pc: usize,
     else_pc: Option<usize>,
-    result_arity: usize,
+    result_type: Option<ValueType>,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -671,15 +671,15 @@ struct ExecControlFrame {
     body_pc: usize,
     end_pc: usize,
     stack_height: usize,
-    result_arity: usize,
+    result_type: Option<ValueType>,
 }
 
 impl ExecControlFrame {
-    fn label_arity(self) -> usize {
+    fn label_type(self) -> Option<ValueType> {
         if self.kind == ControlKind::Loop {
-            0
+            None
         } else {
-            self.result_arity
+            self.result_type
         }
     }
 }
@@ -770,7 +770,7 @@ impl Instance {
         let globals = module
             .globals
             .iter()
-            .map(|global| Value::I32(global.init))
+            .map(|global| value_from_constant(global.init))
             .collect();
 
         let mut instance = Self {
@@ -986,30 +986,22 @@ impl Instance {
             .ok_or(RuntimeError::FunctionOutOfBounds(function_index))?
             as usize;
         let ty = self.module.types[type_index].clone();
-        ensure_i32_types(&ty.params)?;
-        ensure_i32_types(&ty.results)?;
-
-        if args.len() != ty.params.len() {
-            return Err(RuntimeError::WrongArgumentCount {
-                expected: ty.params.len(),
-                actual: args.len(),
-            });
-        }
+        validate_values(&ty.params, args)?;
 
         let body = self.module.code[defined].clone();
         let control_map = self.control_maps[defined].clone();
         let mut locals = args.to_vec();
+        let mut local_types = ty.params.clone();
         for &(count, local_type) in &body.locals {
-            if local_type != ValueType::I32 {
-                return Err(RuntimeError::UnsupportedType(local_type));
-            }
-            locals.extend(std::iter::repeat(Value::I32(0)).take(count as usize));
+            let count = count as usize;
+            locals.extend(std::iter::repeat(numeric::zero(local_type)).take(count));
+            local_types.extend(std::iter::repeat(local_type).take(count));
         }
 
         let mut stack = Vec::<Value>::new();
         let mut pc = 0usize;
         let code = &body.code;
-        let result_arity = ty.results.len();
+        let result_type = ty.results.first().copied();
         let function_end = code
             .len()
             .checked_sub(1)
@@ -1019,7 +1011,7 @@ impl Instance {
             body_pc: 0,
             end_pc: function_end,
             stack_height: 0,
-            result_arity,
+            result_type,
         }];
 
         while pc < code.len() {
@@ -1030,33 +1022,33 @@ impl Instance {
 
             match opcode {
                 0x02 | 0x03 => {
-                    let result_arity = read_block_arity(code, &mut pc)?;
+                    let result_type = read_block_type(code, &mut pc)?;
                     let info = control_map.info(offset)?;
                     let kind = if opcode == 0x02 {
                         ControlKind::Block
                     } else {
                         ControlKind::Loop
                     };
-                    ensure_control_info(info, kind, result_arity)?;
+                    ensure_control_info(info, kind, result_type)?;
                     controls.push(ExecControlFrame {
                         kind,
                         body_pc: info.body_pc,
                         end_pc: info.end_pc,
                         stack_height: stack.len(),
-                        result_arity,
+                        result_type,
                     });
                 }
                 0x04 => {
-                    let result_arity = read_block_arity(code, &mut pc)?;
-                    let condition = stack.pop().ok_or(RuntimeError::StackUnderflow)?.as_i32();
+                    let result_type = read_block_type(code, &mut pc)?;
+                    let condition = numeric::i32_from_stack(&mut stack)?;
                     let info = control_map.info(offset)?;
-                    ensure_control_info(info, ControlKind::If, result_arity)?;
+                    ensure_control_info(info, ControlKind::If, result_type)?;
                     let frame = ExecControlFrame {
                         kind: ControlKind::If,
                         body_pc: info.body_pc,
                         end_pc: info.end_pc,
                         stack_height: stack.len(),
-                        result_arity,
+                        result_type,
                     };
                     if condition != 0 {
                         controls.push(frame);
@@ -1099,7 +1091,7 @@ impl Instance {
                 }
                 0x0d => {
                     let branch_depth = read_u32_immediate(code, &mut pc)?;
-                    let condition = stack.pop().ok_or(RuntimeError::StackUnderflow)?.as_i32();
+                    let condition = numeric::i32_from_stack(&mut stack)?;
                     if condition != 0 {
                         branch_to(&mut controls, &mut stack, branch_depth, &mut pc, code.len())?;
                     }
@@ -1177,7 +1169,10 @@ impl Instance {
                 }
                 0x21 => {
                     let index = read_u32_immediate(code, &mut pc)?;
-                    let value = stack.pop().ok_or(RuntimeError::StackUnderflow)?;
+                    let expected = *local_types
+                        .get(index as usize)
+                        .ok_or(RuntimeError::LocalOutOfBounds(index))?;
+                    let value = numeric::pop_typed(&mut stack, expected)?;
                     let local = locals
                         .get_mut(index as usize)
                         .ok_or(RuntimeError::LocalOutOfBounds(index))?;
@@ -1185,7 +1180,11 @@ impl Instance {
                 }
                 0x22 => {
                     let index = read_u32_immediate(code, &mut pc)?;
+                    let expected = *local_types
+                        .get(index as usize)
+                        .ok_or(RuntimeError::LocalOutOfBounds(index))?;
                     let value = *stack.last().ok_or(RuntimeError::StackUnderflow)?;
+                    numeric::expect_type(value, expected)?;
                     let local = locals
                         .get_mut(index as usize)
                         .ok_or(RuntimeError::LocalOutOfBounds(index))?;
@@ -1211,7 +1210,8 @@ impl Instance {
                     if !mutable {
                         return Err(RuntimeError::ImmutableGlobalSet(index));
                     }
-                    let value = stack.pop().ok_or(RuntimeError::StackUnderflow)?;
+                    let expected = self.module.globals[index as usize].ty.value_type;
+                    let value = numeric::pop_typed(&mut stack, expected)?;
                     *self
                         .globals
                         .get_mut(index as usize)
@@ -1219,7 +1219,7 @@ impl Instance {
                 }
                 0x28 | 0x2c..=0x2f => {
                     let (_, displacement) = read_memarg(code, &mut pc)?;
-                    let address = stack.pop().ok_or(RuntimeError::StackUnderflow)?.as_i32();
+                    let address = numeric::i32_from_stack(&mut stack)?;
                     let value = match opcode {
                         0x28 => self.memory_ref()?.load_i32(address, displacement)?,
                         0x2c => self.memory_ref()?.load_i8_s(address, displacement)?,
@@ -1233,7 +1233,7 @@ impl Instance {
                 0x36 | 0x3a | 0x3b => {
                     let (_, displacement) = read_memarg(code, &mut pc)?;
                     let value = stack.pop().ok_or(RuntimeError::StackUnderflow)?.as_i32();
-                    let address = stack.pop().ok_or(RuntimeError::StackUnderflow)?.as_i32();
+                    let address = numeric::i32_from_stack(&mut stack)?;
                     match opcode {
                         0x36 => self.memory_mut()?.store_i32(address, displacement, value)?,
                         0x3a => self.memory_mut()?.store_i8(address, displacement, value)?,
@@ -1249,7 +1249,7 @@ impl Instance {
                 0x40 => {
                     let memory_index = read_u32_immediate(code, &mut pc)?;
                     ensure_runtime_memory_index(self, memory_index)?;
-                    let delta = stack.pop().ok_or(RuntimeError::StackUnderflow)?.as_i32() as u32;
+                    let delta = numeric::i32_from_stack(&mut stack)? as u32;
                     let previous = self.memory_mut()?.grow(delta);
                     stack.push(Value::I32(previous));
                 }
@@ -1258,18 +1258,51 @@ impl Instance {
                     pc += used;
                     stack.push(Value::I32(value));
                 }
-                0x6a => binary_i32(&mut stack, i32::wrapping_add)?,
-                0x6b => binary_i32(&mut stack, i32::wrapping_sub)?,
-                0x6c => binary_i32(&mut stack, i32::wrapping_mul)?,
+                0x42 => {
+                    let (value, used) = decode_i64(&code[pc..])?;
+                    pc += used;
+                    stack.push(Value::I64(value));
+                }
+                0x43 => {
+                    let bits = read_fixed_u32(code, &mut pc)?;
+                    stack.push(Value::F32(f32::from_bits(bits)));
+                }
+                0x44 => {
+                    let bits = read_fixed_u64(code, &mut pc)?;
+                    stack.push(Value::F64(f64::from_bits(bits)));
+                }
+                0x45..=0x4f => numeric::compare_i32(&mut stack, opcode)?,
+                0x50..=0x5a => numeric::compare_i64(&mut stack, opcode)?,
+                0x5b..=0x60 => numeric::compare_f32(&mut stack, opcode)?,
+                0x61..=0x66 => numeric::compare_f64(&mut stack, opcode)?,
+                0x6a => numeric::binary_i32(&mut stack, i32::wrapping_add)?,
+                0x6b => numeric::binary_i32(&mut stack, i32::wrapping_sub)?,
+                0x6c => numeric::binary_i32(&mut stack, i32::wrapping_mul)?,
+                0x7c => numeric::binary_i64(&mut stack, i64::wrapping_add)?,
+                0x7d => numeric::binary_i64(&mut stack, i64::wrapping_sub)?,
+                0x7e => numeric::binary_i64(&mut stack, i64::wrapping_mul)?,
+                0x92 => numeric::binary_f32(&mut stack, |a, b| a + b)?,
+                0x93 => numeric::binary_f32(&mut stack, |a, b| a - b)?,
+                0x94 => numeric::binary_f32(&mut stack, |a, b| a * b)?,
+                0x95 => numeric::binary_f32(&mut stack, |a, b| a / b)?,
+                0xa0 => numeric::binary_f64(&mut stack, |a, b| a + b)?,
+                0xa1 => numeric::binary_f64(&mut stack, |a, b| a - b)?,
+                0xa2 => numeric::binary_f64(&mut stack, |a, b| a * b)?,
+                0xa3 => numeric::binary_f64(&mut stack, |a, b| a / b)?,
+                0xa7 | 0xac | 0xad | 0xb6 | 0xbb => numeric::convert(&mut stack, opcode)?,
                 other => return Err(RuntimeError::UnsupportedOpcode(other)),
             }
         }
 
+        let result_arity = usize::from(result_type.is_some());
         if stack.len() != result_arity {
             return Err(RuntimeError::ResultArityMismatch {
                 expected: result_arity,
                 actual: stack.len(),
             });
+        }
+        if let (Some(expected), Some(value)) = (result_type, stack.last().copied()) {
+            numeric::expect_type(value, expected)?;
         }
         Ok(stack.pop())
     }
@@ -1304,21 +1337,34 @@ fn ensure_runtime_memory_index(instance: &Instance, index: u32) -> Result<(), Ru
     }
 }
 
-fn ensure_i32_types(types: &[ValueType]) -> Result<(), RuntimeError> {
-    for &ty in types {
-        if ty != ValueType::I32 {
-            return Err(RuntimeError::UnsupportedType(ty));
-        }
+fn validate_values(types: &[ValueType], values: &[Value]) -> Result<(), RuntimeError> {
+    if values.len() != types.len() {
+        return Err(RuntimeError::WrongArgumentCount {
+            expected: types.len(),
+            actual: values.len(),
+        });
+    }
+    for (&expected, &value) in types.iter().zip(values) {
+        numeric::expect_type(value, expected)?;
     }
     Ok(())
+}
+
+fn value_from_constant(value: Constant) -> Value {
+    match value {
+        Constant::I32(value) => Value::I32(value),
+        Constant::I64(value) => Value::I64(value),
+        Constant::F32(bits) => Value::F32(f32::from_bits(bits)),
+        Constant::F64(bits) => Value::F64(f64::from_bits(bits)),
+    }
 }
 
 fn ensure_control_info(
     info: ControlInfo,
     kind: ControlKind,
-    result_arity: usize,
+    result_type: Option<ValueType>,
 ) -> Result<(), RuntimeError> {
-    if info.kind != kind || info.result_arity != result_arity {
+    if info.kind != kind || info.result_type != result_type {
         return Err(RuntimeError::ControlInvariant(
             "control metadata disagrees with instruction stream",
         ));
@@ -1333,12 +1379,16 @@ fn exit_control_frame(
     let frame = controls.pop().ok_or(RuntimeError::ControlInvariant(
         "attempted to leave missing control frame",
     ))?;
-    let expected = frame.stack_height + frame.result_arity;
+    let expected = frame.stack_height + usize::from(frame.result_type.is_some());
     if stack.len() != expected {
         return Err(RuntimeError::ControlStackMismatch {
             expected,
             actual: stack.len(),
         });
+    }
+    if let Some(expected_type) = frame.result_type {
+        let value = *stack.last().ok_or(RuntimeError::StackUnderflow)?;
+        numeric::expect_type(value, expected_type)?;
     }
     Ok(())
 }
@@ -1356,7 +1406,8 @@ fn branch_to(
         .checked_sub(depth_usize + 1)
         .ok_or(RuntimeError::BranchDepthOutOfBounds(depth))?;
     let target = controls[target_index];
-    let label_arity = target.label_arity();
+    let label_type = target.label_type();
+    let label_arity = usize::from(label_type.is_some());
     let current_height =
         controls
             .last()
@@ -1369,6 +1420,9 @@ fn branch_to(
     }
 
     let label_values = stack[stack.len() - label_arity..].to_vec();
+    if let (Some(expected), Some(value)) = (label_type, label_values.first().copied()) {
+        numeric::expect_type(value, expected)?;
+    }
     stack.truncate(target.stack_height);
     stack.extend(label_values);
 
@@ -1400,7 +1454,7 @@ fn build_control_map(code: &[u8]) -> Result<ControlMap, RuntimeError> {
         pc += 1;
         match opcode {
             0x02..=0x04 => {
-                let result_arity = read_block_arity(code, &mut pc)?;
+                let result_type = read_block_type(code, &mut pc)?;
                 let kind = match opcode {
                     0x02 => ControlKind::Block,
                     0x03 => ControlKind::Loop,
@@ -1412,7 +1466,7 @@ fn build_control_map(code: &[u8]) -> Result<ControlMap, RuntimeError> {
                     kind,
                     body_pc: pc,
                     else_pc: None,
-                    result_arity,
+                    result_type,
                 });
             }
             0x05 => {
@@ -1433,7 +1487,7 @@ fn build_control_map(code: &[u8]) -> Result<ControlMap, RuntimeError> {
                         body_pc: frame.body_pc,
                         else_pc: frame.else_pc,
                         end_pc: offset,
-                        result_arity: frame.result_arity,
+                        result_type: frame.result_type,
                     });
                 } else if pc != code.len() {
                     return Err(RuntimeError::ControlInvariant(
@@ -1455,7 +1509,27 @@ fn build_control_map(code: &[u8]) -> Result<ControlMap, RuntimeError> {
                 let (_, used) = decode_i32(&code[pc..])?;
                 pc += used;
             }
-            0x0f | 0x6a..=0x6c => {}
+            0x42 => {
+                let (_, used) = decode_i64(&code[pc..])?;
+                pc += used;
+            }
+            0x43 => {
+                let _ = read_fixed_u32(code, &mut pc)?;
+            }
+            0x44 => {
+                let _ = read_fixed_u64(code, &mut pc)?;
+            }
+            0x0f
+            | 0x45..=0x66
+            | 0x6a..=0x6c
+            | 0x7c..=0x7e
+            | 0x92..=0x95
+            | 0xa0..=0xa3
+            | 0xa7
+            | 0xac
+            | 0xad
+            | 0xb6
+            | 0xbb => {}
             other => return Err(RuntimeError::UnsupportedOpcode(other)),
         }
     }
@@ -1468,14 +1542,17 @@ fn build_control_map(code: &[u8]) -> Result<ControlMap, RuntimeError> {
     Ok(ControlMap { openers })
 }
 
-fn read_block_arity(code: &[u8], pc: &mut usize) -> Result<usize, RuntimeError> {
+fn read_block_type(code: &[u8], pc: &mut usize) -> Result<Option<ValueType>, RuntimeError> {
     let block_type = *code
         .get(*pc)
         .ok_or(RuntimeError::ControlInvariant("missing block type"))?;
     *pc += 1;
     match block_type {
-        0x40 => Ok(0),
-        0x7f => Ok(1),
+        0x40 => Ok(None),
+        0x7f => Ok(Some(ValueType::I32)),
+        0x7e => Ok(Some(ValueType::I64)),
+        0x7d => Ok(Some(ValueType::F32)),
+        0x7c => Ok(Some(ValueType::F64)),
         other => Err(RuntimeError::UnsupportedBlockType(other)),
     }
 }
@@ -1492,11 +1569,28 @@ fn read_u32_immediate(code: &[u8], pc: &mut usize) -> Result<u32, RuntimeError> 
     Ok(value)
 }
 
-fn binary_i32(stack: &mut Vec<Value>, operation: fn(i32, i32) -> i32) -> Result<(), RuntimeError> {
-    let rhs = stack.pop().ok_or(RuntimeError::StackUnderflow)?.as_i32();
-    let lhs = stack.pop().ok_or(RuntimeError::StackUnderflow)?.as_i32();
-    stack.push(Value::I32(operation(lhs, rhs)));
-    Ok(())
+fn read_fixed_u32(code: &[u8], pc: &mut usize) -> Result<u32, RuntimeError> {
+    let end = (*pc)
+        .checked_add(4)
+        .filter(|end| *end <= code.len())
+        .ok_or(RuntimeError::ControlInvariant("truncated f32 immediate"))?;
+    let bytes: [u8; 4] = code[*pc..end]
+        .try_into()
+        .expect("checked four-byte immediate");
+    *pc = end;
+    Ok(u32::from_le_bytes(bytes))
+}
+
+fn read_fixed_u64(code: &[u8], pc: &mut usize) -> Result<u64, RuntimeError> {
+    let end = (*pc)
+        .checked_add(8)
+        .filter(|end| *end <= code.len())
+        .ok_or(RuntimeError::ControlInvariant("truncated f64 immediate"))?;
+    let bytes: [u8; 8] = code[*pc..end]
+        .try_into()
+        .expect("checked eight-byte immediate");
+    *pc = end;
+    Ok(u64::from_le_bytes(bytes))
 }
 
 #[cfg(test)]
