@@ -35,7 +35,6 @@ patched = source[:start] + frame_replacement + source[end:]
 # all unrelated v1 replacements remain strict replace_once operations.
 call_old = """                    if let Some(result) =\n                        self.invoke_function(callee, &call_args, depth + 1, budget)?\n                    {\n                        stack.push(result);\n                    }\n"""
 call_new = """                    let results = self.invoke_function(callee, &call_args, depth + 1, budget)?;\n                    stack.extend(results);\n"""
-anchor = repr(call_old)[1:-1]
 pos = patched.find('"""                    if let Some(result) =\\n')
 if pos < 0:
     raise SystemExit("could not find duplicated call-result staging anchors")
@@ -63,3 +62,44 @@ _runtime_path.write_text(_runtime_text.replace(_call_old, _call_new))
 patched = patched[:call_start] + call_replacement + patched[call_end:]
 
 exec(compile(patched, str(source_path), "exec"), {"__name__": "__main__"})
+
+# 3) The pre-multi-value Phase 5C regression intentionally rejected type-index
+# blocks with two results. Once this slice opens defined-Wasm multi-value execution,
+# preserve the coverage by converting it into a positive ordered-result regression.
+test_path = Path("crates/wasm-runtime/tests/phase5c.rs")
+test_text = test_path.read_text()
+old_test = '''#[test]
+fn multi_result_block_signature_remains_fail_closed() {
+    let module = build_module(
+        &[ty(&[], &[]), ty(&[], &[I32, I32])],
+        0,
+        &[0x02, 0x01, 0x0b],
+    );
+    let error =
+        Instance::new(parse_module(&module).unwrap()).expect_err("multi-result block must fail");
+    assert!(matches!(
+        error,
+        RuntimeError::Validation(ValidationError::UnsupportedBlockResultArity {
+            type_index: 1,
+            results: 2,
+            ..
+        })
+    ));
+}
+'''
+new_test = '''#[test]
+fn multi_result_block_signature_executes_in_order() {
+    let module = build_module(
+        &[ty(&[], &[I32, I32]), ty(&[], &[I32, I32])],
+        0,
+        &[0x02, 0x01, 0x41, 0x07, 0x41, 0x09, 0x0b],
+    );
+    assert_eq!(
+        instance(&module).invoke_export_values("run", &[]).unwrap(),
+        vec![Value::I32(7), Value::I32(9)]
+    );
+}
+'''
+if test_text.count(old_test) != 1:
+    raise SystemExit("expected exactly one legacy multi-result block regression")
+test_path.write_text(test_text.replace(old_test, new_test, 1))
