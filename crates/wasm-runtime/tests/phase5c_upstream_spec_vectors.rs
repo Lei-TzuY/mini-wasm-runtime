@@ -78,7 +78,7 @@ fn upstream_i32_arithmetic_vectors_cover_wrap_and_unsigned_views() {
         (0x6b, i32::MIN, 1, i32::MAX),
         (0x6c, 0x1000_0000, 4096, 0),
         (0x6e, i32::MIN, 2, 0x4000_0000),
-        (0x70, -5, 2, 0x7fff_fffd),
+        (0x70, -5, 2, 1),
     ] {
         assert_eq!(invoke_i32(opcode, a, b).unwrap(), expected);
     }
