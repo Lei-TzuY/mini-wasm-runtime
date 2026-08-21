@@ -1241,6 +1241,9 @@ impl Instance {
 
     fn initialize_element_segments(&mut self) -> Result<(), RuntimeError> {
         let elements = self.module.elements.clone();
+
+        // Preflight every active segment before mutating a potentially host-shared table.
+        // A later OOB segment must not leave earlier segment writes externally visible.
         for (segment_index, segment) in elements.iter().enumerate() {
             if segment.table_index != 0 {
                 return Err(RuntimeError::TableIndexOutOfBounds(segment.table_index));
@@ -1264,13 +1267,19 @@ impl Instance {
                     length: segment.function_indices.len(),
                 });
             }
+        }
+
+        for segment in &elements {
+            let offset = u64::from(segment.offset as u32);
+            let table = self
+                .table
+                .as_ref()
+                .ok_or(RuntimeError::TableIndexOutOfBounds(0))?;
             for (slot, &function_index) in segment.function_indices.iter().enumerate() {
                 let index = u32::try_from(offset + slot as u64).map_err(|_| {
-                    RuntimeError::ElementSegmentOutOfBounds {
-                        segment: segment_index,
-                        offset,
-                        length: segment.function_indices.len(),
-                    }
+                    RuntimeError::ControlInvariant(
+                        "preflighted element segment index no longer fits u32",
+                    )
                 })?;
                 table
                     .set_for_instance(index, function_index, &self.identity)

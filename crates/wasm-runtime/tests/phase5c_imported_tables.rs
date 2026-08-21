@@ -186,3 +186,42 @@ fn table_handle_rejects_invalid_limits_and_oob_host_access() {
         })
     ));
 }
+
+fn imported_table_module_with_late_oob_segment() -> Vec<u8> {
+    let mut module = vec![0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00];
+    push_section(&mut module, 1, &[0x01, 0x60, 0x00, 0x01, 0x7f]);
+
+    let mut imports = vec![0x01];
+    push_name(&mut imports, "env");
+    push_name(&mut imports, "tab");
+    imports.extend([0x01, 0x70, 0x01, 0x02, 0x04]);
+    push_section(&mut module, 2, &imports);
+
+    push_section(&mut module, 3, &[0x01, 0x00]);
+    push_section(
+        &mut module,
+        9,
+        &[
+            0x02, // two active segments
+            0x00, 0x41, 0x00, 0x0b, 0x01, 0x00, // valid: slot 0 <- function 0
+            0x00, 0x41, 0x02, 0x0b, 0x01, 0x00, // invalid: slot 2 in len-2 table
+        ],
+    );
+    push_section(&mut module, 10, &[0x01, 0x04, 0x00, 0x41, 0x2a, 0x0b]);
+    module
+}
+
+#[test]
+fn failed_instantiation_does_not_partially_mutate_imported_table() {
+    let table = TableHandle::new(2, Some(4)).unwrap();
+    let module = parse_module(&imported_table_module_with_late_oob_segment()).unwrap();
+    let mut hosts = HostRegistry::new();
+    hosts.register_table("env", "tab", table.clone()).unwrap();
+
+    assert!(matches!(
+        Instance::with_hosts(module, hosts),
+        Err(RuntimeError::ElementSegmentOutOfBounds { segment: 1, .. })
+    ));
+    assert!(table.get(0).unwrap().is_none());
+    assert!(table.get(1).unwrap().is_none());
+}
