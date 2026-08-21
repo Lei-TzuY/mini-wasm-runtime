@@ -104,6 +104,39 @@ jobs:
           end = text.index('\nfn validate_host_bindings(', start)
           text = text[:start] + text[end + 1:]
           path.write_text(text)
+
+          test_path = Path('crates/wasm-runtime/tests/phase5c_imports.rs')
+          test = test_path.read_text()
+          test = test.replace(
+              'use wasm_parser::{parse_module, ImportDesc, ImportKind, ValueType};',
+              'use wasm_parser::{parse_module, ImportDesc, ValueType};',
+              1,
+          )
+          old = '''#[test]
+fn imported_memory_is_visible_to_export_validation_but_runtime_fails_closed() {
+    let module = parse_module(&mixed_memory_function_import_module()).unwrap();
+    assert_eq!(validate(&module), Ok(()));
+    let error = Instance::new(module).expect_err("object import must not be copied implicitly");
+    assert!(matches!(
+        error,
+        RuntimeError::UnsupportedObjectImport {
+            kind: ImportKind::Memory,
+            ..
+        }
+    ));
+}
+'''
+          new = '''#[test]
+fn imported_memory_is_visible_to_export_validation_and_requires_binding() {
+    let module = parse_module(&mixed_memory_function_import_module()).unwrap();
+    assert_eq!(validate(&module), Ok(()));
+    let error = Instance::new(module).expect_err("imported memory must have an explicit host binding");
+    assert!(matches!(error, RuntimeError::UnresolvedMemoryImport { .. }));
+}
+'''
+          if test.count(old) != 1:
+              raise SystemExit('stale imported-memory boundary test shape changed unexpectedly')
+          test_path.write_text(test.replace(old, new, 1))
           PY
           cargo fmt --all
           cargo fmt --all -- --check
@@ -128,6 +161,6 @@ jobs:
           rm .github/workflows/phase5c-memory-implementation.yml
           git config user.name "Lei-TzuY"
           git config user.email "52287354+Lei-TzuY@users.noreply.github.com"
-          git add -- .github/workflows/ci.yml .github/workflows/phase5c-memory-implementation.yml crates/wasm-runtime/src/lib.rs crates/wasm-runtime/tests/phase5c_imported_memory.rs
+          git add -- .github/workflows/ci.yml .github/workflows/phase5c-memory-implementation.yml crates/wasm-runtime/src/lib.rs crates/wasm-runtime/tests/phase5c_imported_memory.rs crates/wasm-runtime/tests/phase5c_imports.rs
           git commit -m "feat: add shared imported memory backing"
           git push origin HEAD:feat/phase-5c-module-forms-conformance
