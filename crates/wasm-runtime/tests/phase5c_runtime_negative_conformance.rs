@@ -84,11 +84,7 @@ fn function_module(
         push_section(&mut bytes, 5, &memory);
     }
 
-    push_section(
-        &mut bytes,
-        7,
-        &[0x01, 0x03, b'r', b'u', b'n', 0x00, 0x00],
-    );
+    push_section(&mut bytes, 7, &[0x01, 0x03, b'r', b'u', b'n', 0x00, 0x00]);
 
     let mut body = vec![0x00];
     body.extend_from_slice(instructions);
@@ -134,11 +130,7 @@ fn unresolved_memory_import_module() -> Vec<u8> {
 fn data_segment_oob_module() -> Vec<u8> {
     let mut bytes = header();
     push_section(&mut bytes, 5, &[0x01, 0x00, 0x00]);
-    push_section(
-        &mut bytes,
-        11,
-        &[0x01, 0x00, 0x41, 0x00, 0x0b, 0x01, 0xaa],
-    );
+    push_section(&mut bytes, 11, &[0x01, 0x00, 0x41, 0x00, 0x0b, 0x01, 0xaa]);
     bytes
 }
 
@@ -259,23 +251,13 @@ fn dynamic_traps_require_successful_parse_validation_and_instantiation() {
         },
         Case {
             name: "i32 signed division overflow",
-            bytes: function_module(
-                &[I32, I32],
-                &[I32],
-                &[0x20, 0x00, 0x20, 0x01, 0x6d],
-                None,
-            ),
+            bytes: function_module(&[I32, I32], &[I32], &[0x20, 0x00, 0x20, 0x01, 0x6d], None),
             args: vec![Value::I32(i32::MIN), Value::I32(-1)],
             expected: ExpectedFailure::ExecuteIntegerOverflow,
         },
         Case {
             name: "i32.load dynamic out of bounds",
-            bytes: function_module(
-                &[],
-                &[I32],
-                &[0x41, 0x7f, 0x28, 0x02, 0x00],
-                Some(1),
-            ),
+            bytes: function_module(&[], &[I32], &[0x41, 0x7f, 0x28, 0x02, 0x00], Some(1)),
             args: vec![],
             expected: ExpectedFailure::ExecuteMemoryOutOfBounds,
         },
