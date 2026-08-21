@@ -20,7 +20,7 @@ The roadmap favors complete vertical slices over a broad but shallow decoder.
 - [x] `br`, `br_if`
 - [x] core integer comparison/test instructions (completed in Phase 5B)
 - [x] unreachable/polymorphic stack rules
-- [ ] negative conformance corpus
+- [x] initial cross-layer negative-conformance corpus (completed in Phase 5C)
 
 ## Phase 3 — linear memory
 
@@ -85,7 +85,8 @@ The roadmap favors complete vertical slices over a broad but shallow decoder.
 - [x] saturating float-to-integer conversions (`0xfc` prefix)
 - [x] i64/f32/f64 memory instruction families
 - [ ] WebAssembly spec tests for supported features
-- [ ] negative conformance corpus
+- [x] initial negative-conformance corpus for the supported surface
+- [ ] continue adversarial corpus expansion as new surfaces land
 
 ## Phase 6 — engineering hardening
 
