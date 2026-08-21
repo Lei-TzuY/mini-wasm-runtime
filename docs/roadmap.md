@@ -92,7 +92,8 @@ The roadmap favors complete vertical slices over a broad but shallow decoder.
 ## Phase 6 — engineering hardening
 
 - [ ] parser fuzzing
-- [ ] property-based tests
+- [x] initial deterministic property-based / metamorphic corpus
+- [ ] shrinking and broader structured generated-property domains
 - [ ] differential execution against a reference engine in tests only
 - [ ] deterministic benchmarks
 - [x] initial malformed-binary parser corpus
