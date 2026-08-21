@@ -36,7 +36,7 @@ enum ExpectedValue {
     F64ArithmeticNan,
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum TrapKind {
     IntegerDivisionByZero,
     IntegerOverflow,
