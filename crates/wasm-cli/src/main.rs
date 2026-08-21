@@ -47,7 +47,18 @@ fn inspect(path: &Path) -> Result<(), Box<dyn Error>> {
 
     println!("module: {}", path.display());
     println!("types: {}", module.types.len());
-    println!("functions: {}", module.function_type_indices.len());
+    println!("imports: {}", module.imports.len());
+    for (index, import) in module.imports.iter().enumerate() {
+        println!(
+            "  function #{index}: {}.{} type #{}",
+            import.module, import.name, import.type_index
+        );
+    }
+    println!("defined functions: {}", module.function_type_indices.len());
+    println!(
+        "function index space: {}",
+        module.imports.len() + module.function_type_indices.len()
+    );
     println!("memories: {}", module.memories.len());
     for (index, memory) in module.memories.iter().enumerate() {
         println!(
