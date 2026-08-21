@@ -9,35 +9,6 @@ permissions:
   contents: read
 
 jobs:
-  phase5c-import-model:
-    if: github.event_name == 'pull_request' && github.actor != 'github-actions[bot]' && github.head_ref == 'feat/phase-5c-module-forms-conformance'
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write
-    steps:
-      - uses: actions/checkout@v5
-        with:
-          ref: ${{ github.event.pull_request.head.ref }}
-          fetch-depth: 0
-      - name: Install Rust
-        shell: bash
-        run: |
-          rustup toolchain install stable --profile minimal --component rustfmt,clippy
-          rustup default stable
-      - name: Apply import model
-        shell: bash
-        run: |
-          python3 scripts/phase5c_import_model.py
-          python3 scripts/phase5c_import_fixture_fix.py
-          cargo fmt --all
-          cargo clippy --workspace --all-targets -- -D warnings
-          cargo test --workspace --all-targets
-          git config user.name 'github-actions[bot]'
-          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add -- crates/wasm-parser/src/lib.rs crates/wasm-validator/src/lib.rs crates/wasm-validator/src/phase5.rs crates/wasm-validator/src/typed.rs crates/wasm-runtime/src/lib.rs crates/wasm-runtime/tests/host_boundary.rs crates/wasm-cli/src/main.rs
-          git commit -m 'refactor: model independent WebAssembly import index spaces'
-          git push origin HEAD:${{ github.event.pull_request.head.ref }}
-
   test:
     name: Rust ${{ matrix.rust }} / ${{ matrix.os }}
     strategy:
