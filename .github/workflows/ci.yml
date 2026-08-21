@@ -68,6 +68,26 @@ jobs:
           end = workflow.index(end_marker, start)
           lines = workflow[start:end].splitlines()
           body = "\n".join(line[6:] if line.startswith("      ") else line for line in lines) + "\n"
+          strict = '''    def rep(old, new):
+              global s
+              if old not in s:
+                  raise SystemExit('expected snippet not found:\\n' + old[:300])
+              s = s.replace(old, new, 1)
+          '''
+          loose = '''    def rep(old, new):
+              global s
+              import re
+              tokens = re.split(r"\\s+", old.strip())
+              pattern = r"\\s+".join(re.escape(token) for token in tokens)
+              match = re.search(pattern, s, flags=re.MULTILINE)
+              if match is None:
+                  raise SystemExit('expected token sequence not found:\\n' + old[:300])
+              replacement = new.strip()
+              s = s[:match.start()] + replacement + s[match.end():]
+          '''
+          if strict not in body:
+              raise SystemExit('staged rep helper shape changed unexpectedly')
+          body = body.replace(strict, loose, 1)
           Path('/tmp/apply_phase5c_memory.py').write_text("if True:\n" + body)
           PY
           python3 /tmp/apply_phase5c_memory.py
