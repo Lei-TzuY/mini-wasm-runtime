@@ -6,35 +6,9 @@ on:
   pull_request:
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
-  phase5c-table-atomicity:
-    name: phase5c-table-atomicity
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v5
-        with:
-          ref: feat/phase-5c-module-forms-conformance
-          fetch-depth: 0
-      - name: Install Rust
-        shell: bash
-        run: |
-          rustup toolchain install stable --profile minimal --component rustfmt,clippy
-          rustup default stable
-      - name: Apply imported table atomicity fix
-        shell: bash
-        run: |
-          python3 scripts/phase5c_table_atomicity.py
-          cargo fmt --all
-          cargo clippy --workspace --all-targets -- -D warnings
-          cargo test --workspace --all-targets
-          git config user.name 'github-actions[bot]'
-          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add -- crates/wasm-runtime/src/lib.rs crates/wasm-runtime/tests/phase5c_imported_tables.rs
-          git commit -m 'fix: make imported table element initialization atomic'
-          git push origin HEAD:feat/phase-5c-module-forms-conformance
-
   test:
     name: Rust ${{ matrix.rust }} / ${{ matrix.os }}
     strategy:
