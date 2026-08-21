@@ -77,6 +77,7 @@ impl From<ParseError> for RuntimeError {
     }
 }
 
+#[derive(Debug)]
 pub struct Instance {
     module: Module,
 }
@@ -281,11 +282,16 @@ mod tests {
     }
 
     #[test]
-    fn unsupported_opcode_fails_closed() {
+    fn unsupported_opcode_is_rejected_before_execution() {
         let bytes = module_with_body(0, &[0x01, 0x0b]);
-        let error = instance(&bytes)
-            .invoke_export("run", &[])
-            .expect_err("nop is not in the Phase-1 subset");
-        assert!(matches!(error, RuntimeError::UnsupportedOpcode(0x01)));
+        let module = parse_module(&bytes).expect("parse test module");
+        let error = Instance::new(module).expect_err("unsupported opcode must fail validation");
+        assert!(matches!(
+            error,
+            RuntimeError::Validation(ValidationError::UnsupportedOpcode {
+                opcode: 0x01,
+                ..
+            })
+        ));
     }
 }
