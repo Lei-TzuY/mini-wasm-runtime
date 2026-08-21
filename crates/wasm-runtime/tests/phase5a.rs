@@ -48,11 +48,7 @@ fn indirect_module() -> Vec<u8> {
     push_section(&mut bytes, 3, &[0x02, 0x00, 0x01]);
     push_section(&mut bytes, 4, &[0x01, 0x70, 0x00, 0x02]);
     push_section(&mut bytes, 7, &[0x01, 0x03, b'r', b'u', b'n', 0x00, 0x01]);
-    push_section(
-        &mut bytes,
-        9,
-        &[0x01, 0x00, 0x41, 0x00, 0x0b, 0x01, 0x00],
-    );
+    push_section(&mut bytes, 9, &[0x01, 0x00, 0x41, 0x00, 0x0b, 0x01, 0x00]);
     let target = [
         0x00, // locals
         0x20, 0x00, // local.get 0
@@ -150,7 +146,10 @@ fn active_element_oob_is_instantiation_error() {
     let mut module = parse_module(&indirect_module()).unwrap();
     module.tables[0].limits.min = 0;
     let error = Instance::new(module).expect_err("active element must fit initial table");
-    assert!(matches!(error, RuntimeError::ElementSegmentOutOfBounds { .. }));
+    assert!(matches!(
+        error,
+        RuntimeError::ElementSegmentOutOfBounds { .. }
+    ));
 }
 
 #[test]
