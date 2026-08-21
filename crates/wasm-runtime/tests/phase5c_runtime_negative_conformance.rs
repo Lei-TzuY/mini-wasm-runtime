@@ -169,6 +169,16 @@ fn observe(case: &Case) -> ObservedFailure {
     ObservedFailure::Success
 }
 
+fn observed_detail(observed: &ObservedFailure) -> String {
+    match observed {
+        ObservedFailure::Parse(error) => format!("Parse({error:?})"),
+        ObservedFailure::Validate(error) => format!("Validate({error:?})"),
+        ObservedFailure::Instantiate(error) => format!("Instantiate({error:?})"),
+        ObservedFailure::Execute(error) => format!("Execute({error:?})"),
+        ObservedFailure::Success => "Success".to_owned(),
+    }
+}
+
 fn assert_case(case: Case) {
     let observed = observe(&case);
     let matched = match (&case.expected, &observed) {
@@ -209,8 +219,10 @@ fn assert_case(case: Case) {
 
     assert!(
         matched,
-        "runtime negative-conformance case {:?} expected {:?}, observed {:?}",
-        case.name, case.expected, observed
+        "runtime negative-conformance case {:?} expected {:?}, observed {}",
+        case.name,
+        case.expected,
+        observed_detail(&observed)
     );
 }
 
