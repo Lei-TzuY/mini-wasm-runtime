@@ -288,10 +288,7 @@ mod tests {
         let error = Instance::new(module).expect_err("unsupported opcode must fail validation");
         assert!(matches!(
             error,
-            RuntimeError::Validation(ValidationError::UnsupportedOpcode {
-                opcode: 0x01,
-                ..
-            })
+            RuntimeError::Validation(ValidationError::UnsupportedOpcode { opcode: 0x01, .. })
         ));
     }
 }
