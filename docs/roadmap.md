@@ -43,10 +43,28 @@ The roadmap favors complete vertical slices over a broad but shallow decoder.
 
 ## Phase 5 — broader MVP + conformance
 
-- [ ] globals
-- [ ] tables and `call_indirect`
-- [ ] i64/f32/f64 execution
-- [ ] start/element/broader data modes
+### Phase 5A — state, tables, and indirect calls
+
+- [x] defined i32 globals
+- [x] `global.get` / `global.set`
+- [x] funcref table section and limits
+- [x] active table-0 element segments
+- [x] `call_indirect` with bounds, null, and dynamic type traps
+- [x] start section and `[] -> []` start execution
+- [x] table/global exports
+
+### Phase 5B — broader numeric execution
+
+- [ ] i64 execution
+- [ ] f32/f64 execution
+- [ ] comparison/test instructions
+- [ ] broader numeric conversions
+
+### Phase 5C — broader module forms + conformance
+
+- [ ] broader data/element modes
+- [ ] table/memory/global imports
+- [ ] block parameters and type-index block signatures
 - [ ] WebAssembly spec tests for supported features
 
 ## Phase 6 — engineering hardening
