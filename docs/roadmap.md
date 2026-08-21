@@ -86,7 +86,8 @@ The roadmap favors complete vertical slices over a broad but shallow decoder.
 - [x] i64/f32/f64 memory instruction families
 - [x] initial end-to-end spec-derived conformance corpus for supported semantics
 - [x] pinned upstream-spec translated-vector tranche for supported numeric and multi-value semantics
-- [ ] systematic pinned upstream `.wast` ingestion with explicit supported-feature filtering
+- [x] WAST parser/filter/runner ingestion infrastructure for supported core assertions
+- [ ] feed pinned upstream `.wast` sources or manifests through the ingestion runner with explicit supported-feature accounting
 - [x] initial negative-conformance corpus for the supported surface
 - [ ] continue adversarial corpus expansion as new surfaces land
 
