@@ -1,4 +1,4 @@
-use wasm_parser::{parse_module, ImportDesc, ImportKind, ValueType};
+use wasm_parser::{parse_module, ImportDesc, ValueType};
 use wasm_runtime::{Instance, RuntimeError};
 use wasm_validator::{validate, ValidationError};
 
@@ -89,17 +89,11 @@ fn object_import_does_not_shift_function_index_space() {
 }
 
 #[test]
-fn imported_memory_is_visible_to_export_validation_but_runtime_fails_closed() {
+fn imported_memory_is_visible_to_export_validation_and_requires_binding() {
     let module = parse_module(&mixed_memory_function_import_module()).unwrap();
     assert_eq!(validate(&module), Ok(()));
-    let error = Instance::new(module).expect_err("object import must not be copied implicitly");
-    assert!(matches!(
-        error,
-        RuntimeError::UnsupportedObjectImport {
-            kind: ImportKind::Memory,
-            ..
-        }
-    ));
+    let error = Instance::new(module).expect_err("imported memory must have an explicit host binding");
+    assert!(matches!(error, RuntimeError::UnresolvedMemoryImport { .. }));
 }
 
 #[test]
