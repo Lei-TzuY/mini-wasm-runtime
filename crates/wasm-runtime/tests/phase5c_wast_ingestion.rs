@@ -266,7 +266,7 @@ fn systematic_wast_ingestion_executes_supported_subset_and_reports_filters() {
     assert_eq!(report.skipped.len(), 2);
     assert!(matches!(
         &report.skipped[0],
-        FilterReason::UnsupportedDirective(detail) if detail.starts_with("AssertReturn")
+        FilterReason::UnsupportedExecution(detail) if detail.starts_with("Get")
     ));
     assert!(matches!(
         &report.skipped[1],
