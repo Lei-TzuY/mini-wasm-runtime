@@ -68,26 +68,25 @@ jobs:
           end = workflow.index(end_marker, start)
           lines = workflow[start:end].splitlines()
           body = "\n".join(line[6:] if line.startswith("      ") else line for line in lines) + "\n"
-          strict = '''    def rep(old, new):
-              global s
-              if old not in s:
-                  raise SystemExit('expected snippet not found:\\n' + old[:300])
-              s = s.replace(old, new, 1)
-          '''
+
+          helper_start = body.index("    def rep(old, new):")
+          helper_end = body.index("\n\n", helper_start)
           loose = '''    def rep(old, new):
               global s
               import re
               tokens = re.split(r"\\s+", old.strip())
               pattern = r"\\s+".join(re.escape(token) for token in tokens)
-              match = re.search(pattern, s, flags=re.MULTILINE)
-              if match is None:
-                  raise SystemExit('expected token sequence not found:\\n' + old[:300])
+              matches = list(re.finditer(pattern, s, flags=re.MULTILINE))
+              if len(matches) != 1:
+                  raise SystemExit(
+                      f'expected exactly one token-sequence match, found {len(matches)}:\\n'
+                      + old[:300]
+                  )
+              match = matches[0]
               replacement = new.strip()
               s = s[:match.start()] + replacement + s[match.end():]
           '''
-          if strict not in body:
-              raise SystemExit('staged rep helper shape changed unexpectedly')
-          body = body.replace(strict, loose, 1)
+          body = body[:helper_start] + loose + body[helper_end + 2:]
           Path('/tmp/apply_phase5c_memory.py').write_text("if True:\n" + body)
           PY
           python3 /tmp/apply_phase5c_memory.py
@@ -99,7 +98,18 @@ jobs:
       - name: Commit validated implementation and restore CI hygiene
         shell: bash
         run: |
-          git show HEAD^:.github/workflows/ci.yml > .github/workflows/ci.yml
+          python3 - <<'PY'
+          from pathlib import Path
+
+          path = Path('.github/workflows/ci.yml')
+          text = path.read_text()
+          text = text.replace('  contents: write\n', '  contents: read\n', 1)
+          marker = '\n  implement-phase5c-memory:\n'
+          if marker not in text:
+              raise SystemExit('memory staging job marker missing during cleanup')
+          text = text.split(marker, 1)[0].rstrip() + '\n'
+          path.write_text(text)
+          PY
           rm .github/workflows/phase5c-memory-implementation.yml
           git config user.name "Lei-TzuY"
           git config user.email "52287354+Lei-TzuY@users.noreply.github.com"
