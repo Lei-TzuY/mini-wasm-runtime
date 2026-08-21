@@ -9,26 +9,6 @@ permissions:
   contents: read
 
 jobs:
-  phase5c-clippy-fix:
-    if: github.event_name == 'pull_request' && github.actor != 'github-actions[bot]' && github.head_ref == 'feat/phase-5c-module-forms-conformance'
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write
-    steps:
-      - uses: actions/checkout@v5
-        with:
-          ref: ${{ github.event.pull_request.head.ref }}
-          fetch-depth: 0
-      - name: Apply cleanup
-        shell: bash
-        run: |
-          python3 scripts/phase5c_clippy_fix.py
-          git config user.name 'github-actions[bot]'
-          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add -- crates/wasm-validator/src/typed.rs
-          git commit -m 'style: elide validator helper lifetime'
-          git push origin HEAD:${{ github.event.pull_request.head.ref }}
-
   test:
     name: Rust ${{ matrix.rust }} / ${{ matrix.os }}
     strategy:
