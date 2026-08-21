@@ -24,6 +24,7 @@ jobs:
         shell: bash
         run: |
           python3 scripts/phase5c_integer_operators.py
+          python3 scripts/phase5c_integer_operators_fix1.py
           cargo fmt --all
           cargo fmt --all -- --check
           cargo clippy --workspace --all-targets -- -D warnings
@@ -34,8 +35,9 @@ jobs:
         run: |
           rm .github/workflows/phase5c-integer-operators-pr-gate.yml
           rm scripts/phase5c_integer_operators.py
+          rm scripts/phase5c_integer_operators_fix1.py
           git config user.name "Lei-TzuY"
           git config user.email "52287354+Lei-TzuY@users.noreply.github.com"
-          git add -- crates/wasm-runtime/src/lib.rs crates/wasm-runtime/src/numeric.rs crates/wasm-runtime/tests/phase5c_integer_operators.rs crates/wasm-validator/src/typed.rs .github/workflows/phase5c-integer-operators-pr-gate.yml scripts/phase5c_integer_operators.py
+          git add -- crates/wasm-runtime/src/lib.rs crates/wasm-runtime/src/numeric.rs crates/wasm-runtime/tests/phase5c_integer_operators.rs crates/wasm-validator/src/typed.rs .github/workflows/phase5c-integer-operators-pr-gate.yml scripts/phase5c_integer_operators.py scripts/phase5c_integer_operators_fix1.py
           git commit -m "feat: add MVP integer operator core"
           git push origin HEAD:feat/phase-5c-integer-operators
