@@ -1,7 +1,7 @@
 //! Typed validation for the executable WebAssembly subset.
 //!
 //! Phase 5B validates every reachable operand as an explicit MVP numeric type.
-//! Function imports remain i32-only while defined code may use i32/i64/f32/f64.
+//! Function imports and defined code may use i32/i64/f32/f64 with at most one result.
 
 use std::{collections::HashSet, fmt};
 use wasm_parser::{decode_u32, ExportKind, FuncType, ImportDesc, Module, ValueType};
@@ -24,10 +24,6 @@ pub enum ValidationError {
     UnsupportedImportResultArity {
         import: usize,
         results: usize,
-    },
-    UnsupportedImportValueType {
-        import: usize,
-        value_type: ValueType,
     },
     TypeIndexOutOfBounds {
         function: usize,
@@ -242,10 +238,6 @@ impl fmt::Display for ValidationError {
             Self::UnsupportedImportResultArity { import, results } => write!(
                 f,
                 "function import {import} has {results} results; this runtime supports at most one"
-            ),
-            Self::UnsupportedImportValueType { import, value_type } => write!(
-                f,
-                "function import {import} uses {value_type:?}; host calls are currently i32-only"
             ),
             Self::TypeIndexOutOfBounds {
                 function,
@@ -615,18 +607,6 @@ fn validate_imports(module: &Module) -> Result<(), ValidationError> {
                         results: function_type.results.len(),
                     });
                 }
-                for &value_type in function_type
-                    .params
-                    .iter()
-                    .chain(function_type.results.iter())
-                {
-                    if value_type != ValueType::I32 {
-                        return Err(ValidationError::UnsupportedImportValueType {
-                            import,
-                            value_type,
-                        });
-                    }
-                }
             }
             ImportDesc::Table(table_type) => {
                 if let Some(max) = table_type.limits.max {
@@ -867,22 +847,21 @@ mod tests {
     }
 
     #[test]
-    fn rejects_non_i32_import_signature() {
+    fn accepts_all_numeric_import_signature_types() {
         let module = Module {
             types: vec![FuncType {
-                params: vec![ValueType::I64],
-                results: vec![],
+                params: vec![
+                    ValueType::I32,
+                    ValueType::I64,
+                    ValueType::F32,
+                    ValueType::F64,
+                ],
+                results: vec![ValueType::F64],
             }],
             imports: vec![import("env", "f", 0)],
             ..Module::default()
         };
-        assert_eq!(
-            validate(&module),
-            Err(ValidationError::UnsupportedImportValueType {
-                import: 0,
-                value_type: ValueType::I64,
-            })
-        );
+        assert_eq!(validate(&module), Ok(()));
     }
 
     #[test]

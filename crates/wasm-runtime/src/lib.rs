@@ -540,7 +540,7 @@ impl fmt::Display for HostRegistryError {
             }
             Self::UnsupportedSignature => write!(
                 f,
-                "host function signatures are currently i32-only with at most one result"
+                "host function signatures support numeric value types with at most one result"
             ),
         }
     }
@@ -585,12 +585,7 @@ impl HostRegistry {
         F: for<'a> FnMut(&mut HostContext<'a>, &[Value]) -> Result<Option<Value>, HostError>
             + 'static,
     {
-        if results.len() > 1
-            || params
-                .iter()
-                .chain(results.iter())
-                .any(|ty| *ty != ValueType::I32)
-        {
+        if results.len() > 1 {
             return Err(HostRegistryError::UnsupportedSignature);
         }
         let module = module.into();
@@ -837,6 +832,12 @@ pub enum RuntimeError {
         expected: usize,
         actual: usize,
     },
+    HostResultTypeMismatch {
+        module: String,
+        name: String,
+        expected: ValueType,
+        actual: ValueType,
+    },
     FuelExhausted,
     HostCallLimitExceeded {
         limit: u64,
@@ -1023,6 +1024,15 @@ impl fmt::Display for RuntimeError {
             } => write!(
                 f,
                 "host function {module}.{name} returned {actual} values, expected {expected}"
+            ),
+            Self::HostResultTypeMismatch {
+                module,
+                name,
+                expected,
+                actual,
+            } => write!(
+                f,
+                "host function {module}.{name} returned {actual:?}, expected {expected:?}"
             ),
             Self::FuelExhausted => write!(f, "execution fuel exhausted"),
             Self::HostCallLimitExceeded { limit } => {
@@ -1757,6 +1767,17 @@ impl Instance {
                 expected: ty.results.len(),
                 actual,
             });
+        }
+        if let (Some(value), Some(&expected)) = (result, ty.results.first()) {
+            let actual = value.value_type();
+            if actual != expected {
+                return Err(RuntimeError::HostResultTypeMismatch {
+                    module: import.module,
+                    name: import.name,
+                    expected,
+                    actual,
+                });
+            }
         }
         Ok(result)
     }
