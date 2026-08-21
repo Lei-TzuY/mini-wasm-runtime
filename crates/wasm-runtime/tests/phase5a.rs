@@ -171,9 +171,7 @@ fn invalid_start_signature_is_rejected() {
     let error = Instance::new(module).expect_err("start must be [] -> []");
     assert!(matches!(
         error,
-        RuntimeError::Validation(ValidationError::InvalidStartSignature {
-            function_index: 0
-        })
+        RuntimeError::Validation(ValidationError::InvalidStartSignature { function_index: 0 })
     ));
 }
 
