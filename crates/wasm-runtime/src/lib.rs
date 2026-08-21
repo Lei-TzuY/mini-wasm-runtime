@@ -420,7 +420,7 @@ fn ensure_control_info(
 
 fn exit_control_frame(
     controls: &mut Vec<ExecControlFrame>,
-    stack: &mut Vec<Value>,
+    stack: &[Value],
 ) -> Result<(), RuntimeError> {
     let frame = controls.pop().ok_or(RuntimeError::ControlInvariant(
         "attempted to leave missing control frame",
@@ -491,7 +491,7 @@ fn build_control_map(code: &[u8]) -> Result<ControlMap, RuntimeError> {
         let opcode = code[pc];
         pc += 1;
         match opcode {
-            0x02 | 0x03 | 0x04 => {
+            0x02..=0x04 => {
                 let result_arity = read_block_arity(code, &mut pc)?;
                 let kind = match opcode {
                     0x02 => ControlKind::Block,
