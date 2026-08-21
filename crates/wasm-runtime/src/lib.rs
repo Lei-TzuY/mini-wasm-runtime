@@ -2,8 +2,8 @@
 
 use std::{collections::HashMap, fmt};
 use wasm_parser::{
-    decode_i32, decode_i64, decode_s33, decode_u32, Constant, ExportKind, FuncType, Module,
-    ParseError, ValueType,
+    decode_i32, decode_i64, decode_s33, decode_u32, Constant, ExportKind, FuncType, ImportDesc,
+    ImportKind, Module, ParseError, ValueType,
 };
 
 mod numeric;
@@ -291,6 +291,11 @@ pub enum RuntimeError {
         module: String,
         name: String,
     },
+    UnsupportedObjectImport {
+        module: String,
+        name: String,
+        kind: ImportKind,
+    },
     HostSignatureMismatch {
         module: String,
         name: String,
@@ -405,6 +410,10 @@ impl fmt::Display for RuntimeError {
             Self::UnresolvedImport { module, name } => {
                 write!(f, "unresolved host function import {module}.{name}")
             }
+            Self::UnsupportedObjectImport { module, name, kind } => write!(
+                f,
+                "import {module}.{name} has unsupported runtime object kind {kind:?}; shared object imports are not instantiated yet"
+            ),
             Self::HostSignatureMismatch { module, name } => write!(
                 f,
                 "registered host function {module}.{name} does not match the module import signature"
@@ -764,6 +773,7 @@ impl Instance {
         limits: RuntimeLimits,
     ) -> Result<Self, RuntimeError> {
         validate(&module)?;
+        reject_unsupported_object_imports(&module)?;
         validate_host_bindings(&module, &hosts)?;
         let control_maps = module
             .code
@@ -912,11 +922,14 @@ impl Instance {
 
     fn function_type(&self, function_index: u32) -> Result<FuncType, RuntimeError> {
         let function = function_index as usize;
-        let type_index = if function < self.module.imports.len() {
-            self.module.imports[function].type_index
+        let imported = self.module.function_import_count();
+        let type_index = if function < imported {
+            self.module
+                .function_import_type_index(function)
+                .ok_or(RuntimeError::FunctionOutOfBounds(function_index))?
         } else {
             let defined = function
-                .checked_sub(self.module.imports.len())
+                .checked_sub(imported)
                 .ok_or(RuntimeError::FunctionOutOfBounds(function_index))?;
             *self
                 .module
@@ -938,8 +951,15 @@ impl Instance {
         budget: &mut ExecutionBudget,
     ) -> Result<Option<Value>, RuntimeError> {
         budget.consume_host_call(self.limits.max_host_calls)?;
-        let import = self.module.imports[import_index].clone();
-        let ty = self.module.types[import.type_index as usize].clone();
+        let import = self
+            .module
+            .function_import(import_index)
+            .ok_or(RuntimeError::FunctionOutOfBounds(import_index as u32))?
+            .clone();
+        let type_index = import
+            .function_type_index()
+            .ok_or(RuntimeError::FunctionOutOfBounds(import_index as u32))?;
+        let ty = self.module.types[type_index as usize].clone();
         validate_values(&ty.params, args)?;
 
         let key = (import.module.clone(), import.name.clone());
@@ -981,7 +1001,8 @@ impl Instance {
         budget: &mut ExecutionBudget,
     ) -> Result<Option<Value>, RuntimeError> {
         let function = function_index as usize;
-        if function < self.module.imports.len() {
+        let imported = self.module.function_import_count();
+        if function < imported {
             return self.invoke_host(function, args, budget);
         }
         if depth >= self.limits.max_call_depth {
@@ -991,7 +1012,7 @@ impl Instance {
         }
 
         let defined = function
-            .checked_sub(self.module.imports.len())
+            .checked_sub(imported)
             .ok_or(RuntimeError::FunctionOutOfBounds(function_index))?;
         let type_index = *self
             .module
@@ -1333,8 +1354,21 @@ impl Instance {
     }
 }
 
-fn validate_host_bindings(module: &Module, hosts: &HostRegistry) -> Result<(), RuntimeError> {
+fn reject_unsupported_object_imports(module: &Module) -> Result<(), RuntimeError> {
     for import in &module.imports {
+        if !matches!(import.desc, ImportDesc::Function(_)) {
+            return Err(RuntimeError::UnsupportedObjectImport {
+                module: import.module.clone(),
+                name: import.name.clone(),
+                kind: import.kind(),
+            });
+        }
+    }
+    Ok(())
+}
+
+fn validate_host_bindings(module: &Module, hosts: &HostRegistry) -> Result<(), RuntimeError> {
+    for import in module.function_imports() {
         let key = (import.module.clone(), import.name.clone());
         let host = hosts
             .functions
@@ -1343,7 +1377,10 @@ fn validate_host_bindings(module: &Module, hosts: &HostRegistry) -> Result<(), R
                 module: import.module.clone(),
                 name: import.name.clone(),
             })?;
-        let declared = &module.types[import.type_index as usize];
+        let type_index = import
+            .function_type_index()
+            .expect("function_imports yields only function descriptors");
+        let declared = &module.types[type_index as usize];
         if host.params != declared.params || host.results != declared.results {
             return Err(RuntimeError::HostSignatureMismatch {
                 module: import.module.clone(),
@@ -1812,7 +1849,7 @@ mod tests {
             imports: vec![Import {
                 module: "env".into(),
                 name: "poke".into(),
-                type_index: 0,
+                desc: ImportDesc::Function(0),
             }],
             memories: vec![MemoryType {
                 limits: Limits {

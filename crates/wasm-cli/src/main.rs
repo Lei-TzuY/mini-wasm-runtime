@@ -1,5 +1,5 @@
 use std::{env, error::Error, fs, path::Path, process::ExitCode};
-use wasm_parser::parse_module;
+use wasm_parser::{parse_module, ImportDesc};
 use wasm_runtime::{Instance, Value};
 use wasm_validator::validate;
 
@@ -62,17 +62,33 @@ fn inspect(path: &Path) -> Result<(), Box<dyn Error>> {
     println!("module: {}", path.display());
     println!("types: {}", module.types.len());
     println!("imports: {}", module.imports.len());
-    for (index, import) in module.imports.iter().enumerate() {
-        println!(
-            "  function #{index}: {}.{} type #{}",
-            import.module, import.name, import.type_index
-        );
+    for import in &module.imports {
+        match import.desc {
+            ImportDesc::Function(type_index) => {
+                println!(
+                    "  function: {}.{} type #{type_index}",
+                    import.module, import.name
+                );
+            }
+            ImportDesc::Table(table) => println!(
+                "  table: {}.{} funcref min={} max={:?}",
+                import.module, import.name, table.limits.min, table.limits.max
+            ),
+            ImportDesc::Memory(memory) => println!(
+                "  memory: {}.{} min={} max={:?}",
+                import.module, import.name, memory.limits.min, memory.limits.max
+            ),
+            ImportDesc::Global(global) => println!(
+                "  global: {}.{} {:?} mutable={}",
+                import.module, import.name, global.value_type, global.mutable
+            ),
+        }
     }
     println!("defined functions: {}", module.function_type_indices.len());
-    println!(
-        "function index space: {}",
-        module.imports.len() + module.function_type_indices.len()
-    );
+    println!("function index space: {}", module.function_count());
+    println!("table index space: {}", module.table_count());
+    println!("memory index space: {}", module.memory_count());
+    println!("global index space: {}", module.global_count());
     println!("tables: {}", module.tables.len());
     for (index, table) in module.tables.iter().enumerate() {
         println!(

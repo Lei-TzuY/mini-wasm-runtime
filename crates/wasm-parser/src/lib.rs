@@ -60,10 +60,7 @@ impl fmt::Display for ParseError {
             Self::InvalidFunctionType(tag) => write!(f, "invalid function type tag 0x{tag:02x}"),
             Self::UnsupportedValueType(tag) => write!(f, "unsupported value type 0x{tag:02x}"),
             Self::InvalidUtf8 => write!(f, "name is not valid UTF-8"),
-            Self::InvalidImportKind(kind) => write!(
-                f,
-                "unsupported import kind {kind}; this milestone supports function imports only"
-            ),
+            Self::InvalidImportKind(kind) => write!(f, "invalid import kind {kind}"),
             Self::InvalidExportKind(kind) => write!(f, "invalid export kind {kind}"),
             Self::InvalidLimitsFlags(flags) => {
                 write!(f, "invalid limits flags 0x{flags:02x}")
@@ -127,13 +124,6 @@ pub struct FuncType {
     pub results: Vec<ValueType>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Import {
-    pub module: String,
-    pub name: String,
-    pub type_index: u32,
-}
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Limits {
     pub min: u32,
@@ -154,6 +144,53 @@ pub struct MemoryType {
 pub struct GlobalType {
     pub value_type: ValueType,
     pub mutable: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ImportKind {
+    Function,
+    Table,
+    Memory,
+    Global,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ImportDesc {
+    Function(u32),
+    Table(TableType),
+    Memory(MemoryType),
+    Global(GlobalType),
+}
+
+impl ImportDesc {
+    pub fn kind(self) -> ImportKind {
+        match self {
+            Self::Function(_) => ImportKind::Function,
+            Self::Table(_) => ImportKind::Table,
+            Self::Memory(_) => ImportKind::Memory,
+            Self::Global(_) => ImportKind::Global,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Import {
+    pub module: String,
+    pub name: String,
+    pub desc: ImportDesc,
+}
+
+impl Import {
+    pub fn kind(&self) -> ImportKind {
+        self.desc.kind()
+    }
+
+    pub fn function_type_index(&self) -> Option<u32> {
+        match self.desc {
+            ImportDesc::Function(type_index) => Some(type_index),
+            _ => None,
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -204,7 +241,7 @@ pub struct DataSegment {
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Module {
     pub types: Vec<FuncType>,
-    /// Function imports occupy the first entries in the module function index space.
+    /// Imports retain binary-section order; each descriptor belongs to its own index space.
     pub imports: Vec<Import>,
     /// Type indices for defined (non-imported) functions only.
     pub function_type_indices: Vec<u32>,
@@ -216,6 +253,106 @@ pub struct Module {
     pub elements: Vec<ElementSegment>,
     pub code: Vec<FunctionBody>,
     pub data: Vec<DataSegment>,
+}
+
+impl Module {
+    pub fn function_imports(&self) -> impl Iterator<Item = &Import> {
+        self.imports
+            .iter()
+            .filter(|import| matches!(import.desc, ImportDesc::Function(_)))
+    }
+
+    pub fn function_import_count(&self) -> usize {
+        self.function_imports().count()
+    }
+
+    pub fn table_import_count(&self) -> usize {
+        self.imports
+            .iter()
+            .filter(|import| matches!(import.desc, ImportDesc::Table(_)))
+            .count()
+    }
+
+    pub fn memory_import_count(&self) -> usize {
+        self.imports
+            .iter()
+            .filter(|import| matches!(import.desc, ImportDesc::Memory(_)))
+            .count()
+    }
+
+    pub fn global_import_count(&self) -> usize {
+        self.imports
+            .iter()
+            .filter(|import| matches!(import.desc, ImportDesc::Global(_)))
+            .count()
+    }
+
+    pub fn function_import(&self, index: usize) -> Option<&Import> {
+        self.function_imports().nth(index)
+    }
+
+    pub fn function_import_type_index(&self, index: usize) -> Option<u32> {
+        self.function_import(index)?.function_type_index()
+    }
+
+    pub fn function_count(&self) -> usize {
+        self.function_import_count() + self.function_type_indices.len()
+    }
+
+    pub fn table_count(&self) -> usize {
+        self.table_import_count() + self.tables.len()
+    }
+
+    pub fn memory_count(&self) -> usize {
+        self.memory_import_count() + self.memories.len()
+    }
+
+    pub fn global_count(&self) -> usize {
+        self.global_import_count() + self.globals.len()
+    }
+
+    pub fn table_type(&self, index: u32) -> Option<TableType> {
+        let mut imported = self.imports.iter().filter_map(|import| match import.desc {
+            ImportDesc::Table(ty) => Some(ty),
+            _ => None,
+        });
+        let imported_count = self.table_import_count();
+        let index = index as usize;
+        if index < imported_count {
+            return imported.nth(index);
+        }
+        self.tables.get(index.checked_sub(imported_count)?).copied()
+    }
+
+    pub fn memory_type(&self, index: u32) -> Option<MemoryType> {
+        let mut imported = self.imports.iter().filter_map(|import| match import.desc {
+            ImportDesc::Memory(ty) => Some(ty),
+            _ => None,
+        });
+        let imported_count = self.memory_import_count();
+        let index = index as usize;
+        if index < imported_count {
+            return imported.nth(index);
+        }
+        self.memories
+            .get(index.checked_sub(imported_count)?)
+            .copied()
+    }
+
+    pub fn global_type(&self, index: u32) -> Option<GlobalType> {
+        let mut imported = self.imports.iter().filter_map(|import| match import.desc {
+            ImportDesc::Global(ty) => Some(ty),
+            _ => None,
+        });
+        let imported_count = self.global_import_count();
+        let index = index as usize;
+        if index < imported_count {
+            return imported.nth(index);
+        }
+        self.globals
+            .get(index.checked_sub(imported_count)?)
+            .map(|global| global.ty)
+    }
 }
 
 /// Decode a canonical-or-noncanonical unsigned LEB128 u32 value.
@@ -402,15 +539,34 @@ fn parse_import_section(cursor: &mut Cursor<'_>, module: &mut Module) -> Result<
     for _ in 0..count {
         let import_module = cursor.read_name()?;
         let name = cursor.read_name()?;
-        let kind = cursor.read_u8()?;
-        if kind != 0x00 {
-            return Err(ParseError::InvalidImportKind(kind));
-        }
-        let type_index = cursor.read_u32()?;
+        let desc = match cursor.read_u8()? {
+            0x00 => ImportDesc::Function(cursor.read_u32()?),
+            0x01 => {
+                let reference_type = cursor.read_u8()?;
+                if reference_type != 0x70 {
+                    return Err(ParseError::InvalidReferenceType(reference_type));
+                }
+                ImportDesc::Table(TableType {
+                    limits: read_limits(cursor)?,
+                })
+            }
+            0x02 => ImportDesc::Memory(MemoryType {
+                limits: read_limits(cursor)?,
+            }),
+            0x03 => {
+                let value_type = read_value_type(cursor)?;
+                let mutable = read_mutability(cursor)?;
+                ImportDesc::Global(GlobalType {
+                    value_type,
+                    mutable,
+                })
+            }
+            other => return Err(ParseError::InvalidImportKind(other)),
+        };
         module.imports.push(Import {
             module: import_module,
             name,
-            type_index,
+            desc,
         });
     }
     Ok(())
@@ -456,11 +612,7 @@ fn parse_global_section(cursor: &mut Cursor<'_>, module: &mut Module) -> Result<
     module.globals.reserve(count as usize);
     for _ in 0..count {
         let value_type = read_value_type(cursor)?;
-        let mutable = match cursor.read_u8()? {
-            0 => false,
-            1 => true,
-            other => return Err(ParseError::InvalidMutability(other)),
-        };
+        let mutable = read_mutability(cursor)?;
         let init = read_const_expr(cursor)?;
         let actual = init.value_type();
         if actual != value_type {
@@ -568,6 +720,14 @@ fn parse_data_section(cursor: &mut Cursor<'_>, module: &mut Module) -> Result<()
         });
     }
     Ok(())
+}
+
+fn read_mutability(cursor: &mut Cursor<'_>) -> Result<bool, ParseError> {
+    match cursor.read_u8()? {
+        0 => Ok(false),
+        1 => Ok(true),
+        other => Err(ParseError::InvalidMutability(other)),
+    }
 }
 
 fn read_limits(cursor: &mut Cursor<'_>) -> Result<Limits, ParseError> {
@@ -767,17 +927,39 @@ mod tests {
         assert_eq!(module.imports.len(), 1);
         assert_eq!(module.imports[0].module, "env");
         assert_eq!(module.imports[0].name, "double");
-        assert_eq!(module.imports[0].type_index, 0);
+        assert_eq!(module.imports[0].desc, ImportDesc::Function(0));
     }
 
     #[test]
-    fn rejects_non_function_import() {
+    fn parses_non_function_import_descriptors_and_independent_counts() {
+        let mut bytes = vec![0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00];
+        push_section(&mut bytes, 1, &[0x01, 0x60, 0x00, 0x00]);
+        let imports = [
+            0x04, 0x03, b'e', b'n', b'v', 0x03, b'm', b'e', b'm', 0x02, 0x00, 0x01, 0x03, b'e',
+            b'n', b'v', 0x03, b't', b'a', b'b', 0x01, 0x70, 0x00, 0x02, 0x03, b'e', b'n', b'v',
+            0x01, b'g', 0x03, 0x7e, 0x00, 0x03, b'e', b'n', b'v', 0x01, b'f', 0x00, 0x00,
+        ];
+        push_section(&mut bytes, 2, &imports);
+        let module = parse_module(&bytes).expect("all MVP import descriptors parse");
+        assert_eq!(module.function_import_count(), 1);
+        assert_eq!(module.table_import_count(), 1);
+        assert_eq!(module.memory_import_count(), 1);
+        assert_eq!(module.global_import_count(), 1);
+        assert_eq!(module.function_import(0).unwrap().name, "f");
+        assert!(matches!(module.imports[0].desc, ImportDesc::Memory(_)));
+        assert!(matches!(module.imports[1].desc, ImportDesc::Table(_)));
+        assert!(matches!(module.imports[2].desc, ImportDesc::Global(_)));
+        assert!(matches!(module.imports[3].desc, ImportDesc::Function(0)));
+    }
+
+    #[test]
+    fn rejects_invalid_import_kind() {
         let mut bytes = imported_function_module();
         let kind_offset = bytes.len() - 2;
-        bytes[kind_offset] = 0x02;
+        bytes[kind_offset] = 0x04;
         assert_eq!(
             parse_module(&bytes),
-            Err(ParseError::InvalidImportKind(0x02))
+            Err(ParseError::InvalidImportKind(0x04))
         );
     }
 

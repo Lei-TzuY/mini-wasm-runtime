@@ -1,6 +1,6 @@
 use wasm_parser::{
-    DataSegment, Export, ExportKind, FuncType, FunctionBody, Import, Limits, MemoryType, Module,
-    ValueType,
+    DataSegment, Export, ExportKind, FuncType, FunctionBody, Import, ImportDesc, Limits,
+    MemoryType, Module, ValueType,
 };
 use wasm_runtime::{
     HostCapabilities, HostError, HostRegistry, Instance, RuntimeError, RuntimeLimits, Value,
@@ -15,7 +15,7 @@ fn imported_reader_module() -> Module {
         imports: vec![Import {
             module: "env".into(),
             name: "read_first".into(),
-            type_index: 0,
+            desc: ImportDesc::Function(0),
         }],
         memories: vec![MemoryType {
             limits: Limits {

@@ -2,12 +2,15 @@ use super::{function_type, ValidationError};
 use wasm_parser::Module;
 
 pub(super) fn validate_phase5(module: &Module) -> Result<(), ValidationError> {
-    if module.tables.len() > 1 {
+    if module.table_count() > 1 {
         return Err(ValidationError::UnsupportedTableCount {
-            count: module.tables.len(),
+            count: module.table_count(),
         });
     }
-    for (table, table_type) in module.tables.iter().enumerate() {
+    for table in 0..module.table_count() {
+        let table_type = module
+            .table_type(table as u32)
+            .expect("table index is bounded by table_count");
         if let Some(max) = table_type.limits.max {
             if table_type.limits.min > max {
                 return Err(ValidationError::InvalidTableLimits {
@@ -32,9 +35,9 @@ pub(super) fn validate_phase5(module: &Module) -> Result<(), ValidationError> {
         }
     }
 
-    let total_functions = module.imports.len() + module.function_type_indices.len();
+    let total_functions = module.function_count();
     for (segment, element) in module.elements.iter().enumerate() {
-        if element.table_index as usize >= module.tables.len() {
+        if element.table_index as usize >= module.table_count() {
             return Err(ValidationError::ElementTableOutOfBounds {
                 segment,
                 table_index: element.table_index,
@@ -53,5 +56,5 @@ pub(super) fn validate_phase5(module: &Module) -> Result<(), ValidationError> {
 }
 
 pub(super) fn validate_global_export(module: &Module, index: u32) -> bool {
-    (index as usize) < module.globals.len()
+    (index as usize) < module.global_count()
 }

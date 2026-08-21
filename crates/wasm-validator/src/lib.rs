@@ -4,7 +4,7 @@
 //! Function imports remain i32-only while defined code may use i32/i64/f32/f64.
 
 use std::{collections::HashSet, fmt};
-use wasm_parser::{decode_u32, ExportKind, FuncType, Module, ValueType};
+use wasm_parser::{decode_u32, ExportKind, FuncType, ImportDesc, Module, ValueType};
 
 mod phase5;
 mod typed;
@@ -512,7 +512,7 @@ pub fn validate(module: &Module) -> Result<(), ValidationError> {
     }
 
     for (defined, &type_index) in module.function_type_indices.iter().enumerate() {
-        let function = module.imports.len() + defined;
+        let function = module.function_import_count() + defined;
         if type_index as usize >= module.types.len() {
             return Err(ValidationError::TypeIndexOutOfBounds {
                 function,
@@ -522,7 +522,7 @@ pub fn validate(module: &Module) -> Result<(), ValidationError> {
     }
 
     for (defined, &type_index) in module.function_type_indices.iter().enumerate() {
-        let function = module.imports.len() + defined;
+        let function = module.function_import_count() + defined;
         let function_type = &module.types[type_index as usize];
         if function_type.results.len() > 1 {
             return Err(ValidationError::UnsupportedResultArity {
@@ -548,7 +548,7 @@ pub fn validate(module: &Module) -> Result<(), ValidationError> {
         )?;
     }
 
-    let total_functions = module.imports.len() + module.function_type_indices.len();
+    let total_functions = module.function_count();
     let mut names = HashSet::new();
     for export in &module.exports {
         if !names.insert(export.name.as_str()) {
@@ -564,7 +564,7 @@ pub fn validate(module: &Module) -> Result<(), ValidationError> {
                 }
             }
             ExportKind::Memory => {
-                if export.index as usize >= module.memories.len() {
+                if export.index as usize >= module.memory_count() {
                     return Err(ValidationError::MemoryExportOutOfBounds {
                         name: export.name.clone(),
                         memory_index: export.index,
@@ -572,7 +572,7 @@ pub fn validate(module: &Module) -> Result<(), ValidationError> {
                 }
             }
             ExportKind::Table => {
-                if export.index as usize >= module.tables.len() {
+                if export.index as usize >= module.table_count() {
                     return Err(ValidationError::TableExportOutOfBounds {
                         name: export.name.clone(),
                         table_index: export.index,
@@ -591,7 +591,7 @@ pub fn validate(module: &Module) -> Result<(), ValidationError> {
     }
 
     for (segment, data) in module.data.iter().enumerate() {
-        if data.memory_index as usize >= module.memories.len() {
+        if data.memory_index as usize >= module.memory_count() {
             return Err(ValidationError::DataMemoryOutOfBounds {
                 segment,
                 memory_index: data.memory_index,
@@ -604,57 +604,76 @@ pub fn validate(module: &Module) -> Result<(), ValidationError> {
 
 fn validate_imports(module: &Module) -> Result<(), ValidationError> {
     for (import, entry) in module.imports.iter().enumerate() {
-        let Some(function_type) = module.types.get(entry.type_index as usize) else {
-            return Err(ValidationError::ImportTypeIndexOutOfBounds {
-                import,
-                type_index: entry.type_index,
-            });
-        };
-        if function_type.results.len() > 1 {
-            return Err(ValidationError::UnsupportedImportResultArity {
-                import,
-                results: function_type.results.len(),
-            });
-        }
-        for &value_type in function_type
-            .params
-            .iter()
-            .chain(function_type.results.iter())
-        {
-            if value_type != ValueType::I32 {
-                return Err(ValidationError::UnsupportedImportValueType { import, value_type });
+        match entry.desc {
+            ImportDesc::Function(type_index) => {
+                let Some(function_type) = module.types.get(type_index as usize) else {
+                    return Err(ValidationError::ImportTypeIndexOutOfBounds { import, type_index });
+                };
+                if function_type.results.len() > 1 {
+                    return Err(ValidationError::UnsupportedImportResultArity {
+                        import,
+                        results: function_type.results.len(),
+                    });
+                }
+                for &value_type in function_type
+                    .params
+                    .iter()
+                    .chain(function_type.results.iter())
+                {
+                    if value_type != ValueType::I32 {
+                        return Err(ValidationError::UnsupportedImportValueType {
+                            import,
+                            value_type,
+                        });
+                    }
+                }
             }
+            ImportDesc::Table(table_type) => {
+                if let Some(max) = table_type.limits.max {
+                    if table_type.limits.min > max {
+                        return Err(ValidationError::InvalidTableLimits {
+                            table: import,
+                            min: table_type.limits.min,
+                            max,
+                        });
+                    }
+                }
+            }
+            ImportDesc::Memory(memory_type) => {
+                validate_memory_type(import, memory_type.limits.min, memory_type.limits.max)?;
+            }
+            ImportDesc::Global(_) => {}
         }
     }
     Ok(())
 }
 
 fn validate_memories(module: &Module) -> Result<(), ValidationError> {
-    if module.memories.len() > 1 {
+    if module.memory_count() > 1 {
         return Err(ValidationError::UnsupportedMemoryCount {
-            count: module.memories.len(),
+            count: module.memory_count(),
         });
     }
 
-    for (memory, memory_type) in module.memories.iter().enumerate() {
-        let limits = memory_type.limits;
-        if limits.min > MAX_MEMORY_PAGES {
-            return Err(ValidationError::MemoryPageLimitExceeded {
-                memory,
-                pages: limits.min,
-            });
+    for memory in 0..module.memory_count() {
+        let memory_type = module
+            .memory_type(memory as u32)
+            .expect("memory index is bounded by memory_count");
+        validate_memory_type(memory, memory_type.limits.min, memory_type.limits.max)?;
+    }
+    Ok(())
+}
+
+fn validate_memory_type(memory: usize, min: u32, max: Option<u32>) -> Result<(), ValidationError> {
+    if min > MAX_MEMORY_PAGES {
+        return Err(ValidationError::MemoryPageLimitExceeded { memory, pages: min });
+    }
+    if let Some(max) = max {
+        if max > MAX_MEMORY_PAGES {
+            return Err(ValidationError::MemoryPageLimitExceeded { memory, pages: max });
         }
-        if let Some(max) = limits.max {
-            if max > MAX_MEMORY_PAGES {
-                return Err(ValidationError::MemoryPageLimitExceeded { memory, pages: max });
-            }
-            if limits.min > max {
-                return Err(ValidationError::InvalidMemoryLimits {
-                    memory,
-                    min: limits.min,
-                    max,
-                });
-            }
+        if min > max {
+            return Err(ValidationError::InvalidMemoryLimits { memory, min, max });
         }
     }
     Ok(())
@@ -662,17 +681,18 @@ fn validate_memories(module: &Module) -> Result<(), ValidationError> {
 
 fn function_type(module: &Module, function_index: u32) -> Option<&FuncType> {
     let function = function_index as usize;
-    if function < module.imports.len() {
-        let type_index = module.imports[function].type_index as usize;
+    let imported = module.function_import_count();
+    if function < imported {
+        let type_index = module.function_import_type_index(function)? as usize;
         return module.types.get(type_index);
     }
-    let defined = function.checked_sub(module.imports.len())?;
+    let defined = function.checked_sub(imported)?;
     let type_index = *module.function_type_indices.get(defined)? as usize;
     module.types.get(type_index)
 }
 
 fn ensure_memory(module: &Module, function: usize, offset: usize) -> Result<(), ValidationError> {
-    if module.memories.is_empty() {
+    if module.memory_count() == 0 {
         Err(ValidationError::MemoryInstructionWithoutMemory { function, offset })
     } else {
         Ok(())
@@ -717,7 +737,7 @@ fn read_memory_index(
 ) -> Result<u32, ValidationError> {
     ensure_memory(module, function, offset)?;
     let memory_index = read_u32_immediate(code, pc, function, offset)?;
-    if memory_index as usize >= module.memories.len() {
+    if memory_index as usize >= module.memory_count() {
         return Err(ValidationError::MemoryIndexOutOfBounds {
             function,
             offset,
@@ -779,7 +799,7 @@ mod tests {
         Import {
             module: module.into(),
             name: name.into(),
-            type_index,
+            desc: ImportDesc::Function(type_index),
         }
     }
 

@@ -145,7 +145,7 @@ pub(super) fn validate_code(
             0x11 => {
                 let type_index = read_u32(code, &mut pc, function, offset)?;
                 let table_index = read_u32(code, &mut pc, function, offset)?;
-                if table_index as usize >= module.tables.len() {
+                if table_index as usize >= module.table_count() {
                     return Err(ValidationError::TableIndexOutOfBounds {
                         function,
                         offset,
@@ -186,25 +186,25 @@ pub(super) fn validate_code(
             }
             0x23 => {
                 let global_index = read_u32(code, &mut pc, function, offset)?;
-                let Some(global) = module.globals.get(global_index as usize) else {
+                let Some(global_type) = module.global_type(global_index) else {
                     return Err(ValidationError::GlobalIndexOutOfBounds {
                         function,
                         offset,
                         global_index,
                     });
                 };
-                stack.push(global.ty.value_type);
+                stack.push(global_type.value_type);
             }
             0x24 => {
                 let global_index = read_u32(code, &mut pc, function, offset)?;
-                let Some(global) = module.globals.get(global_index as usize) else {
+                let Some(global_type) = module.global_type(global_index) else {
                     return Err(ValidationError::GlobalIndexOutOfBounds {
                         function,
                         offset,
                         global_index,
                     });
                 };
-                if !global.ty.mutable {
+                if !global_type.mutable {
                     return Err(ValidationError::ImmutableGlobalSet {
                         function,
                         offset,
@@ -214,7 +214,7 @@ pub(super) fn validate_code(
                 pop_expect(
                     &mut stack,
                     &controls,
-                    global.ty.value_type,
+                    global_type.value_type,
                     function,
                     offset,
                 )?;
