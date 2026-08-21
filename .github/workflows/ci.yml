@@ -25,6 +25,7 @@ jobs:
       - name: Apply shared imported tables
         shell: bash
         run: |
+          sed -i 's/unresolved host global import/unresolved host immutable global import/' scripts/phase5c_shared_tables.py
           python3 scripts/phase5c_shared_tables.py
           cargo fmt --all
           cargo clippy --workspace --all-targets -- -D warnings
