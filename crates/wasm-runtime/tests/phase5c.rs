@@ -166,8 +166,7 @@ fn multi_byte_type_index_block_is_decoded_as_s33() {
         &types,
         0,
         &[
-            0x20, 0x00,
-            0x02, 0x82, 0x01, // block type index 130
+            0x20, 0x00, 0x02, 0x82, 0x01, // block type index 130
             0x41, 0x01, 0x6a, 0x0b,
         ],
     );
@@ -185,10 +184,7 @@ fn missing_block_type_index_is_rejected_before_execution() {
     let error = Instance::new(parse_module(&module).unwrap()).expect_err("missing type must fail");
     assert!(matches!(
         error,
-        RuntimeError::Validation(ValidationError::BlockTypeIndexOutOfBounds {
-            type_index: 1,
-            ..
-        })
+        RuntimeError::Validation(ValidationError::BlockTypeIndexOutOfBounds { type_index: 1, .. })
     ));
 }
 
