@@ -60,14 +60,14 @@ jobs:
         run: |
           python3 - <<'PY'
           from pathlib import Path
-          import textwrap
 
           workflow = Path('.github/workflows/phase5c-memory-implementation.yml').read_text()
           start_marker = "          python3 - <<'PY'\n"
           end_marker = "          PY\n\n          cargo fmt --all\n"
           start = workflow.index(start_marker) + len(start_marker)
           end = workflow.index(end_marker, start)
-          script = textwrap.dedent(workflow[start:end])
+          lines = workflow[start:end].splitlines()
+          script = "\n".join(line[10:] if line.startswith("          ") else line for line in lines) + "\n"
           Path('/tmp/apply_phase5c_memory.py').write_text(script)
           PY
           python3 /tmp/apply_phase5c_memory.py
