@@ -1,41 +1,4 @@
-from pathlib import Path
-
-parser = Path("crates/wasm-parser/src/lib.rs")
-text = parser.read_text()
-
-replacements = {
-    "    module.imports.reserve(count as usize);\n": "",
-    "    module.function_type_indices.reserve(count as usize);\n": "",
-    "    module.tables.reserve(count as usize);\n": "",
-    "    module.memories.reserve(count as usize);\n": "",
-    "    module.globals.reserve(count as usize);\n": "",
-    "    module.exports.reserve(count as usize);\n": "",
-    "    module.elements.reserve(count as usize);\n": "",
-    "    module.code.reserve(count as usize);\n": "",
-    "    module.data.reserve(count as usize);\n": "",
-    "        let mut function_indices = Vec::with_capacity(function_count as usize);\n": "        let mut function_indices = Vec::new();\n",
-    "        let mut locals = Vec::with_capacity(local_group_count as usize);\n": "        let mut locals = Vec::new();\n",
-    "    let mut values = Vec::with_capacity(count as usize);\n": "    let mut values = Vec::new();\n",
-}
-
-for old, new in replacements.items():
-    count = text.count(old)
-    if count != 1:
-        raise SystemExit(f"allocation hardening anchor {old!r}: expected once, found {count}")
-    text = text.replace(old, new, 1)
-
-for forbidden in (
-    ".reserve(count as usize)",
-    "Vec::with_capacity(function_count as usize)",
-    "Vec::with_capacity(local_group_count as usize)",
-    "Vec::with_capacity(count as usize)",
-):
-    if forbidden in text:
-        raise SystemExit(f"untrusted-count preallocation remains: {forbidden}")
-
-parser.write_text(text)
-
-Path("crates/wasm-parser/tests/allocation_bomb_corpus.rs").write_text(r'''use wasm_parser::{parse_module, ParseError};
+use wasm_parser::{parse_module, ParseError};
 
 const U32_MAX_LEB: [u8; 5] = [0xff, 0xff, 0xff, 0xff, 0x0f];
 
@@ -115,4 +78,3 @@ fn untrusted_vector_counts_do_not_trigger_upfront_giant_allocations() {
         );
     }
 }
-''')

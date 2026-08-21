@@ -548,7 +548,6 @@ fn parse_type_section(cursor: &mut Cursor<'_>, module: &mut Module) -> Result<()
 
 fn parse_import_section(cursor: &mut Cursor<'_>, module: &mut Module) -> Result<(), ParseError> {
     let count = cursor.read_u32()?;
-    module.imports.reserve(count as usize);
     for _ in 0..count {
         let import_module = cursor.read_name()?;
         let name = cursor.read_name()?;
@@ -587,7 +586,6 @@ fn parse_import_section(cursor: &mut Cursor<'_>, module: &mut Module) -> Result<
 
 fn parse_function_section(cursor: &mut Cursor<'_>, module: &mut Module) -> Result<(), ParseError> {
     let count = cursor.read_u32()?;
-    module.function_type_indices.reserve(count as usize);
     for _ in 0..count {
         module.function_type_indices.push(cursor.read_u32()?);
     }
@@ -596,7 +594,6 @@ fn parse_function_section(cursor: &mut Cursor<'_>, module: &mut Module) -> Resul
 
 fn parse_table_section(cursor: &mut Cursor<'_>, module: &mut Module) -> Result<(), ParseError> {
     let count = cursor.read_u32()?;
-    module.tables.reserve(count as usize);
     for _ in 0..count {
         let reference_type = cursor.read_u8()?;
         if reference_type != 0x70 {
@@ -611,7 +608,6 @@ fn parse_table_section(cursor: &mut Cursor<'_>, module: &mut Module) -> Result<(
 
 fn parse_memory_section(cursor: &mut Cursor<'_>, module: &mut Module) -> Result<(), ParseError> {
     let count = cursor.read_u32()?;
-    module.memories.reserve(count as usize);
     for _ in 0..count {
         module.memories.push(MemoryType {
             limits: read_limits(cursor)?,
@@ -622,7 +618,6 @@ fn parse_memory_section(cursor: &mut Cursor<'_>, module: &mut Module) -> Result<
 
 fn parse_global_section(cursor: &mut Cursor<'_>, module: &mut Module) -> Result<(), ParseError> {
     let count = cursor.read_u32()?;
-    module.globals.reserve(count as usize);
     for _ in 0..count {
         let value_type = read_value_type(cursor)?;
         let mutable = read_mutability(cursor)?;
@@ -647,7 +642,6 @@ fn parse_global_section(cursor: &mut Cursor<'_>, module: &mut Module) -> Result<
 
 fn parse_export_section(cursor: &mut Cursor<'_>, module: &mut Module) -> Result<(), ParseError> {
     let count = cursor.read_u32()?;
-    module.exports.reserve(count as usize);
     for _ in 0..count {
         let name = cursor.read_name()?;
         let kind = match cursor.read_u8()? {
@@ -670,7 +664,6 @@ fn parse_start_section(cursor: &mut Cursor<'_>, module: &mut Module) -> Result<(
 
 fn parse_element_section(cursor: &mut Cursor<'_>, module: &mut Module) -> Result<(), ParseError> {
     let count = cursor.read_u32()?;
-    module.elements.reserve(count as usize);
     for _ in 0..count {
         let flags = cursor.read_u32()?;
         let mode = match flags {
@@ -698,7 +691,7 @@ fn parse_element_section(cursor: &mut Cursor<'_>, module: &mut Module) -> Result
             other => return Err(ParseError::UnsupportedElementSegmentMode(other)),
         };
         let function_count = cursor.read_u32()?;
-        let mut function_indices = Vec::with_capacity(function_count as usize);
+        let mut function_indices = Vec::new();
         for _ in 0..function_count {
             function_indices.push(cursor.read_u32()?);
         }
@@ -721,13 +714,12 @@ fn read_legacy_element_kind(cursor: &mut Cursor<'_>) -> Result<(), ParseError> {
 
 fn parse_code_section(cursor: &mut Cursor<'_>, module: &mut Module) -> Result<(), ParseError> {
     let count = cursor.read_u32()?;
-    module.code.reserve(count as usize);
     for _ in 0..count {
         let body_len = cursor.read_u32()? as usize;
         let body_bytes = cursor.read_exact(body_len)?;
         let mut body = Cursor::new(body_bytes);
         let local_group_count = body.read_u32()?;
-        let mut locals = Vec::with_capacity(local_group_count as usize);
+        let mut locals = Vec::new();
         for _ in 0..local_group_count {
             let count = body.read_u32()?;
             let ty = read_value_type(&mut body)?;
@@ -745,7 +737,6 @@ fn parse_code_section(cursor: &mut Cursor<'_>, module: &mut Module) -> Result<()
 
 fn parse_data_section(cursor: &mut Cursor<'_>, module: &mut Module) -> Result<(), ParseError> {
     let count = cursor.read_u32()?;
-    module.data.reserve(count as usize);
     for _ in 0..count {
         let flags = cursor.read_u32()?;
         let mode = match flags {
@@ -818,7 +809,7 @@ fn read_i32_const_expr(cursor: &mut Cursor<'_>) -> Result<i32, ParseError> {
 
 fn read_value_type_vec(cursor: &mut Cursor<'_>) -> Result<Vec<ValueType>, ParseError> {
     let count = cursor.read_u32()?;
-    let mut values = Vec::with_capacity(count as usize);
+    let mut values = Vec::new();
     for _ in 0..count {
         values.push(read_value_type(cursor)?);
     }
