@@ -103,3 +103,35 @@ fn multi_result_block_signature_executes_in_order() {
 if test_text.count(old_test) != 1:
     raise SystemExit("expected exactly one legacy multi-result block regression")
 test_path.write_text(test_text.replace(old_test, new_test, 1))
+
+# 4) The validator's pre-feature unit test rejected every defined function with
+# multiple results before checking its body. Replace it with a valid two-result
+# body so the unit suite now locks acceptance of defined-Wasm multi-value while
+# the integration corpus continues to reject wrong result order and host ABI
+# multi-result imports.
+validator_path = Path("crates/wasm-validator/src/lib.rs")
+validator_text = validator_path.read_text()
+old_validator_test = '''    #[test]
+    fn rejects_multi_value_results() {
+        let mut module = valid_module();
+        module.types[0].results.push(ValueType::I32);
+        assert_eq!(
+            validate(&module),
+            Err(ValidationError::UnsupportedResultArity {
+                function: 0,
+                results: 2,
+            })
+        );
+    }
+'''
+new_validator_test = '''    #[test]
+    fn accepts_defined_multi_value_results() {
+        let mut module = valid_module();
+        module.types[0].results.push(ValueType::I32);
+        module.code[0].code = vec![0x20, 0x00, 0x20, 0x00, 0x0b];
+        assert_eq!(validate(&module), Ok(()));
+    }
+'''
+if validator_text.count(old_validator_test) != 1:
+    raise SystemExit("expected exactly one legacy defined multi-value validator regression")
+validator_path.write_text(validator_text.replace(old_validator_test, new_validator_test, 1))
