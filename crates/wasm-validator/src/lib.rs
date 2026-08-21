@@ -1469,11 +1469,11 @@ mod tests {
 
     #[test]
     fn rejects_unsupported_block_type() {
-        let module = module_with_code(0, 0, vec![0x02, 0x7e, 0x0b, 0x0b]);
+        let module = module_with_code(0, 0, vec![0x02, 0x70, 0x0b, 0x0b]);
         assert!(matches!(
             validate(&module),
             Err(ValidationError::UnsupportedBlockType {
-                block_type: 0x7e,
+                block_type: 0x70,
                 ..
             })
         ));
