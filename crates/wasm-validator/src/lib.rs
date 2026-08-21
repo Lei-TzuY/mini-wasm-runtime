@@ -275,12 +275,7 @@ pub fn validate(module: &Module) -> Result<(), ValidationError> {
                 .ok_or(ValidationError::LocalCountOverflow { function })?;
         }
 
-        validate_code(
-            module,
-            function,
-            local_count,
-            function_type.results.len(),
-        )?;
+        validate_code(module, function, local_count, function_type.results.len())?;
     }
 
     let mut names = HashSet::new();
@@ -365,13 +360,7 @@ fn validate_code(
             }
             0x04 => {
                 let end_arity = read_block_arity(code, &mut pc, function, offset)?;
-                pop_values(
-                    &mut stack_height,
-                    &controls,
-                    1,
-                    function,
-                    offset,
-                )?;
+                pop_values(&mut stack_height, &controls, 1, function, offset)?;
                 controls.push(ControlFrame {
                     kind: ControlKind::If,
                     height: stack_height,
@@ -381,12 +370,7 @@ fn validate_code(
                     seen_else: false,
                 });
             }
-            0x05 => transition_to_else(
-                &mut stack_height,
-                &mut controls,
-                function,
-                offset,
-            )?,
+            0x05 => transition_to_else(&mut stack_height, &mut controls, function, offset)?,
             0x0b => {
                 let frame = *controls
                     .last()
@@ -414,21 +398,12 @@ fn validate_code(
             }
             0x0d => {
                 let depth = read_u32_immediate(code, &mut pc, function, offset)?;
-                pop_values(
-                    &mut stack_height,
-                    &controls,
-                    1,
-                    function,
-                    offset,
-                )?;
+                pop_values(&mut stack_height, &controls, 1, function, offset)?;
                 let label_arity = label_arity(&controls, depth, function, offset)?;
                 require_values(stack_height, &controls, label_arity, function, offset)?;
             }
             0x0f => {
-                let result_arity = controls
-                    .first()
-                    .map(|frame| frame.label_arity)
-                    .unwrap_or(0);
+                let result_arity = controls.first().map(|frame| frame.label_arity).unwrap_or(0);
                 require_values(stack_height, &controls, result_arity, function, offset)?;
                 mark_unreachable(&mut stack_height, &mut controls);
             }
@@ -442,8 +417,7 @@ fn validate_code(
                         target,
                     });
                 }
-                let target_type =
-                    module.function_type_indices[target_function] as usize;
+                let target_type = module.function_type_indices[target_function] as usize;
                 let ty = &module.types[target_type];
                 pop_values(
                     &mut stack_height,
@@ -455,40 +429,15 @@ fn validate_code(
                 stack_height += ty.results.len();
             }
             0x20 => {
-                let local_index = read_local_index(
-                    code,
-                    &mut pc,
-                    function,
-                    offset,
-                    local_count,
-                )?;
-                let _ = local_index;
+                read_local_index(code, &mut pc, function, offset, local_count)?;
                 stack_height += 1;
             }
             0x21 => {
-                let _ = read_local_index(
-                    code,
-                    &mut pc,
-                    function,
-                    offset,
-                    local_count,
-                )?;
-                pop_values(
-                    &mut stack_height,
-                    &controls,
-                    1,
-                    function,
-                    offset,
-                )?;
+                read_local_index(code, &mut pc, function, offset, local_count)?;
+                pop_values(&mut stack_height, &controls, 1, function, offset)?;
             }
             0x22 => {
-                let _ = read_local_index(
-                    code,
-                    &mut pc,
-                    function,
-                    offset,
-                    local_count,
-                )?;
+                read_local_index(code, &mut pc, function, offset, local_count)?;
                 require_values(stack_height, &controls, 1, function, offset)?;
             }
             0x41 => {
@@ -498,13 +447,7 @@ fn validate_code(
                 stack_height += 1;
             }
             0x6a..=0x6c => {
-                pop_values(
-                    &mut stack_height,
-                    &controls,
-                    2,
-                    function,
-                    offset,
-                )?;
+                pop_values(&mut stack_height, &controls, 2, function, offset)?;
                 stack_height += 1;
             }
             opcode => {
@@ -625,13 +568,14 @@ fn label_arity(
     offset: usize,
 ) -> Result<usize, ValidationError> {
     let depth = depth as usize;
-    let index = controls.len().checked_sub(depth + 1).ok_or(
-        ValidationError::BranchDepthOutOfBounds {
+    let index = controls
+        .len()
+        .checked_sub(depth + 1)
+        .ok_or(ValidationError::BranchDepthOutOfBounds {
             function,
             offset,
             depth: depth as u32,
-        },
-    )?;
+        })?;
     Ok(controls[index].label_arity)
 }
 
@@ -833,11 +777,7 @@ mod tests {
         );
         assert_eq!(validate(&valid), Ok(()));
 
-        let invalid = module_with_code(
-            1,
-            1,
-            vec![0x20, 0x00, 0x0f, 0x01, 0x0b],
-        );
+        let invalid = module_with_code(1, 1, vec![0x20, 0x00, 0x0f, 0x01, 0x0b]);
         assert!(matches!(
             validate(&invalid),
             Err(ValidationError::UnsupportedOpcode { opcode: 0x01, .. })
@@ -855,11 +795,7 @@ mod tests {
 
     #[test]
     fn rejects_control_result_stack_mismatch() {
-        let module = module_with_code(
-            0,
-            1,
-            vec![0x02, 0x7f, 0x0b, 0x0b],
-        );
+        let module = module_with_code(0, 1, vec![0x02, 0x7f, 0x0b, 0x0b]);
         assert!(matches!(
             validate(&module),
             Err(ValidationError::StackHeightMismatch { .. })
@@ -881,11 +817,7 @@ mod tests {
 
     #[test]
     fn rejects_branch_depth_out_of_bounds() {
-        let module = module_with_code(
-            0,
-            0,
-            vec![0x02, 0x40, 0x0c, 0x02, 0x0b, 0x0b],
-        );
+        let module = module_with_code(0, 0, vec![0x02, 0x40, 0x0c, 0x02, 0x0b, 0x0b]);
         assert!(matches!(
             validate(&module),
             Err(ValidationError::BranchDepthOutOfBounds { depth: 2, .. })
