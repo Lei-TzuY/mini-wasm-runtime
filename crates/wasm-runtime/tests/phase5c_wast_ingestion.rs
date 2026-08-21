@@ -1,8 +1,8 @@
+use wasm_parser::parse_module;
+use wasm_runtime::{Instance, RuntimeError, Value};
 use wast::core::{NanPattern, WastArgCore, WastRetCore};
 use wast::parser::{self, ParseBuffer};
 use wast::{QuoteWat, Wast, WastArg, WastDirective, WastExecute, WastRet, Wat};
-use wasm_parser::parse_module;
-use wasm_runtime::{Instance, RuntimeError, Value};
 
 const CONTRACT_FIXTURE: &str = include_str!("fixtures/phase5c_ingestion_contract.wast");
 
@@ -178,7 +178,8 @@ fn run_fixture(source: &str) -> IngestionReport {
                 }
                 let bytes = module.encode().expect("supported WAT module must encode");
                 let parsed = parse_module(&bytes).expect("encoded supported module must parse");
-                instance = Some(Instance::new(parsed).expect("encoded supported module must instantiate"));
+                instance =
+                    Some(Instance::new(parsed).expect("encoded supported module must instantiate"));
                 report.modules += 1;
             }
             WastDirective::AssertReturn { exec, results, .. } => {
@@ -220,9 +221,7 @@ fn run_fixture(source: &str) -> IngestionReport {
                 }
                 report.executed_assertions += 1;
             }
-            WastDirective::AssertTrap {
-                exec, message, ..
-            } => {
+            WastDirective::AssertTrap { exec, message, .. } => {
                 let expected_trap = match translate_trap(message) {
                     Ok(trap) => trap,
                     Err(reason) => {
