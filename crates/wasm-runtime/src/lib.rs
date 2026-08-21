@@ -28,19 +28,33 @@ pub enum RuntimeError {
     ExportNotFunction(String),
     FunctionOutOfBounds(u32),
     UnsupportedType(ValueType),
-    WrongArgumentCount { expected: usize, actual: usize },
+    WrongArgumentCount {
+        expected: usize,
+        actual: usize,
+    },
     LocalOutOfBounds(u32),
     StackUnderflow,
     UnsupportedOpcode(u8),
     UnsupportedBlockType(u8),
     BranchDepthOutOfBounds(u32),
-    ControlStackMismatch { expected: usize, actual: usize },
+    ControlStackMismatch {
+        expected: usize,
+        actual: usize,
+    },
     ControlInvariant(&'static str),
-    ResultArityMismatch { expected: usize, actual: usize },
+    ResultArityMismatch {
+        expected: usize,
+        actual: usize,
+    },
     MemoryUnavailable,
     MemoryIndexOutOfBounds(u32),
-    MemoryOutOfBounds { address: u64, width: usize },
-    MemoryAllocationFailed { pages: u32 },
+    MemoryOutOfBounds {
+        address: u64,
+        width: usize,
+    },
+    MemoryAllocationFailed {
+        pages: u32,
+    },
     DataSegmentOutOfBounds {
         segment: usize,
         offset: u64,
@@ -348,9 +362,7 @@ impl Instance {
         let memory = module
             .memories
             .first()
-            .map(|memory_type| {
-                LinearMemory::new(memory_type.limits.min, memory_type.limits.max)
-            })
+            .map(|memory_type| LinearMemory::new(memory_type.limits.min, memory_type.limits.max))
             .transpose()?;
 
         let mut instance = Self {
@@ -389,13 +401,13 @@ impl Instance {
     fn initialize_data_segments(&mut self) -> Result<(), RuntimeError> {
         for (segment_index, segment) in self.module.data.iter().enumerate() {
             let offset = u64::from(segment.offset as u32);
-            let end = offset
-                .checked_add(segment.bytes.len() as u64)
-                .ok_or(RuntimeError::DataSegmentOutOfBounds {
+            let end = offset.checked_add(segment.bytes.len() as u64).ok_or(
+                RuntimeError::DataSegmentOutOfBounds {
                     segment: segment_index,
                     offset,
                     length: segment.bytes.len(),
-                })?;
+                },
+            )?;
             let memory = self
                 .memory
                 .as_mut()
@@ -557,12 +569,13 @@ impl Instance {
                     }
                 }
                 0x0f => {
-                    let branch_depth = controls
-                        .len()
-                        .checked_sub(1)
-                        .ok_or(RuntimeError::ControlInvariant(
-                            "return executed without function frame",
-                        ))? as u32;
+                    let branch_depth =
+                        controls
+                            .len()
+                            .checked_sub(1)
+                            .ok_or(RuntimeError::ControlInvariant(
+                                "return executed without function frame",
+                            ))? as u32;
                     branch_to(&mut controls, &mut stack, branch_depth, &mut pc, code.len())?;
                 }
                 0x10 => {
@@ -724,12 +737,13 @@ fn branch_to(
         .ok_or(RuntimeError::BranchDepthOutOfBounds(depth))?;
     let target = controls[target_index];
     let label_arity = target.label_arity();
-    let current_height = controls
-        .last()
-        .map(|frame| frame.stack_height)
-        .ok_or(RuntimeError::ControlInvariant(
-            "branch executed without active control frame",
-        ))?;
+    let current_height =
+        controls
+            .last()
+            .map(|frame| frame.stack_height)
+            .ok_or(RuntimeError::ControlInvariant(
+                "branch executed without active control frame",
+            ))?;
     if stack.len().saturating_sub(current_height) < label_arity {
         return Err(RuntimeError::StackUnderflow);
     }
@@ -908,11 +922,7 @@ mod tests {
             };
             push_section(&mut bytes, 5, &payload);
         }
-        push_section(
-            &mut bytes,
-            7,
-            &[0x01, 0x03, b'r', b'u', b'n', 0x00, 0x00],
-        );
+        push_section(&mut bytes, 7, &[0x01, 0x03, b'r', b'u', b'n', 0x00, 0x00]);
         push_section(&mut bytes, 10, &code_payload);
         if let Some((offset, payload)) = data {
             let mut data_section = vec![0x01, 0x00, 0x41, offset, 0x0b, payload.len() as u8];
@@ -923,7 +933,10 @@ mod tests {
     }
 
     fn push_section(module: &mut Vec<u8>, id: u8, payload: &[u8]) {
-        assert!(payload.len() < 128, "test helper only encodes one-byte lengths");
+        assert!(
+            payload.len() < 128,
+            "test helper only encodes one-byte lengths"
+        );
         module.push(id);
         module.push(payload.len() as u8);
         module.extend(payload);
@@ -976,7 +989,10 @@ mod tests {
                 .unwrap(),
             Some(Value::I32(0x1234_5678))
         );
-        assert_eq!(&vm.memory().unwrap().bytes()[8..12], &[0x78, 0x56, 0x34, 0x12]);
+        assert_eq!(
+            &vm.memory().unwrap().bytes()[8..12],
+            &[0x78, 0x56, 0x34, 0x12]
+        );
     }
 
     #[test]
@@ -1027,13 +1043,7 @@ mod tests {
 
     #[test]
     fn memory_grow_returns_previous_size_and_minus_one_on_limit() {
-        let bytes = module_with_memory(
-            1,
-            1,
-            &[0x20, 0x00, 0x40, 0x00, 0x0b],
-            Some(2),
-            None,
-        );
+        let bytes = module_with_memory(1, 1, &[0x20, 0x00, 0x40, 0x00, 0x0b], Some(2), None);
         let mut vm = instance(&bytes);
         assert_eq!(
             vm.invoke_export("run", &[Value::I32(1)]).unwrap(),
@@ -1049,13 +1059,7 @@ mod tests {
 
     #[test]
     fn memory_access_out_of_bounds_traps() {
-        let bytes = module_with_memory(
-            1,
-            1,
-            &[0x20, 0x00, 0x28, 0x02, 0x00, 0x0b],
-            None,
-            None,
-        );
+        let bytes = module_with_memory(1, 1, &[0x20, 0x00, 0x28, 0x02, 0x00, 0x0b], None, None);
         let mut vm = instance(&bytes);
         let error = vm
             .invoke_export("run", &[Value::I32((WASM_PAGE_SIZE - 1) as i32)])
