@@ -142,6 +142,56 @@ fn call_indirect_distinguishes_null_and_oob_slots() {
 }
 
 #[test]
+fn call_indirect_type_mismatch_traps_at_runtime() {
+    let mut module = parse_module(&indirect_module()).unwrap();
+    module.code[1].code = vec![
+        0x20, 0x00, // first indirect argument
+        0x20, 0x00, // second indirect argument
+        0x20, 0x01, // table element index
+        0x11, 0x01, 0x00, // call_indirect type 1 table 0
+        0x0b,
+    ];
+    let mut vm = Instance::new(module).expect("statically valid indirect call");
+    let error = vm
+        .invoke_export("run", &[Value::I32(41), Value::I32(0)])
+        .expect_err("table target has type 0, call site expects type 1");
+    assert!(matches!(
+        error,
+        RuntimeError::IndirectCallTypeMismatch {
+            expected_type: 1,
+            function_index: 0
+        }
+    ));
+}
+
+#[test]
+fn invalid_start_signature_is_rejected() {
+    let mut module = parse_module(&indirect_module()).unwrap();
+    module.start = Some(0);
+    let error = Instance::new(module).expect_err("start must be [] -> []");
+    assert!(matches!(
+        error,
+        RuntimeError::Validation(ValidationError::InvalidStartSignature {
+            function_index: 0
+        })
+    ));
+}
+
+#[test]
+fn element_referencing_missing_function_is_rejected() {
+    let mut module = parse_module(&indirect_module()).unwrap();
+    module.elements[0].function_indices[0] = 99;
+    let error = Instance::new(module).expect_err("element function index must exist");
+    assert!(matches!(
+        error,
+        RuntimeError::Validation(ValidationError::ElementFunctionOutOfBounds {
+            segment: 0,
+            function_index: 99
+        })
+    ));
+}
+
+#[test]
 fn active_element_oob_is_instantiation_error() {
     let mut module = parse_module(&indirect_module()).unwrap();
     module.tables[0].limits.min = 0;
