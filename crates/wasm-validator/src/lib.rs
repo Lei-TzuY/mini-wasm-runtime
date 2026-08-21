@@ -5,12 +5,25 @@ use wasm_parser::{decode_i32, decode_u32, ExportKind, Module};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ValidationError {
-    FunctionCodeLengthMismatch { functions: usize, bodies: usize },
-    TypeIndexOutOfBounds { function: usize, type_index: u32 },
-    FunctionExportOutOfBounds { name: String, function_index: u32 },
-    UnsupportedExportKind { name: String },
+    FunctionCodeLengthMismatch {
+        functions: usize,
+        bodies: usize,
+    },
+    TypeIndexOutOfBounds {
+        function: usize,
+        type_index: u32,
+    },
+    FunctionExportOutOfBounds {
+        name: String,
+        function_index: u32,
+    },
+    UnsupportedExportKind {
+        name: String,
+    },
     DuplicateExportName(String),
-    LocalCountOverflow { function: usize },
+    LocalCountOverflow {
+        function: usize,
+    },
     LocalIndexOutOfBounds {
         function: usize,
         offset: usize,
@@ -26,9 +39,17 @@ pub enum ValidationError {
         offset: usize,
         opcode: u8,
     },
-    MalformedImmediate { function: usize, offset: usize },
-    UnexpectedEnd { function: usize, offset: usize },
-    MissingFunctionEnd { function: usize },
+    MalformedImmediate {
+        function: usize,
+        offset: usize,
+    },
+    UnexpectedEnd {
+        function: usize,
+        offset: usize,
+    },
+    MissingFunctionEnd {
+        function: usize,
+    },
 }
 
 impl fmt::Display for ValidationError {
@@ -180,9 +201,8 @@ fn validate_code(
                 }
             }
             0x41 => {
-                let (_, used) = decode_i32(&code[pc..]).map_err(|_| {
-                    ValidationError::MalformedImmediate { function, offset }
-                })?;
+                let (_, used) = decode_i32(&code[pc..])
+                    .map_err(|_| ValidationError::MalformedImmediate { function, offset })?;
                 pc += used;
             }
             0x10 => {
