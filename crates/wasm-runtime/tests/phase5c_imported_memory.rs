@@ -1,7 +1,10 @@
-use wasm_parser::parse_module;
+use wasm_parser::{
+    parse_module, DataSegment, Export, ExportKind, FuncType, Import, ImportDesc, Limits, MemoryType,
+    Module, ValueType,
+};
 use wasm_runtime::{
-    HostRegistry, HostRegistryError, Instance, MemoryHandle, MemoryHandleError, RuntimeError,
-    RuntimeLimits, Value,
+    HostCapabilities, HostRegistry, HostRegistryError, Instance, MemoryHandle, MemoryHandleError,
+    RuntimeError, RuntimeLimits, Value,
 };
 
 fn push_u32(bytes: &mut Vec<u8>, mut value: u32) {
@@ -74,6 +77,38 @@ fn imported_memory_module() -> Vec<u8> {
     module
 }
 
+fn imported_memory_host_callback_module() -> Module {
+    Module {
+        types: vec![FuncType {
+            params: vec![],
+            results: vec![ValueType::I32],
+        }],
+        imports: vec![
+            Import {
+                module: "env".into(),
+                name: "touch".into(),
+                desc: ImportDesc::Function(0),
+            },
+            Import {
+                module: "env".into(),
+                name: "mem".into(),
+                desc: ImportDesc::Memory(MemoryType {
+                    limits: Limits {
+                        min: 2,
+                        max: Some(4),
+                    },
+                }),
+            },
+        ],
+        exports: vec![Export {
+            name: "touch".into(),
+            kind: ExportKind::Function,
+            index: 0,
+        }],
+        ..Module::default()
+    }
+}
+
 fn instantiate(memory: &MemoryHandle) -> Instance {
     let module = parse_module(&imported_memory_module()).expect("parse imported-memory fixture");
     let mut hosts = HostRegistry::new();
@@ -103,6 +138,74 @@ fn data_segment_and_wasm_memory_ops_use_shared_imported_backing() {
         None
     );
     assert_eq!(memory.read(12, 4).unwrap(), 77i32.to_le_bytes());
+}
+
+#[test]
+fn failed_data_segment_instantiation_is_atomic_for_shared_memory() {
+    let memory = MemoryHandle::new(2, Some(4)).unwrap();
+    memory.write(32, b"KEEP").unwrap();
+    memory.write(131_071, &[0x7f]).unwrap();
+
+    let mut module = parse_module(&imported_memory_module()).unwrap();
+    module.data = vec![
+        DataSegment {
+            memory_index: 0,
+            offset: 32,
+            bytes: b"MUTATE".to_vec(),
+        },
+        DataSegment {
+            memory_index: 0,
+            offset: 131_071,
+            bytes: vec![0xaa, 0xbb],
+        },
+    ];
+
+    let mut hosts = HostRegistry::new();
+    hosts.register_memory("env", "mem", memory.clone()).unwrap();
+    let error = Instance::with_hosts(module, hosts)
+        .expect_err("an out-of-bounds later segment must fail instantiation");
+    assert!(matches!(
+        error,
+        RuntimeError::DataSegmentOutOfBounds { segment: 1, .. }
+    ));
+    assert_eq!(memory.read(32, 4).unwrap(), b"KEEP");
+    assert_eq!(memory.read(131_071, 1).unwrap(), vec![0x7f]);
+}
+
+#[test]
+fn host_callback_accesses_the_same_imported_memory_handle() {
+    let memory = MemoryHandle::new(2, Some(4)).unwrap();
+    memory.write(0, &123i32.to_le_bytes()).unwrap();
+
+    let mut hosts = HostRegistry::new();
+    hosts
+        .register(
+            "env",
+            "touch",
+            vec![],
+            vec![ValueType::I32],
+            HostCapabilities::MEMORY_READ_WRITE,
+            |context, _args| {
+                let bytes = context.read_memory(0, 4)?;
+                let value = i32::from_le_bytes(
+                    bytes
+                        .as_slice()
+                        .try_into()
+                        .expect("four-byte imported-memory read"),
+                );
+                context.write_memory(4, b"WASM")?;
+                Ok(Some(Value::I32(value)))
+            },
+        )
+        .unwrap();
+    hosts.register_memory("env", "mem", memory.clone()).unwrap();
+
+    let mut instance = Instance::with_hosts(imported_memory_host_callback_module(), hosts).unwrap();
+    assert_eq!(
+        instance.invoke_export("touch", &[]).unwrap(),
+        Some(Value::I32(123))
+    );
+    assert_eq!(memory.read(4, 4).unwrap(), b"WASM");
 }
 
 #[test]
