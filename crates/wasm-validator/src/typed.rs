@@ -176,7 +176,6 @@ pub(super) fn validate_code(
                         global_index,
                     });
                 };
-                if global.ty.value_type != ValueType::I32 {}
                 stack.push(global.ty.value_type);
             }
             0x24 => {
@@ -195,7 +194,6 @@ pub(super) fn validate_code(
                         global_index,
                     });
                 }
-                if global.ty.value_type != ValueType::I32 {}
                 pop_expect(
                     &mut stack,
                     &controls,
