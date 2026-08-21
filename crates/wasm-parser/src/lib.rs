@@ -51,7 +51,10 @@ impl fmt::Display for ParseError {
             Self::UnsupportedValueType(tag) => write!(f, "unsupported value type 0x{tag:02x}"),
             Self::InvalidUtf8 => write!(f, "name is not valid UTF-8"),
             Self::InvalidImportKind(kind) => {
-                write!(f, "unsupported import kind {kind}; Phase 4 supports function imports only")
+                write!(
+                    f,
+                    "unsupported import kind {kind}; Phase 4 supports function imports only"
+                )
             }
             Self::InvalidExportKind(kind) => write!(f, "invalid export kind {kind}"),
             Self::InvalidLimitsFlags(flags) => {
@@ -546,7 +549,10 @@ mod tests {
         let mut bytes = imported_function_module();
         let kind_offset = bytes.len() - 2;
         bytes[kind_offset] = 0x02;
-        assert_eq!(parse_module(&bytes), Err(ParseError::InvalidImportKind(0x02)));
+        assert_eq!(
+            parse_module(&bytes),
+            Err(ParseError::InvalidImportKind(0x02))
+        );
     }
 
     #[test]
