@@ -5,6 +5,9 @@ use wast::parser::{self, ParseBuffer};
 use wast::{QuoteWat, Wast, WastArg, WastDirective, WastExecute, WastRet, Wat};
 
 const CONTRACT_FIXTURE: &str = include_str!("fixtures/phase5c_ingestion_contract.wast");
+const UPSTREAM_MANIFEST: &str = include_str!("fixtures/phase5c_upstream_manifest.tsv");
+const UPSTREAM_FUNC_SUBSET: &str = include_str!("fixtures/phase5c_upstream_func_subset.wast");
+const PINNED_UPSTREAM_SPEC_COMMIT: &str = "fc209c5ed8afc4dfeb9252024d217da3376c7a6f";
 
 #[derive(Debug, PartialEq, Eq)]
 enum FilterReason {
@@ -22,6 +25,15 @@ struct IngestionReport {
     modules: usize,
     executed_assertions: usize,
     skipped: Vec<FilterReason>,
+}
+
+#[derive(Debug)]
+struct ManifestEntry<'a> {
+    source: &'a str,
+    fixture: &'a str,
+    expected_modules: usize,
+    expected_executed_assertions: usize,
+    expected_filtered: usize,
 }
 
 #[derive(Debug)]
@@ -254,6 +266,62 @@ fn run_fixture(source: &str) -> IngestionReport {
     report
 }
 
+fn parse_manifest(source: &str) -> Vec<ManifestEntry<'_>> {
+    source
+        .lines()
+        .enumerate()
+        .filter_map(|(line_index, raw_line)| {
+            let line = raw_line.trim();
+            if line.is_empty() || line.starts_with('#') {
+                return None;
+            }
+
+            let fields = line.split('\t').collect::<Vec<_>>();
+            assert_eq!(
+                fields.len(),
+                6,
+                "manifest line {} must contain exactly six tab-separated fields",
+                line_index + 1
+            );
+            assert_eq!(
+                fields[0],
+                PINNED_UPSTREAM_SPEC_COMMIT,
+                "manifest line {} drifted from the pinned upstream commit",
+                line_index + 1
+            );
+            assert!(
+                fields[1].starts_with("test/core/") && fields[1].ends_with(".wast"),
+                "manifest line {} must name an upstream core .wast source",
+                line_index + 1
+            );
+
+            let parse_count = |field: &str, label: &str| {
+                field.parse::<usize>().unwrap_or_else(|error| {
+                    panic!(
+                        "manifest line {} has invalid {label} count {field:?}: {error}",
+                        line_index + 1
+                    )
+                })
+            };
+
+            Some(ManifestEntry {
+                source: fields[1],
+                fixture: fields[2],
+                expected_modules: parse_count(fields[3], "module"),
+                expected_executed_assertions: parse_count(fields[4], "executed assertion"),
+                expected_filtered: parse_count(fields[5], "filtered directive"),
+            })
+        })
+        .collect()
+}
+
+fn manifest_fixture(name: &str) -> &'static str {
+    match name {
+        "phase5c_upstream_func_subset.wast" => UPSTREAM_FUNC_SUBSET,
+        other => panic!("manifest names unregistered fixture {other:?}"),
+    }
+}
+
 #[test]
 fn systematic_wast_ingestion_executes_supported_subset_and_reports_filters() {
     let report = run_fixture(CONTRACT_FIXTURE);
@@ -269,6 +337,31 @@ fn systematic_wast_ingestion_executes_supported_subset_and_reports_filters() {
         &report.skipped[1],
         FilterReason::UnsupportedDirective(detail) if detail.starts_with("Register")
     ));
+}
+
+#[test]
+fn pinned_upstream_manifest_executes_with_exact_accounting() {
+    let entries = parse_manifest(UPSTREAM_MANIFEST);
+    assert!(!entries.is_empty(), "pinned upstream manifest must not be empty");
+
+    for entry in entries {
+        let report = run_fixture(manifest_fixture(entry.fixture));
+        assert_eq!(
+            report.modules, entry.expected_modules,
+            "upstream source {} module accounting drifted",
+            entry.source
+        );
+        assert_eq!(
+            report.executed_assertions, entry.expected_executed_assertions,
+            "upstream source {} executed-assertion accounting drifted",
+            entry.source
+        );
+        assert_eq!(
+            report.skipped.len(), entry.expected_filtered,
+            "upstream source {} filtered-directive accounting drifted: {:?}",
+            entry.source, report.skipped
+        );
+    }
 }
 
 #[test]
