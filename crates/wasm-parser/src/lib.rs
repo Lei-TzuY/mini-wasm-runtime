@@ -795,7 +795,12 @@ fn read_const_expr(cursor: &mut Cursor<'_>) -> Result<Constant, ParseError> {
         0x44 => Constant::F64(cursor.read_u64_le()?),
         other => return Err(ParseError::InvalidConstExprOpcode(other)),
     };
-    if cursor.read_u8()? != 0x0b {
+    let terminator = match cursor.read_u8() {
+        Ok(byte) => byte,
+        Err(ParseError::UnexpectedEof) => return Err(ParseError::ConstExprMissingEnd),
+        Err(error) => return Err(error),
+    };
+    if terminator != 0x0b {
         return Err(ParseError::ConstExprMissingEnd);
     }
     Ok(value)
