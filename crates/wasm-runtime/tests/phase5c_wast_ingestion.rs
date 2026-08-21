@@ -9,6 +9,7 @@ const CONTRACT_FIXTURE: &str = include_str!("fixtures/phase5c_ingestion_contract
 const UPSTREAM_MANIFEST: &str = include_str!("fixtures/phase5c_upstream_manifest.tsv");
 const UPSTREAM_FUNC_SUBSET: &str = include_str!("fixtures/phase5c_upstream_func_subset.wast");
 const UPSTREAM_I32_SUBSET: &str = include_str!("fixtures/phase5c_upstream_i32_subset.wast");
+const UPSTREAM_MEMORY_SUBSET: &str = include_str!("fixtures/phase5c_upstream_memory_subset.wast");
 const PINNED_UPSTREAM_SPEC_COMMIT: &str = "fc209c5ed8afc4dfeb9252024d217da3376c7a6f";
 
 #[derive(Debug, PartialEq, Eq)]
@@ -321,6 +322,7 @@ fn manifest_fixture(name: &str) -> &'static str {
     match name {
         "phase5c_upstream_func_subset.wast" => UPSTREAM_FUNC_SUBSET,
         "phase5c_upstream_i32_subset.wast" => UPSTREAM_I32_SUBSET,
+        "phase5c_upstream_memory_subset.wast" => UPSTREAM_MEMORY_SUBSET,
         other => panic!("manifest names unregistered fixture {other:?}"),
     }
 }
