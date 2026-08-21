@@ -921,12 +921,7 @@ impl Instance {
         budget.consume_host_call(self.limits.max_host_calls)?;
         let import = self.module.imports[import_index].clone();
         let ty = self.module.types[import.type_index as usize].clone();
-        if args.len() != ty.params.len() {
-            return Err(RuntimeError::WrongArgumentCount {
-                expected: ty.params.len(),
-                actual: args.len(),
-            });
-        }
+        validate_values(&ty.params, args)?;
 
         let key = (import.module.clone(), import.name.clone());
         let (hosts, memory) = (&mut self.hosts, &mut self.memory);
@@ -1126,8 +1121,7 @@ impl Instance {
                     if table_index != 0 || self.table.is_none() {
                         return Err(RuntimeError::TableIndexOutOfBounds(table_index));
                     }
-                    let element_index =
-                        stack.pop().ok_or(RuntimeError::StackUnderflow)?.as_i32() as u32;
+                    let element_index = numeric::i32_from_stack(&mut stack)? as u32;
                     let callee = self
                         .table
                         .as_ref()
@@ -1232,7 +1226,7 @@ impl Instance {
                 }
                 0x36 | 0x3a | 0x3b => {
                     let (_, displacement) = read_memarg(code, &mut pc)?;
-                    let value = stack.pop().ok_or(RuntimeError::StackUnderflow)?.as_i32();
+                    let value = numeric::i32_from_stack(&mut stack)?;
                     let address = numeric::i32_from_stack(&mut stack)?;
                     match opcode {
                         0x36 => self.memory_mut()?.store_i32(address, displacement, value)?,
