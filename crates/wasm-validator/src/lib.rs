@@ -1,11 +1,10 @@
 //! Typed validation for the executable WebAssembly subset.
 //!
-//! Phase 3 keeps the value domain intentionally small (i32 only) while adding
-//! one linear memory, typed memory instructions, limits, exports, and active
-//! data-segment invariants.
+//! Phase 4 keeps the executable value domain intentionally i32-only while
+//! extending the function index space with typed function imports.
 
 use std::{collections::HashSet, fmt};
-use wasm_parser::{decode_i32, decode_u32, ExportKind, Module, ValueType};
+use wasm_parser::{decode_i32, decode_u32, ExportKind, FuncType, Module, ValueType};
 
 pub const MAX_MEMORY_PAGES: u32 = 65_536;
 
@@ -14,6 +13,18 @@ pub enum ValidationError {
     FunctionCodeLengthMismatch {
         functions: usize,
         bodies: usize,
+    },
+    ImportTypeIndexOutOfBounds {
+        import: usize,
+        type_index: u32,
+    },
+    UnsupportedImportResultArity {
+        import: usize,
+        results: usize,
+    },
+    UnsupportedImportValueType {
+        import: usize,
+        value_type: ValueType,
     },
     TypeIndexOutOfBounds {
         function: usize,
@@ -139,6 +150,18 @@ impl fmt::Display for ValidationError {
             Self::FunctionCodeLengthMismatch { functions, bodies } => write!(
                 f,
                 "function section declares {functions} functions but code section has {bodies} bodies"
+            ),
+            Self::ImportTypeIndexOutOfBounds { import, type_index } => write!(
+                f,
+                "function import {import} refers to missing type index {type_index}"
+            ),
+            Self::UnsupportedImportResultArity { import, results } => write!(
+                f,
+                "function import {import} has {results} results; this runtime supports at most one"
+            ),
+            Self::UnsupportedImportValueType { import, value_type } => write!(
+                f,
+                "function import {import} uses {value_type:?}; host calls are currently i32-only"
             ),
             Self::TypeIndexOutOfBounds {
                 function,
@@ -320,6 +343,7 @@ struct ControlFrame {
 
 pub fn validate(module: &Module) -> Result<(), ValidationError> {
     validate_memories(module)?;
+    validate_imports(module)?;
 
     if module.function_type_indices.len() != module.code.len() {
         return Err(ValidationError::FunctionCodeLengthMismatch {
@@ -328,7 +352,8 @@ pub fn validate(module: &Module) -> Result<(), ValidationError> {
         });
     }
 
-    for (function, &type_index) in module.function_type_indices.iter().enumerate() {
+    for (defined, &type_index) in module.function_type_indices.iter().enumerate() {
+        let function = module.imports.len() + defined;
         if type_index as usize >= module.types.len() {
             return Err(ValidationError::TypeIndexOutOfBounds {
                 function,
@@ -337,7 +362,8 @@ pub fn validate(module: &Module) -> Result<(), ValidationError> {
         }
     }
 
-    for (function, &type_index) in module.function_type_indices.iter().enumerate() {
+    for (defined, &type_index) in module.function_type_indices.iter().enumerate() {
+        let function = module.imports.len() + defined;
         let function_type = &module.types[type_index as usize];
         if function_type.results.len() > 1 {
             return Err(ValidationError::UnsupportedResultArity {
@@ -354,16 +380,23 @@ pub fn validate(module: &Module) -> Result<(), ValidationError> {
         }
 
         let mut local_count = function_type.params.len();
-        for &(count, value_type) in &module.code[function].locals {
+        for &(count, value_type) in &module.code[defined].locals {
             ensure_i32(function, value_type)?;
             local_count = local_count
                 .checked_add(count as usize)
                 .ok_or(ValidationError::LocalCountOverflow { function })?;
         }
 
-        validate_code(module, function, local_count, function_type.results.len())?;
+        validate_code(
+            module,
+            defined,
+            function,
+            local_count,
+            function_type.results.len(),
+        )?;
     }
 
+    let total_functions = module.imports.len() + module.function_type_indices.len();
     let mut names = HashSet::new();
     for export in &module.exports {
         if !names.insert(export.name.as_str()) {
@@ -371,7 +404,7 @@ pub fn validate(module: &Module) -> Result<(), ValidationError> {
         }
         match export.kind {
             ExportKind::Function => {
-                if export.index as usize >= module.function_type_indices.len() {
+                if export.index as usize >= total_functions {
                     return Err(ValidationError::FunctionExportOutOfBounds {
                         name: export.name.clone(),
                         function_index: export.index,
@@ -403,6 +436,33 @@ pub fn validate(module: &Module) -> Result<(), ValidationError> {
         }
     }
 
+    Ok(())
+}
+
+fn validate_imports(module: &Module) -> Result<(), ValidationError> {
+    for (import, entry) in module.imports.iter().enumerate() {
+        let Some(function_type) = module.types.get(entry.type_index as usize) else {
+            return Err(ValidationError::ImportTypeIndexOutOfBounds {
+                import,
+                type_index: entry.type_index,
+            });
+        };
+        if function_type.results.len() > 1 {
+            return Err(ValidationError::UnsupportedImportResultArity {
+                import,
+                results: function_type.results.len(),
+            });
+        }
+        for &value_type in function_type
+            .params
+            .iter()
+            .chain(function_type.results.iter())
+        {
+            if value_type != ValueType::I32 {
+                return Err(ValidationError::UnsupportedImportValueType { import, value_type });
+            }
+        }
+    }
     Ok(())
 }
 
@@ -448,13 +508,25 @@ fn ensure_i32(function: usize, value_type: ValueType) -> Result<(), ValidationEr
     }
 }
 
+fn function_type(module: &Module, function_index: u32) -> Option<&FuncType> {
+    let function = function_index as usize;
+    if function < module.imports.len() {
+        let type_index = module.imports[function].type_index as usize;
+        return module.types.get(type_index);
+    }
+    let defined = function.checked_sub(module.imports.len())?;
+    let type_index = *module.function_type_indices.get(defined)? as usize;
+    module.types.get(type_index)
+}
+
 fn validate_code(
     module: &Module,
+    body_index: usize,
     function: usize,
     local_count: usize,
     function_result_arity: usize,
 ) -> Result<(), ValidationError> {
-    let code = &module.code[function].code;
+    let code = &module.code[body_index].code;
     if code.last().copied() != Some(0x0b) {
         return Err(ValidationError::MissingFunctionEnd { function });
     }
@@ -547,16 +619,13 @@ fn validate_code(
             }
             0x10 => {
                 let target = read_u32_immediate(code, &mut pc, function, offset)?;
-                let target_function = target as usize;
-                if target_function >= module.function_type_indices.len() {
+                let Some(ty) = function_type(module, target) else {
                     return Err(ValidationError::CallTargetOutOfBounds {
                         function,
                         offset,
                         target,
                     });
-                }
-                let target_type = module.function_type_indices[target_function] as usize;
-                let ty = &module.types[target_type];
+                };
                 pop_values(
                     &mut stack_height,
                     &controls,
@@ -850,7 +919,7 @@ fn read_u32_immediate(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use wasm_parser::{DataSegment, Export, FuncType, FunctionBody, Limits, MemoryType};
+    use wasm_parser::{DataSegment, Export, FuncType, FunctionBody, Import, Limits, MemoryType};
 
     fn module_with_code(params: usize, results: usize, code: Vec<u8>) -> Module {
         Module {
@@ -883,9 +952,93 @@ mod tests {
         module_with_code(1, 1, vec![0x20, 0x00, 0x0b])
     }
 
+    fn import(module: &str, name: &str, type_index: u32) -> Import {
+        Import {
+            module: module.into(),
+            name: name.into(),
+            type_index,
+        }
+    }
+
     #[test]
     fn accepts_structurally_valid_module() {
         assert_eq!(validate(&valid_module()), Ok(()));
+    }
+
+    #[test]
+    fn accepts_imported_function_export() {
+        let module = Module {
+            types: vec![FuncType {
+                params: vec![ValueType::I32],
+                results: vec![ValueType::I32],
+            }],
+            imports: vec![import("env", "double", 0)],
+            exports: vec![Export {
+                name: "double".into(),
+                kind: ExportKind::Function,
+                index: 0,
+            }],
+            ..Module::default()
+        };
+        assert_eq!(validate(&module), Ok(()));
+    }
+
+    #[test]
+    fn defined_function_can_call_import() {
+        let module = Module {
+            types: vec![FuncType {
+                params: vec![ValueType::I32],
+                results: vec![ValueType::I32],
+            }],
+            imports: vec![import("env", "double", 0)],
+            function_type_indices: vec![0],
+            exports: vec![Export {
+                name: "run".into(),
+                kind: ExportKind::Function,
+                index: 1,
+            }],
+            code: vec![FunctionBody {
+                locals: vec![],
+                code: vec![0x20, 0x00, 0x10, 0x00, 0x0b],
+            }],
+            ..Module::default()
+        };
+        assert_eq!(validate(&module), Ok(()));
+    }
+
+    #[test]
+    fn rejects_bad_import_type_index() {
+        let module = Module {
+            types: vec![],
+            imports: vec![import("env", "f", 2)],
+            ..Module::default()
+        };
+        assert_eq!(
+            validate(&module),
+            Err(ValidationError::ImportTypeIndexOutOfBounds {
+                import: 0,
+                type_index: 2,
+            })
+        );
+    }
+
+    #[test]
+    fn rejects_non_i32_import_signature() {
+        let module = Module {
+            types: vec![FuncType {
+                params: vec![ValueType::I64],
+                results: vec![],
+            }],
+            imports: vec![import("env", "f", 0)],
+            ..Module::default()
+        };
+        assert_eq!(
+            validate(&module),
+            Err(ValidationError::UnsupportedImportValueType {
+                import: 0,
+                value_type: ValueType::I64,
+            })
+        );
     }
 
     #[test]
@@ -895,11 +1048,7 @@ mod tests {
                 2,
                 1,
                 vec![
-                    0x20, 0x00, // local.get address
-                    0x20, 0x01, // local.get value
-                    0x36, 0x02, 0x00, // i32.store align=4 offset=0
-                    0x20, 0x00, // local.get address
-                    0x28, 0x02, 0x00, // i32.load
+                    0x20, 0x00, 0x20, 0x01, 0x36, 0x02, 0x00, 0x20, 0x00, 0x28, 0x02, 0x00,
                     0x0b,
                 ],
             ),
@@ -1074,15 +1223,7 @@ mod tests {
         let module = module_with_code(
             1,
             1,
-            vec![
-                0x20, 0x00, // local.get 0
-                0x04, 0x7f, // if (result i32)
-                0x41, 0x01, // i32.const 1
-                0x05, // else
-                0x41, 0x02, // i32.const 2
-                0x0b, // end if
-                0x0b, // end function
-            ],
+            vec![0x20, 0x00, 0x04, 0x7f, 0x41, 0x01, 0x05, 0x41, 0x02, 0x0b, 0x0b],
         );
         assert_eq!(validate(&module), Ok(()));
     }
@@ -1092,13 +1233,7 @@ mod tests {
         let module = module_with_code(
             0,
             1,
-            vec![
-                0x02, 0x7f, // block (result i32)
-                0x41, 0x2a, // i32.const 42
-                0x0c, 0x00, // br 0
-                0x0b, // end block
-                0x0b, // end function
-            ],
+            vec![0x02, 0x7f, 0x41, 0x2a, 0x0c, 0x00, 0x0b, 0x0b],
         );
         assert_eq!(validate(&module), Ok(()));
     }
@@ -1109,15 +1244,8 @@ mod tests {
             1,
             1,
             vec![
-                0x03, 0x40, // loop
-                0x20, 0x00, // local.get 0
-                0x41, 0x01, // i32.const 1
-                0x6b, // i32.sub
-                0x22, 0x00, // local.tee 0
-                0x0d, 0x00, // br_if 0
-                0x0b, // end loop
-                0x20, 0x00, // local.get 0
-                0x0b, // end function
+                0x03, 0x40, 0x20, 0x00, 0x41, 0x01, 0x6b, 0x22, 0x00, 0x0d, 0x00, 0x0b, 0x20,
+                0x00, 0x0b,
             ],
         );
         assert_eq!(validate(&module), Ok(()));
@@ -1125,16 +1253,7 @@ mod tests {
 
     #[test]
     fn unreachable_code_is_stack_polymorphic_but_still_opcode_checked() {
-        let valid = module_with_code(
-            1,
-            1,
-            vec![
-                0x20, 0x00, // result
-                0x0f, // return
-                0x6a, // unreachable i32.add: stack-polymorphic
-                0x0b,
-            ],
-        );
+        let valid = module_with_code(1, 1, vec![0x20, 0x00, 0x0f, 0x6a, 0x0b]);
         assert_eq!(validate(&valid), Ok(()));
 
         let invalid = module_with_code(1, 1, vec![0x20, 0x00, 0x0f, 0x01, 0x0b]);
