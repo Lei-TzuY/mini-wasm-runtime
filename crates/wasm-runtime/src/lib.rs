@@ -310,8 +310,143 @@ impl TableHandle {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum MemoryHandleError {
+    InvalidLimits { minimum: u32, maximum: u32 },
+    LimitExceeded { pages: u32, limit: u32 },
+    AllocationFailed { pages: u32 },
+    OutOfBounds { address: u64, width: usize },
+}
+
+impl fmt::Display for MemoryHandleError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::InvalidLimits { minimum, maximum } => write!(
+                f,
+                "memory minimum {minimum} exceeds declared maximum {maximum}"
+            ),
+            Self::LimitExceeded { pages, limit } => {
+                write!(
+                    f,
+                    "memory limit {pages} pages exceeds WebAssembly limit {limit}"
+                )
+            }
+            Self::AllocationFailed { pages } => {
+                write!(f, "failed to allocate linear memory with {pages} pages")
+            }
+            Self::OutOfBounds { address, width } => write!(
+                f,
+                "memory access at byte {address} with width {width} is out of bounds"
+            ),
+        }
+    }
+}
+
+impl std::error::Error for MemoryHandleError {}
+
+#[derive(Clone)]
+pub struct MemoryHandle {
+    memory: Rc<RefCell<LinearMemory>>,
+    minimum: u32,
+    maximum: Option<u32>,
+}
+
+impl fmt::Debug for MemoryHandle {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("MemoryHandle")
+            .field("minimum", &self.minimum)
+            .field("maximum", &self.maximum)
+            .field("size_pages", &self.size_pages())
+            .finish()
+    }
+}
+
+impl MemoryHandle {
+    pub fn new(minimum: u32, maximum: Option<u32>) -> Result<Self, MemoryHandleError> {
+        if let Some(maximum) = maximum {
+            if minimum > maximum {
+                return Err(MemoryHandleError::InvalidLimits { minimum, maximum });
+            }
+            if maximum > MAX_MEMORY_PAGES {
+                return Err(MemoryHandleError::LimitExceeded {
+                    pages: maximum,
+                    limit: MAX_MEMORY_PAGES,
+                });
+            }
+        }
+        if minimum > MAX_MEMORY_PAGES {
+            return Err(MemoryHandleError::LimitExceeded {
+                pages: minimum,
+                limit: MAX_MEMORY_PAGES,
+            });
+        }
+        let byte_len = pages_to_bytes(minimum)
+            .ok_or(MemoryHandleError::AllocationFailed { pages: minimum })?;
+        let mut bytes = Vec::new();
+        bytes
+            .try_reserve_exact(byte_len)
+            .map_err(|_| MemoryHandleError::AllocationFailed { pages: minimum })?;
+        bytes.resize(byte_len, 0);
+        let max_pages = maximum.unwrap_or(MAX_MEMORY_PAGES);
+        Ok(Self {
+            memory: Rc::new(RefCell::new(LinearMemory { bytes, max_pages })),
+            minimum,
+            maximum,
+        })
+    }
+
+    pub fn minimum(&self) -> u32 {
+        self.minimum
+    }
+
+    pub fn maximum(&self) -> Option<u32> {
+        self.maximum
+    }
+
+    pub fn size_pages(&self) -> u32 {
+        self.memory.borrow().size_pages()
+    }
+
+    pub fn read(&self, address: u32, length: usize) -> Result<Vec<u8>, MemoryHandleError> {
+        let memory = self.memory.borrow();
+        let range = memory
+            .checked_host_range(address, length)
+            .map_err(|error| match error {
+                HostError::MemoryOutOfBounds { address, width } => {
+                    MemoryHandleError::OutOfBounds { address, width }
+                }
+                _ => unreachable!("checked_host_range only reports bounds errors"),
+            })?;
+        Ok(memory.bytes[range].to_vec())
+    }
+
+    pub fn write(&self, address: u32, bytes: &[u8]) -> Result<(), MemoryHandleError> {
+        let mut memory = self.memory.borrow_mut();
+        let range =
+            memory
+                .checked_host_range(address, bytes.len())
+                .map_err(|error| match error {
+                    HostError::MemoryOutOfBounds { address, width } => {
+                        MemoryHandleError::OutOfBounds { address, width }
+                    }
+                    _ => unreachable!("checked_host_range only reports bounds errors"),
+                })?;
+        memory.bytes[range].copy_from_slice(bytes);
+        Ok(())
+    }
+
+    pub fn grow(&self, delta_pages: u32) -> i32 {
+        self.memory.borrow_mut().grow(delta_pages)
+    }
+}
+
+enum HostMemory<'a> {
+    Owned(&'a mut LinearMemory),
+    Shared(MemoryHandle),
+}
+
 pub struct HostContext<'a> {
-    memory: Option<&'a mut LinearMemory>,
+    memory: Option<HostMemory<'a>>,
     capabilities: HostCapabilities,
 }
 
@@ -320,32 +455,51 @@ impl HostContext<'_> {
         if !self.capabilities.memory_read {
             return Err(HostError::CapabilityDenied("memory.read"));
         }
-        self.memory
-            .as_deref()
-            .map(LinearMemory::size_pages)
-            .ok_or(HostError::MemoryUnavailable)
+        match self.memory.as_ref().ok_or(HostError::MemoryUnavailable)? {
+            HostMemory::Owned(memory) => Ok(memory.size_pages()),
+            HostMemory::Shared(memory) => Ok(memory.size_pages()),
+        }
     }
 
     pub fn read_memory(&self, address: u32, length: usize) -> Result<Vec<u8>, HostError> {
         if !self.capabilities.memory_read {
             return Err(HostError::CapabilityDenied("memory.read"));
         }
-        let memory = self.memory.as_deref().ok_or(HostError::MemoryUnavailable)?;
-        let range = memory.checked_host_range(address, length)?;
-        Ok(memory.bytes[range].to_vec())
+        match self.memory.as_ref().ok_or(HostError::MemoryUnavailable)? {
+            HostMemory::Owned(memory) => {
+                let range = memory.checked_host_range(address, length)?;
+                Ok(memory.bytes[range].to_vec())
+            }
+            HostMemory::Shared(memory) => {
+                memory.read(address, length).map_err(|error| match error {
+                    MemoryHandleError::OutOfBounds { address, width } => {
+                        HostError::MemoryOutOfBounds { address, width }
+                    }
+                    _ => HostError::MemoryUnavailable,
+                })
+            }
+        }
     }
 
     pub fn write_memory(&mut self, address: u32, bytes: &[u8]) -> Result<(), HostError> {
         if !self.capabilities.memory_write {
             return Err(HostError::CapabilityDenied("memory.write"));
         }
-        let memory = self
-            .memory
-            .as_deref_mut()
-            .ok_or(HostError::MemoryUnavailable)?;
-        let range = memory.checked_host_range(address, bytes.len())?;
-        memory.bytes[range].copy_from_slice(bytes);
-        Ok(())
+        match self.memory.as_mut().ok_or(HostError::MemoryUnavailable)? {
+            HostMemory::Owned(memory) => {
+                let range = memory.checked_host_range(address, bytes.len())?;
+                memory.bytes[range].copy_from_slice(bytes);
+                Ok(())
+            }
+            HostMemory::Shared(memory) => {
+                memory.write(address, bytes).map_err(|error| match error {
+                    MemoryHandleError::OutOfBounds { address, width } => {
+                        HostError::MemoryOutOfBounds { address, width }
+                    }
+                    _ => HostError::MemoryUnavailable,
+                })
+            }
+        }
     }
 }
 
@@ -365,6 +519,7 @@ pub enum HostRegistryError {
     DuplicateFunction { module: String, name: String },
     DuplicateGlobal { module: String, name: String },
     DuplicateTable { module: String, name: String },
+    DuplicateMemory { module: String, name: String },
     UnsupportedSignature,
 }
 
@@ -379,6 +534,9 @@ impl fmt::Display for HostRegistryError {
             }
             Self::DuplicateTable { module, name } => {
                 write!(f, "host table {module}.{name} is already registered")
+            }
+            Self::DuplicateMemory { module, name } => {
+                write!(f, "host memory {module}.{name} is already registered")
             }
             Self::UnsupportedSignature => write!(
                 f,
@@ -395,6 +553,7 @@ pub struct HostRegistry {
     functions: HashMap<(String, String), HostFunction>,
     globals: HashMap<(String, String), GlobalHandle>,
     tables: HashMap<(String, String), TableHandle>,
+    memories: HashMap<(String, String), MemoryHandle>,
 }
 
 impl fmt::Debug for HostRegistry {
@@ -403,6 +562,7 @@ impl fmt::Debug for HostRegistry {
             .field("function_count", &self.functions.len())
             .field("global_count", &self.globals.len())
             .field("table_count", &self.tables.len())
+            .field("memory_count", &self.memories.len())
             .finish()
     }
 }
@@ -489,6 +649,22 @@ impl HostRegistry {
             return Err(HostRegistryError::DuplicateTable { module, name });
         }
         self.tables.insert(key, table);
+        Ok(())
+    }
+
+    pub fn register_memory(
+        &mut self,
+        module: impl Into<String>,
+        name: impl Into<String>,
+        memory: MemoryHandle,
+    ) -> Result<(), HostRegistryError> {
+        let module = module.into();
+        let name = name.into();
+        let key = (module.clone(), name.clone());
+        if self.memories.contains_key(&key) {
+            return Err(HostRegistryError::DuplicateMemory { module, name });
+        }
+        self.memories.insert(key, memory);
         Ok(())
     }
 }
@@ -595,6 +771,24 @@ pub enum RuntimeError {
     UnresolvedTableImport {
         module: String,
         name: String,
+    },
+    UnresolvedMemoryImport {
+        module: String,
+        name: String,
+    },
+    HostMemoryLimitsMismatch {
+        module: String,
+        name: String,
+        expected_minimum: u32,
+        expected_maximum: Option<u32>,
+        actual_minimum: u32,
+        actual_maximum: Option<u32>,
+    },
+    HostMemoryRuntimeLimitMismatch {
+        module: String,
+        name: String,
+        memory_limit: u32,
+        runtime_limit: u32,
     },
     HostTableLimitsMismatch {
         module: String,
@@ -746,9 +940,32 @@ impl fmt::Display for RuntimeError {
                 write!(f, "unresolved host immutable global import {module}.{name}")
             }
             Self::UnresolvedTableImport { module, name } => {
-                write!(f, "unresolved host table import {module}.{name}")
-            }
-            Self::HostTableLimitsMismatch {
+            write!(f, "unresolved host table import {module}.{name}")
+        }
+        Self::UnresolvedMemoryImport { module, name } => {
+            write!(f, "unresolved host memory import {module}.{name}")
+        }
+        Self::HostMemoryLimitsMismatch {
+            module,
+            name,
+            expected_minimum,
+            expected_maximum,
+            actual_minimum,
+            actual_maximum,
+        } => write!(
+            f,
+            "host memory {module}.{name} has limits min={actual_minimum} max={actual_maximum:?}, which do not satisfy imported min={expected_minimum} max={expected_maximum:?}"
+        ),
+        Self::HostMemoryRuntimeLimitMismatch {
+            module,
+            name,
+            memory_limit,
+            runtime_limit,
+        } => write!(
+            f,
+            "host memory {module}.{name} can reach {memory_limit} pages, exceeding runtime limit {runtime_limit}"
+        ),
+        Self::HostTableLimitsMismatch {
                 module,
                 name,
                 expected_minimum,
@@ -1117,6 +1334,7 @@ pub struct Instance {
     module: Module,
     control_maps: Vec<ControlMap>,
     memory: Option<LinearMemory>,
+    imported_memory: Option<MemoryHandle>,
     table: Option<TableHandle>,
     globals: Vec<GlobalHandle>,
     hosts: HostRegistry,
@@ -1138,24 +1356,28 @@ impl Instance {
         limits: RuntimeLimits,
     ) -> Result<Self, RuntimeError> {
         validate(&module)?;
-        reject_unsupported_object_imports(&module)?;
-        validate_host_bindings(&module, &hosts)?;
+        validate_host_bindings(&module, &hosts, limits)?;
         let control_maps = module
             .code
             .iter()
             .map(|body| build_control_map(&module, &body.code))
             .collect::<Result<Vec<_>, _>>()?;
-        let memory = module
-            .memories
-            .first()
-            .map(|memory_type| {
-                LinearMemory::new(
-                    memory_type.limits.min,
-                    memory_type.limits.max,
-                    limits.max_memory_pages,
-                )
-            })
-            .transpose()?;
+        let imported_memory = instantiate_imported_memory(&module, &hosts, limits)?;
+        let memory = if imported_memory.is_none() {
+            module
+                .memories
+                .first()
+                .map(|memory_type| {
+                    LinearMemory::new(
+                        memory_type.limits.min,
+                        memory_type.limits.max,
+                        limits.max_memory_pages,
+                    )
+                })
+                .transpose()?
+        } else {
+            None
+        };
         let identity = Rc::new(());
         let table = instantiate_table(&module, &hosts, &identity)?;
         let globals = instantiate_globals(&module, &hosts)?;
@@ -1165,6 +1387,7 @@ impl Instance {
             module,
             control_maps,
             memory,
+            imported_memory,
             table,
             globals,
             hosts,
@@ -1214,7 +1437,10 @@ impl Instance {
     }
 
     fn initialize_data_segments(&mut self) -> Result<(), RuntimeError> {
-        for (segment_index, segment) in self.module.data.iter().enumerate() {
+        let data = self.module.data.clone();
+
+        // Preflight all active segments before mutating a potentially host-shared memory.
+        for (segment_index, segment) in data.iter().enumerate() {
             let offset = u64::from(segment.offset as u32);
             let end = offset.checked_add(segment.bytes.len() as u64).ok_or(
                 RuntimeError::DataSegmentOutOfBounds {
@@ -1223,18 +1449,26 @@ impl Instance {
                     length: segment.bytes.len(),
                 },
             )?;
-            let memory = self
-                .memory
-                .as_mut()
-                .ok_or(RuntimeError::MemoryUnavailable)?;
-            if end > memory.bytes.len() as u64 {
+            let memory_len = self.with_memory(|memory| Ok(memory.bytes.len() as u64))?;
+            if end > memory_len {
                 return Err(RuntimeError::DataSegmentOutOfBounds {
                     segment: segment_index,
                     offset,
                     length: segment.bytes.len(),
                 });
             }
-            memory.bytes[offset as usize..end as usize].copy_from_slice(&segment.bytes);
+        }
+
+        for segment in &data {
+            let offset = u64::from(segment.offset as u32);
+            self.with_memory_mut(|memory| {
+                let start = usize::try_from(offset).map_err(|_| {
+                    RuntimeError::ControlInvariant("preflighted data offset no longer fits usize")
+                })?;
+                let end = start + segment.bytes.len();
+                memory.bytes[start..end].copy_from_slice(&segment.bytes);
+                Ok(())
+            })?;
         }
         Ok(())
     }
@@ -1289,12 +1523,32 @@ impl Instance {
         Ok(())
     }
 
-    fn memory_ref(&self) -> Result<&LinearMemory, RuntimeError> {
-        self.memory.as_ref().ok_or(RuntimeError::MemoryUnavailable)
+    fn with_memory<R>(
+        &self,
+        f: impl FnOnce(&LinearMemory) -> Result<R, RuntimeError>,
+    ) -> Result<R, RuntimeError> {
+        if let Some(memory) = self.memory.as_ref() {
+            return f(memory);
+        }
+        if let Some(memory) = self.imported_memory.as_ref() {
+            let memory = memory.memory.borrow();
+            return f(&memory);
+        }
+        Err(RuntimeError::MemoryUnavailable)
     }
 
-    fn memory_mut(&mut self) -> Result<&mut LinearMemory, RuntimeError> {
-        self.memory.as_mut().ok_or(RuntimeError::MemoryUnavailable)
+    fn with_memory_mut<R>(
+        &mut self,
+        f: impl FnOnce(&mut LinearMemory) -> Result<R, RuntimeError>,
+    ) -> Result<R, RuntimeError> {
+        if let Some(memory) = self.memory.as_mut() {
+            return f(memory);
+        }
+        if let Some(memory) = self.imported_memory.as_ref() {
+            let mut memory = memory.memory.borrow_mut();
+            return f(&mut memory);
+        }
+        Err(RuntimeError::MemoryUnavailable)
     }
 
     fn function_type(&self, function_index: u32) -> Result<FuncType, RuntimeError> {
@@ -1340,7 +1594,8 @@ impl Instance {
         validate_values(&ty.params, args)?;
 
         let key = (import.module.clone(), import.name.clone());
-        let (hosts, memory) = (&mut self.hosts, &mut self.memory);
+        let (hosts, memory, imported_memory) =
+            (&mut self.hosts, &mut self.memory, &self.imported_memory);
         let host = hosts
             .functions
             .get_mut(&key)
@@ -1348,8 +1603,13 @@ impl Instance {
                 module: import.module.clone(),
                 name: import.name.clone(),
             })?;
+        let context_memory = if let Some(shared) = imported_memory.as_ref() {
+            Some(HostMemory::Shared(shared.clone()))
+        } else {
+            memory.as_mut().map(HostMemory::Owned)
+        };
         let mut context = HostContext {
-            memory: memory.as_mut(),
+            memory: context_memory,
             capabilities: host.capabilities,
         };
         let result =
@@ -1648,11 +1908,21 @@ impl Instance {
                     let (_, displacement) = read_memarg(code, &mut pc)?;
                     let address = numeric::i32_from_stack(&mut stack)?;
                     let value = match opcode {
-                        0x28 => self.memory_ref()?.load_i32(address, displacement)?,
-                        0x2c => self.memory_ref()?.load_i8_s(address, displacement)?,
-                        0x2d => self.memory_ref()?.load_i8_u(address, displacement)?,
-                        0x2e => self.memory_ref()?.load_i16_s(address, displacement)?,
-                        0x2f => self.memory_ref()?.load_i16_u(address, displacement)?,
+                        0x28 => {
+                            self.with_memory(|memory| memory.load_i32(address, displacement))?
+                        }
+                        0x2c => {
+                            self.with_memory(|memory| memory.load_i8_s(address, displacement))?
+                        }
+                        0x2d => {
+                            self.with_memory(|memory| memory.load_i8_u(address, displacement))?
+                        }
+                        0x2e => {
+                            self.with_memory(|memory| memory.load_i16_s(address, displacement))?
+                        }
+                        0x2f => {
+                            self.with_memory(|memory| memory.load_i16_u(address, displacement))?
+                        }
                         _ => unreachable!(),
                     };
                     stack.push(Value::I32(value));
@@ -1662,22 +1932,30 @@ impl Instance {
                     let value = numeric::i32_from_stack(&mut stack)?;
                     let address = numeric::i32_from_stack(&mut stack)?;
                     match opcode {
-                        0x36 => self.memory_mut()?.store_i32(address, displacement, value)?,
-                        0x3a => self.memory_mut()?.store_i8(address, displacement, value)?,
-                        0x3b => self.memory_mut()?.store_i16(address, displacement, value)?,
+                        0x36 => self.with_memory_mut(|memory| {
+                            memory.store_i32(address, displacement, value)
+                        })?,
+                        0x3a => self.with_memory_mut(|memory| {
+                            memory.store_i8(address, displacement, value)
+                        })?,
+                        0x3b => self.with_memory_mut(|memory| {
+                            memory.store_i16(address, displacement, value)
+                        })?,
                         _ => unreachable!(),
                     }
                 }
                 0x3f => {
                     let memory_index = read_u32_immediate(code, &mut pc)?;
                     ensure_runtime_memory_index(self, memory_index)?;
-                    stack.push(Value::I32(self.memory_ref()?.size_pages() as i32));
+                    stack.push(Value::I32(
+                        self.with_memory(|memory| Ok(memory.size_pages()))? as i32,
+                    ));
                 }
                 0x40 => {
                     let memory_index = read_u32_immediate(code, &mut pc)?;
                     ensure_runtime_memory_index(self, memory_index)?;
                     let delta = numeric::i32_from_stack(&mut stack)? as u32;
-                    let previous = self.memory_mut()?.grow(delta);
+                    let previous = self.with_memory_mut(|memory| Ok(memory.grow(delta)))?;
                     stack.push(Value::I32(previous));
                 }
                 0x41 => {
@@ -1735,23 +2013,11 @@ impl Instance {
     }
 }
 
-fn reject_unsupported_object_imports(module: &Module) -> Result<(), RuntimeError> {
-    for import in &module.imports {
-        match import.desc {
-            ImportDesc::Function(_) | ImportDesc::Global(_) | ImportDesc::Table(_) => {}
-            _ => {
-                return Err(RuntimeError::UnsupportedObjectImport {
-                    module: import.module.clone(),
-                    name: import.name.clone(),
-                    kind: import.kind(),
-                });
-            }
-        }
-    }
-    Ok(())
-}
-
-fn validate_host_bindings(module: &Module, hosts: &HostRegistry) -> Result<(), RuntimeError> {
+fn validate_host_bindings(
+    module: &Module,
+    hosts: &HostRegistry,
+    limits: RuntimeLimits,
+) -> Result<(), RuntimeError> {
     for import in module.function_imports() {
         let key = (import.module.clone(), import.name.clone());
         let host = hosts
@@ -1789,6 +2055,28 @@ fn validate_host_bindings(module: &Module, hosts: &HostRegistry) -> Result<(), R
     }
 
     for import in &module.imports {
+        let ImportDesc::Memory(memory_type) = import.desc else {
+            continue;
+        };
+        let key = (import.module.clone(), import.name.clone());
+        let memory =
+            hosts
+                .memories
+                .get(&key)
+                .ok_or_else(|| RuntimeError::UnresolvedMemoryImport {
+                    module: import.module.clone(),
+                    name: import.name.clone(),
+                })?;
+        validate_memory_limits(
+            import,
+            memory_type.limits.min,
+            memory_type.limits.max,
+            memory,
+        )?;
+        validate_memory_runtime_limit(import, memory, limits.max_memory_pages)?;
+    }
+
+    for import in &module.imports {
         let ImportDesc::Global(global_type) = import.desc else {
             continue;
         };
@@ -1820,6 +2108,78 @@ fn validate_host_bindings(module: &Module, hosts: &HostRegistry) -> Result<(), R
         }
     }
     Ok(())
+}
+
+fn validate_memory_limits(
+    import: &wasm_parser::Import,
+    expected_minimum: u32,
+    expected_maximum: Option<u32>,
+    memory: &MemoryHandle,
+) -> Result<(), RuntimeError> {
+    let actual_minimum = memory.minimum();
+    let actual_maximum = memory.maximum();
+    let minimum_matches = actual_minimum >= expected_minimum;
+    let maximum_matches = match expected_maximum {
+        None => true,
+        Some(expected) => matches!(actual_maximum, Some(actual) if actual <= expected),
+    };
+    if minimum_matches && maximum_matches {
+        return Ok(());
+    }
+    Err(RuntimeError::HostMemoryLimitsMismatch {
+        module: import.module.clone(),
+        name: import.name.clone(),
+        expected_minimum,
+        expected_maximum,
+        actual_minimum,
+        actual_maximum,
+    })
+}
+
+fn validate_memory_runtime_limit(
+    import: &wasm_parser::Import,
+    memory: &MemoryHandle,
+    runtime_limit: u32,
+) -> Result<(), RuntimeError> {
+    let runtime_limit = runtime_limit.min(MAX_MEMORY_PAGES);
+    let memory_limit = memory.maximum().unwrap_or(MAX_MEMORY_PAGES);
+    if memory.size_pages() <= runtime_limit && memory_limit <= runtime_limit {
+        return Ok(());
+    }
+    Err(RuntimeError::HostMemoryRuntimeLimitMismatch {
+        module: import.module.clone(),
+        name: import.name.clone(),
+        memory_limit,
+        runtime_limit,
+    })
+}
+
+fn instantiate_imported_memory(
+    module: &Module,
+    hosts: &HostRegistry,
+    limits: RuntimeLimits,
+) -> Result<Option<MemoryHandle>, RuntimeError> {
+    for import in &module.imports {
+        let ImportDesc::Memory(memory_type) = import.desc else {
+            continue;
+        };
+        let key = (import.module.clone(), import.name.clone());
+        let memory = hosts.memories.get(&key).cloned().ok_or_else(|| {
+            RuntimeError::UnresolvedMemoryImport {
+                module: import.module.clone(),
+                name: import.name.clone(),
+            }
+        })?;
+        validate_memory_limits(
+            import,
+            memory_type.limits.min,
+            memory_type.limits.max,
+            &memory,
+        )?;
+        validate_memory_runtime_limit(import, &memory, limits.max_memory_pages)?;
+        return Ok(Some(memory));
+    }
+    Ok(None)
 }
 
 fn validate_table_limits(
@@ -1963,7 +2323,7 @@ fn instantiate_globals(
 }
 
 fn ensure_runtime_memory_index(instance: &Instance, index: u32) -> Result<(), RuntimeError> {
-    if index != 0 || instance.memory.is_none() {
+    if index != 0 || (instance.memory.is_none() && instance.imported_memory.is_none()) {
         Err(RuntimeError::MemoryIndexOutOfBounds(index))
     } else {
         Ok(())
