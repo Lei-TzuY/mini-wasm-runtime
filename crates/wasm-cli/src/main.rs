@@ -27,7 +27,9 @@ fn run() -> Result<(), Box<dyn Error>> {
         "run" => {
             let path = args.next().ok_or("missing .wasm path")?;
             let export = args.next().ok_or("missing exported function name")?;
-            let values = args.map(|arg| parse_value(&arg)).collect::<Result<Vec<_>, _>>()?;
+            let values = args
+                .map(|arg| parse_value(&arg))
+                .collect::<Result<Vec<_>, _>>()?;
             execute(Path::new(&path), &export, &values)
         }
         "help" | "--help" | "-h" => {
