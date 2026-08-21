@@ -1,10 +1,13 @@
 //! Typed validation for the executable WebAssembly subset.
 //!
-//! Phase 2 keeps the value domain intentionally small (i32 only), but moves
-//! from structural opcode scanning to a real operand/control-stack validator.
+//! Phase 3 keeps the value domain intentionally small (i32 only) while adding
+//! one linear memory, typed memory instructions, limits, exports, and active
+//! data-segment invariants.
 
 use std::{collections::HashSet, fmt};
 use wasm_parser::{decode_i32, decode_u32, ExportKind, Module, ValueType};
+
+pub const MAX_MEMORY_PAGES: u32 = 65_536;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ValidationError {
@@ -20,10 +23,45 @@ pub enum ValidationError {
         name: String,
         function_index: u32,
     },
+    MemoryExportOutOfBounds {
+        name: String,
+        memory_index: u32,
+    },
     UnsupportedExportKind {
         name: String,
     },
     DuplicateExportName(String),
+    UnsupportedMemoryCount {
+        count: usize,
+    },
+    InvalidMemoryLimits {
+        memory: usize,
+        min: u32,
+        max: u32,
+    },
+    MemoryPageLimitExceeded {
+        memory: usize,
+        pages: u32,
+    },
+    DataMemoryOutOfBounds {
+        segment: usize,
+        memory_index: u32,
+    },
+    MemoryInstructionWithoutMemory {
+        function: usize,
+        offset: usize,
+    },
+    MemoryIndexOutOfBounds {
+        function: usize,
+        offset: usize,
+        memory_index: u32,
+    },
+    InvalidMemoryAlignment {
+        function: usize,
+        offset: usize,
+        alignment: u32,
+        maximum: u32,
+    },
     UnsupportedResultArity {
         function: usize,
         results: usize,
@@ -116,10 +154,56 @@ impl fmt::Display for ValidationError {
                 f,
                 "export {name:?} refers to missing function index {function_index}"
             ),
+            Self::MemoryExportOutOfBounds {
+                name,
+                memory_index,
+            } => write!(
+                f,
+                "export {name:?} refers to missing memory index {memory_index}"
+            ),
             Self::UnsupportedExportKind { name } => {
-                write!(f, "export {name:?} is not a function in this runtime")
+                write!(f, "export {name:?} has a kind not supported by this runtime")
             }
             Self::DuplicateExportName(name) => write!(f, "duplicate export name {name:?}"),
+            Self::UnsupportedMemoryCount { count } => {
+                write!(f, "this runtime supports at most one linear memory, got {count}")
+            }
+            Self::InvalidMemoryLimits { memory, min, max } => write!(
+                f,
+                "memory {memory} has invalid limits: minimum {min} exceeds maximum {max}"
+            ),
+            Self::MemoryPageLimitExceeded { memory, pages } => write!(
+                f,
+                "memory {memory} declares {pages} pages, exceeding the WebAssembly limit of {MAX_MEMORY_PAGES}"
+            ),
+            Self::DataMemoryOutOfBounds {
+                segment,
+                memory_index,
+            } => write!(
+                f,
+                "data segment {segment} refers to missing memory index {memory_index}"
+            ),
+            Self::MemoryInstructionWithoutMemory { function, offset } => write!(
+                f,
+                "function {function} uses a memory instruction at byte {offset} but the module declares no memory"
+            ),
+            Self::MemoryIndexOutOfBounds {
+                function,
+                offset,
+                memory_index,
+            } => write!(
+                f,
+                "function {function} memory instruction at byte {offset} refers to missing memory {memory_index}"
+            ),
+            Self::InvalidMemoryAlignment {
+                function,
+                offset,
+                alignment,
+                maximum,
+            } => write!(
+                f,
+                "function {function} memory instruction at byte {offset} uses alignment exponent {alignment}, maximum is {maximum}"
+            ),
             Self::UnsupportedResultArity { function, results } => write!(
                 f,
                 "function {function} has {results} results; this runtime supports at most one"
@@ -235,6 +319,8 @@ struct ControlFrame {
 }
 
 pub fn validate(module: &Module) -> Result<(), ValidationError> {
+    validate_memories(module)?;
+
     if module.function_type_indices.len() != module.code.len() {
         return Err(ValidationError::FunctionCodeLengthMismatch {
             functions: module.function_type_indices.len(),
@@ -283,19 +369,71 @@ pub fn validate(module: &Module) -> Result<(), ValidationError> {
         if !names.insert(export.name.as_str()) {
             return Err(ValidationError::DuplicateExportName(export.name.clone()));
         }
-        if export.kind != ExportKind::Function {
-            return Err(ValidationError::UnsupportedExportKind {
-                name: export.name.clone(),
-            });
+        match export.kind {
+            ExportKind::Function => {
+                if export.index as usize >= module.function_type_indices.len() {
+                    return Err(ValidationError::FunctionExportOutOfBounds {
+                        name: export.name.clone(),
+                        function_index: export.index,
+                    });
+                }
+            }
+            ExportKind::Memory => {
+                if export.index as usize >= module.memories.len() {
+                    return Err(ValidationError::MemoryExportOutOfBounds {
+                        name: export.name.clone(),
+                        memory_index: export.index,
+                    });
+                }
+            }
+            ExportKind::Table | ExportKind::Global => {
+                return Err(ValidationError::UnsupportedExportKind {
+                    name: export.name.clone(),
+                });
+            }
         }
-        if export.index as usize >= module.function_type_indices.len() {
-            return Err(ValidationError::FunctionExportOutOfBounds {
-                name: export.name.clone(),
-                function_index: export.index,
+    }
+
+    for (segment, data) in module.data.iter().enumerate() {
+        if data.memory_index as usize >= module.memories.len() {
+            return Err(ValidationError::DataMemoryOutOfBounds {
+                segment,
+                memory_index: data.memory_index,
             });
         }
     }
 
+    Ok(())
+}
+
+fn validate_memories(module: &Module) -> Result<(), ValidationError> {
+    if module.memories.len() > 1 {
+        return Err(ValidationError::UnsupportedMemoryCount {
+            count: module.memories.len(),
+        });
+    }
+
+    for (memory, memory_type) in module.memories.iter().enumerate() {
+        let limits = memory_type.limits;
+        if limits.min > MAX_MEMORY_PAGES {
+            return Err(ValidationError::MemoryPageLimitExceeded {
+                memory,
+                pages: limits.min,
+            });
+        }
+        if let Some(max) = limits.max {
+            if max > MAX_MEMORY_PAGES {
+                return Err(ValidationError::MemoryPageLimitExceeded { memory, pages: max });
+            }
+            if limits.min > max {
+                return Err(ValidationError::InvalidMemoryLimits {
+                    memory,
+                    min: limits.min,
+                    max,
+                });
+            }
+        }
+    }
     Ok(())
 }
 
@@ -440,6 +578,28 @@ fn validate_code(
                 read_local_index(code, &mut pc, function, offset, local_count)?;
                 require_values(stack_height, &controls, 1, function, offset)?;
             }
+            0x28 | 0x2c..=0x2f => {
+                ensure_memory(module, function, offset)?;
+                let maximum = natural_alignment(opcode);
+                read_memarg(code, &mut pc, function, offset, maximum)?;
+                pop_values(&mut stack_height, &controls, 1, function, offset)?;
+                stack_height += 1;
+            }
+            0x36 | 0x3a | 0x3b => {
+                ensure_memory(module, function, offset)?;
+                let maximum = natural_alignment(opcode);
+                read_memarg(code, &mut pc, function, offset, maximum)?;
+                pop_values(&mut stack_height, &controls, 2, function, offset)?;
+            }
+            0x3f => {
+                read_memory_index(code, &mut pc, module, function, offset)?;
+                stack_height += 1;
+            }
+            0x40 => {
+                read_memory_index(code, &mut pc, module, function, offset)?;
+                pop_values(&mut stack_height, &controls, 1, function, offset)?;
+                stack_height += 1;
+            }
             0x41 => {
                 let (_, used) = decode_i32(&code[pc..])
                     .map_err(|_| ValidationError::MalformedImmediate { function, offset })?;
@@ -464,6 +624,62 @@ fn validate_code(
         return Err(ValidationError::MissingFunctionEnd { function });
     }
     Ok(())
+}
+
+fn ensure_memory(module: &Module, function: usize, offset: usize) -> Result<(), ValidationError> {
+    if module.memories.is_empty() {
+        Err(ValidationError::MemoryInstructionWithoutMemory { function, offset })
+    } else {
+        Ok(())
+    }
+}
+
+fn natural_alignment(opcode: u8) -> u32 {
+    match opcode {
+        0x28 | 0x36 => 2,
+        0x2e | 0x2f | 0x3b => 1,
+        0x2c | 0x2d | 0x3a => 0,
+        _ => unreachable!("natural alignment queried only for supported memory access opcodes"),
+    }
+}
+
+fn read_memarg(
+    code: &[u8],
+    pc: &mut usize,
+    function: usize,
+    offset: usize,
+    maximum_alignment: u32,
+) -> Result<(u32, u32), ValidationError> {
+    let alignment = read_u32_immediate(code, pc, function, offset)?;
+    let displacement = read_u32_immediate(code, pc, function, offset)?;
+    if alignment > maximum_alignment {
+        return Err(ValidationError::InvalidMemoryAlignment {
+            function,
+            offset,
+            alignment,
+            maximum: maximum_alignment,
+        });
+    }
+    Ok((alignment, displacement))
+}
+
+fn read_memory_index(
+    code: &[u8],
+    pc: &mut usize,
+    module: &Module,
+    function: usize,
+    offset: usize,
+) -> Result<u32, ValidationError> {
+    ensure_memory(module, function, offset)?;
+    let memory_index = read_u32_immediate(code, pc, function, offset)?;
+    if memory_index as usize >= module.memories.len() {
+        return Err(ValidationError::MemoryIndexOutOfBounds {
+            function,
+            offset,
+            memory_index,
+        });
+    }
+    Ok(memory_index)
 }
 
 fn transition_to_else(
@@ -568,15 +784,14 @@ fn label_arity(
     offset: usize,
 ) -> Result<usize, ValidationError> {
     let depth = depth as usize;
-    let index =
-        controls
-            .len()
-            .checked_sub(depth + 1)
-            .ok_or(ValidationError::BranchDepthOutOfBounds {
-                function,
-                offset,
-                depth: depth as u32,
-            })?;
+    let index = controls
+        .len()
+        .checked_sub(depth + 1)
+        .ok_or(ValidationError::BranchDepthOutOfBounds {
+            function,
+            offset,
+            depth: depth as u32,
+        })?;
     Ok(controls[index].label_arity)
 }
 
@@ -634,7 +849,7 @@ fn read_u32_immediate(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use wasm_parser::{Export, FuncType, FunctionBody};
+    use wasm_parser::{DataSegment, Export, FuncType, FunctionBody, Limits, MemoryType};
 
     fn module_with_code(params: usize, results: usize, code: Vec<u8>) -> Module {
         Module {
@@ -652,7 +867,15 @@ mod tests {
                 locals: vec![],
                 code,
             }],
+            ..Module::default()
         }
+    }
+
+    fn with_memory(mut module: Module, min: u32, max: Option<u32>) -> Module {
+        module.memories = vec![MemoryType {
+            limits: Limits { min, max },
+        }];
+        module
     }
 
     fn valid_module() -> Module {
@@ -662,6 +885,141 @@ mod tests {
     #[test]
     fn accepts_structurally_valid_module() {
         assert_eq!(validate(&valid_module()), Ok(()));
+    }
+
+    #[test]
+    fn accepts_memory_load_store_and_grow() {
+        let module = with_memory(
+            module_with_code(
+                2,
+                1,
+                vec![
+                    0x20, 0x00, // local.get address
+                    0x20, 0x01, // local.get value
+                    0x36, 0x02, 0x00, // i32.store align=4 offset=0
+                    0x20, 0x00, // local.get address
+                    0x28, 0x02, 0x00, // i32.load
+                    0x0b,
+                ],
+            ),
+            1,
+            Some(2),
+        );
+        assert_eq!(validate(&module), Ok(()));
+
+        let grow = with_memory(
+            module_with_code(1, 1, vec![0x20, 0x00, 0x40, 0x00, 0x0b]),
+            1,
+            Some(2),
+        );
+        assert_eq!(validate(&grow), Ok(()));
+    }
+
+    #[test]
+    fn accepts_data_segment_and_memory_export() {
+        let mut module = with_memory(valid_module(), 1, Some(2));
+        module.exports.push(Export {
+            name: "memory".into(),
+            kind: ExportKind::Memory,
+            index: 0,
+        });
+        module.data.push(DataSegment {
+            memory_index: 0,
+            offset: 8,
+            bytes: b"wasm".to_vec(),
+        });
+        assert_eq!(validate(&module), Ok(()));
+    }
+
+    #[test]
+    fn rejects_multiple_memories() {
+        let mut module = valid_module();
+        module.memories = vec![
+            MemoryType {
+                limits: Limits { min: 1, max: None },
+            },
+            MemoryType {
+                limits: Limits { min: 1, max: None },
+            },
+        ];
+        assert_eq!(
+            validate(&module),
+            Err(ValidationError::UnsupportedMemoryCount { count: 2 })
+        );
+    }
+
+    #[test]
+    fn rejects_invalid_memory_limits() {
+        let module = with_memory(valid_module(), 3, Some(2));
+        assert_eq!(
+            validate(&module),
+            Err(ValidationError::InvalidMemoryLimits {
+                memory: 0,
+                min: 3,
+                max: 2,
+            })
+        );
+    }
+
+    #[test]
+    fn rejects_memory_over_spec_page_limit() {
+        let module = with_memory(valid_module(), MAX_MEMORY_PAGES + 1, None);
+        assert!(matches!(
+            validate(&module),
+            Err(ValidationError::MemoryPageLimitExceeded { .. })
+        ));
+    }
+
+    #[test]
+    fn rejects_memory_instruction_without_memory() {
+        let module = module_with_code(1, 1, vec![0x20, 0x00, 0x28, 0x02, 0x00, 0x0b]);
+        assert!(matches!(
+            validate(&module),
+            Err(ValidationError::MemoryInstructionWithoutMemory { .. })
+        ));
+    }
+
+    #[test]
+    fn rejects_overaligned_memory_access() {
+        let module = with_memory(
+            module_with_code(1, 1, vec![0x20, 0x00, 0x28, 0x03, 0x00, 0x0b]),
+            1,
+            None,
+        );
+        assert!(matches!(
+            validate(&module),
+            Err(ValidationError::InvalidMemoryAlignment {
+                alignment: 3,
+                maximum: 2,
+                ..
+            })
+        ));
+    }
+
+    #[test]
+    fn rejects_bad_memory_index_immediate() {
+        let module = with_memory(module_with_code(0, 1, vec![0x3f, 0x01, 0x0b]), 1, None);
+        assert!(matches!(
+            validate(&module),
+            Err(ValidationError::MemoryIndexOutOfBounds {
+                memory_index: 1,
+                ..
+            })
+        ));
+    }
+
+    #[test]
+    fn rejects_data_segment_without_memory() {
+        let mut module = valid_module();
+        module.data.push(DataSegment {
+            memory_index: 0,
+            offset: 0,
+            bytes: vec![1],
+        });
+        assert!(matches!(
+            validate(&module),
+            Err(ValidationError::DataMemoryOutOfBounds { .. })
+        ));
     }
 
     #[test]
