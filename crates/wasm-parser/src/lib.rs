@@ -13,7 +13,10 @@ pub enum ParseError {
     InvalidLeb128,
     Leb128Overflow,
     UnsupportedSection(u8),
-    SectionOutOfOrder { previous: u8, current: u8 },
+    SectionOutOfOrder {
+        previous: u8,
+        current: u8,
+    },
     DuplicateSection(u8),
     SectionLengthMismatch(u8),
     InvalidFunctionType(u8),
@@ -28,6 +31,10 @@ pub enum ParseError {
     UnsupportedDataSegmentMode(u32),
     InvalidConstExprOpcode(u8),
     ConstExprMissingEnd,
+    ConstExprTypeMismatch {
+        expected: ValueType,
+        actual: ValueType,
+    },
     FunctionBodyMissingEnd,
     TrailingBytes,
 }
@@ -75,6 +82,10 @@ impl fmt::Display for ParseError {
                 write!(f, "unsupported constant-expression opcode 0x{opcode:02x}")
             }
             Self::ConstExprMissingEnd => write!(f, "constant expression is missing end opcode"),
+            Self::ConstExprTypeMismatch { expected, actual } => write!(
+                f,
+                "constant expression has type {actual:?}, expected {expected:?}"
+            ),
             Self::FunctionBodyMissingEnd => write!(f, "function body is missing final end opcode"),
             Self::TrailingBytes => write!(f, "trailing bytes after parsed value"),
         }
@@ -89,6 +100,25 @@ pub enum ValueType {
     I64,
     F32,
     F64,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Constant {
+    I32(i32),
+    I64(i64),
+    F32(u32),
+    F64(u64),
+}
+
+impl Constant {
+    pub fn value_type(self) -> ValueType {
+        match self {
+            Self::I32(_) => ValueType::I32,
+            Self::I64(_) => ValueType::I64,
+            Self::F32(_) => ValueType::F32,
+            Self::F64(_) => ValueType::F64,
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -129,7 +159,7 @@ pub struct GlobalType {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Global {
     pub ty: GlobalType,
-    pub init: i32,
+    pub init: Constant,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -225,6 +255,33 @@ pub fn decode_i32(input: &[u8]) -> Result<(i32, usize), ParseError> {
                 result |= (!0i64) << shift;
             }
             return i32::try_from(result)
+                .map(|value| (value, index + 1))
+                .map_err(|_| ParseError::Leb128Overflow);
+        }
+    }
+    Err(ParseError::InvalidLeb128)
+}
+
+/// Decode a signed LEB128 i64 value.
+pub fn decode_i64(input: &[u8]) -> Result<(i64, usize), ParseError> {
+    let mut result = 0i128;
+    let mut shift = 0u32;
+    for index in 0..10 {
+        let byte = *input.get(index).ok_or(ParseError::UnexpectedEof)?;
+        let payload = i128::from(byte & 0x7f);
+        result |= payload << shift;
+        shift += 7;
+        if byte & 0x80 == 0 {
+            if index == 9 {
+                let terminal = byte & 0x7e;
+                if terminal != 0x00 && terminal != 0x7e {
+                    return Err(ParseError::Leb128Overflow);
+                }
+            }
+            if byte & 0x40 != 0 {
+                result |= (!0i128) << shift;
+            }
+            return i64::try_from(result)
                 .map(|value| (value, index + 1))
                 .map_err(|_| ParseError::Leb128Overflow);
         }
@@ -371,7 +428,14 @@ fn parse_global_section(cursor: &mut Cursor<'_>, module: &mut Module) -> Result<
             1 => true,
             other => return Err(ParseError::InvalidMutability(other)),
         };
-        let init = read_i32_const_expr(cursor)?;
+        let init = read_const_expr(cursor)?;
+        let actual = init.value_type();
+        if actual != value_type {
+            return Err(ParseError::ConstExprTypeMismatch {
+                expected: value_type,
+                actual,
+            });
+        }
         module.globals.push(Global {
             ty: GlobalType {
                 value_type,
@@ -484,16 +548,29 @@ fn read_limits(cursor: &mut Cursor<'_>) -> Result<Limits, ParseError> {
     Ok(Limits { min, max })
 }
 
-fn read_i32_const_expr(cursor: &mut Cursor<'_>) -> Result<i32, ParseError> {
+fn read_const_expr(cursor: &mut Cursor<'_>) -> Result<Constant, ParseError> {
     let opcode = cursor.read_u8()?;
-    if opcode != 0x41 {
-        return Err(ParseError::InvalidConstExprOpcode(opcode));
-    }
-    let value = cursor.read_i32()?;
+    let value = match opcode {
+        0x41 => Constant::I32(cursor.read_i32()?),
+        0x42 => Constant::I64(cursor.read_i64()?),
+        0x43 => Constant::F32(cursor.read_u32_le()?),
+        0x44 => Constant::F64(cursor.read_u64_le()?),
+        other => return Err(ParseError::InvalidConstExprOpcode(other)),
+    };
     if cursor.read_u8()? != 0x0b {
         return Err(ParseError::ConstExprMissingEnd);
     }
     Ok(value)
+}
+
+fn read_i32_const_expr(cursor: &mut Cursor<'_>) -> Result<i32, ParseError> {
+    match read_const_expr(cursor)? {
+        Constant::I32(value) => Ok(value),
+        other => Err(ParseError::ConstExprTypeMismatch {
+            expected: ValueType::I32,
+            actual: other.value_type(),
+        }),
+    }
 }
 
 fn read_value_type_vec(cursor: &mut Cursor<'_>) -> Result<Vec<ValueType>, ParseError> {
@@ -556,6 +633,28 @@ impl<'a> Cursor<'a> {
         let (value, used) = decode_i32(self.remaining())?;
         self.offset += used;
         Ok(value)
+    }
+
+    fn read_i64(&mut self) -> Result<i64, ParseError> {
+        let (value, used) = decode_i64(self.remaining())?;
+        self.offset += used;
+        Ok(value)
+    }
+
+    fn read_u32_le(&mut self) -> Result<u32, ParseError> {
+        let bytes: [u8; 4] = self
+            .read_exact(4)?
+            .try_into()
+            .expect("read_exact returned four bytes");
+        Ok(u32::from_le_bytes(bytes))
+    }
+
+    fn read_u64_le(&mut self) -> Result<u64, ParseError> {
+        let bytes: [u8; 8] = self
+            .read_exact(8)?
+            .try_into()
+            .expect("read_exact returned eight bytes");
+        Ok(u64::from_le_bytes(bytes))
     }
 
     fn read_array4(&mut self) -> Result<[u8; 4], ParseError> {
@@ -667,11 +766,45 @@ mod tests {
                 max: Some(4)
             }
         );
-        assert_eq!(module.globals[0].init, 42);
+        assert_eq!(module.globals[0].init, Constant::I32(42));
         assert!(module.globals[0].ty.mutable);
         assert_eq!(module.start, Some(0));
         assert_eq!(module.elements[0].offset, 1);
         assert_eq!(module.elements[0].function_indices, vec![0]);
+    }
+
+    #[test]
+    fn parses_all_numeric_global_constants_without_normalizing_float_bits() {
+        let mut bytes = vec![0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00];
+        let f32_bits = 0x7fc0_1234u32;
+        let f64_bits = 0x7ff8_0000_0000_1234u64;
+        let mut globals = vec![
+            0x04, 0x7f, 0x00, 0x41, 0x7f, 0x0b, 0x7e, 0x00, 0x42, 0x7e, 0x0b, 0x7d, 0x00, 0x43,
+        ];
+        globals.extend(f32_bits.to_le_bytes());
+        globals.push(0x0b);
+        globals.extend([0x7c, 0x00, 0x44]);
+        globals.extend(f64_bits.to_le_bytes());
+        globals.push(0x0b);
+        push_section(&mut bytes, 6, &globals);
+        let module = parse_module(&bytes).expect("numeric globals parse");
+        assert_eq!(module.globals[0].init, Constant::I32(-1));
+        assert_eq!(module.globals[1].init, Constant::I64(-2));
+        assert_eq!(module.globals[2].init, Constant::F32(f32_bits));
+        assert_eq!(module.globals[3].init, Constant::F64(f64_bits));
+    }
+
+    #[test]
+    fn rejects_global_initializer_type_mismatch() {
+        let mut bytes = vec![0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00];
+        push_section(&mut bytes, 6, &[0x01, 0x7e, 0x00, 0x41, 0x00, 0x0b]);
+        assert_eq!(
+            parse_module(&bytes),
+            Err(ParseError::ConstExprTypeMismatch {
+                expected: ValueType::I64,
+                actual: ValueType::I32,
+            })
+        );
     }
 
     #[test]
