@@ -19,6 +19,7 @@ pub enum ParseError {
     InvalidFunctionType(u8),
     UnsupportedValueType(u8),
     InvalidUtf8,
+    InvalidImportKind(u8),
     InvalidExportKind(u8),
     InvalidLimitsFlags(u8),
     UnsupportedDataSegmentMode(u32),
@@ -49,6 +50,9 @@ impl fmt::Display for ParseError {
             Self::InvalidFunctionType(tag) => write!(f, "invalid function type tag 0x{tag:02x}"),
             Self::UnsupportedValueType(tag) => write!(f, "unsupported value type 0x{tag:02x}"),
             Self::InvalidUtf8 => write!(f, "name is not valid UTF-8"),
+            Self::InvalidImportKind(kind) => {
+                write!(f, "unsupported import kind {kind}; Phase 4 supports function imports only")
+            }
             Self::InvalidExportKind(kind) => write!(f, "invalid export kind {kind}"),
             Self::InvalidLimitsFlags(flags) => {
                 write!(f, "invalid memory limits flags 0x{flags:02x}")
@@ -80,6 +84,13 @@ pub enum ValueType {
 pub struct FuncType {
     pub params: Vec<ValueType>,
     pub results: Vec<ValueType>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Import {
+    pub module: String,
+    pub name: String,
+    pub type_index: u32,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -128,6 +139,9 @@ pub struct DataSegment {
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Module {
     pub types: Vec<FuncType>,
+    /// Function imports occupy the first entries in the module function index space.
+    pub imports: Vec<Import>,
+    /// Type indices for defined (non-imported) functions only.
     pub function_type_indices: Vec<u32>,
     pub memories: Vec<MemoryType>,
     pub exports: Vec<Export>,
@@ -210,7 +224,7 @@ pub fn parse_module(bytes: &[u8]) -> Result<Module, ParseError> {
         if section_id == 0 {
             continue;
         }
-        if !matches!(section_id, 1 | 3 | 5 | 7 | 10 | 11) {
+        if !matches!(section_id, 1 | 2 | 3 | 5 | 7 | 10 | 11) {
             return Err(ParseError::UnsupportedSection(section_id));
         }
         if section_id < last_standard {
@@ -228,6 +242,7 @@ pub fn parse_module(bytes: &[u8]) -> Result<Module, ParseError> {
         let mut section = Cursor::new(payload);
         match section_id {
             1 => parse_type_section(&mut section, &mut module)?,
+            2 => parse_import_section(&mut section, &mut module)?,
             3 => parse_function_section(&mut section, &mut module)?,
             5 => parse_memory_section(&mut section, &mut module)?,
             7 => parse_export_section(&mut section, &mut module)?,
@@ -253,6 +268,26 @@ fn parse_type_section(cursor: &mut Cursor<'_>, module: &mut Module) -> Result<()
         let params = read_value_type_vec(cursor)?;
         let results = read_value_type_vec(cursor)?;
         module.types.push(FuncType { params, results });
+    }
+    Ok(())
+}
+
+fn parse_import_section(cursor: &mut Cursor<'_>, module: &mut Module) -> Result<(), ParseError> {
+    let count = cursor.read_u32()?;
+    module.imports.reserve(count as usize);
+    for _ in 0..count {
+        let import_module = cursor.read_name()?;
+        let name = cursor.read_name()?;
+        let kind = cursor.read_u8()?;
+        if kind != 0x00 {
+            return Err(ParseError::InvalidImportKind(kind));
+        }
+        let type_index = cursor.read_u32()?;
+        module.imports.push(Import {
+            module: import_module,
+            name,
+            type_index,
+        });
     }
     Ok(())
 }
@@ -471,6 +506,21 @@ mod tests {
         ]
     }
 
+    fn imported_function_module() -> Vec<u8> {
+        let mut bytes = vec![0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00];
+        bytes.extend([0x01, 0x06, 0x01, 0x60, 0x01, 0x7f, 0x01, 0x7f]);
+        let import = [
+            0x01, // count
+            0x03, b'e', b'n', b'v', // module
+            0x06, b'd', b'o', b'u', b'b', b'l', b'e', // name
+            0x00, 0x00, // function kind, type 0
+        ];
+        bytes.push(0x02);
+        bytes.push(import.len() as u8);
+        bytes.extend(import);
+        bytes
+    }
+
     #[test]
     fn parses_minimal_add_module() {
         let module = parse_module(&add_module()).expect("valid test module");
@@ -480,6 +530,23 @@ mod tests {
         assert_eq!(module.exports[0].name, "add");
         assert_eq!(module.code.len(), 1);
         assert_eq!(module.code[0].code.last(), Some(&0x0b));
+    }
+
+    #[test]
+    fn parses_function_import() {
+        let module = parse_module(&imported_function_module()).expect("valid function import");
+        assert_eq!(module.imports.len(), 1);
+        assert_eq!(module.imports[0].module, "env");
+        assert_eq!(module.imports[0].name, "double");
+        assert_eq!(module.imports[0].type_index, 0);
+    }
+
+    #[test]
+    fn rejects_non_function_import() {
+        let mut bytes = imported_function_module();
+        let kind_offset = bytes.len() - 2;
+        bytes[kind_offset] = 0x02;
+        assert_eq!(parse_module(&bytes), Err(ParseError::InvalidImportKind(0x02)));
     }
 
     #[test]
