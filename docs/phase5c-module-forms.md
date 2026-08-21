@@ -4,13 +4,14 @@ Phase 5C broadens the module surface only where the runtime can preserve WebAsse
 
 ## Current completed slices
 
-The current Phase-5C branch has completed three vertical slices:
+The current Phase-5C branch has completed four vertical slices:
 
 1. **Type-index block signatures.** Signed-33 blocktype decoding, block parameters, zero-or-one numeric results, loop parameter label types, if/else parameter restoration, and runtime control metadata all use the referenced function type exactly.
 2. **Independent import index spaces.** The parser retains function/table/memory/global import descriptors in binary order while the validator resolves each kind in its own WebAssembly index space. Object imports do not shift function indices.
-3. **Immutable numeric global imports.** Embedders can register immutable i32/i64/f32/f64 globals explicitly. Instantiation checks binding presence and exact value type, then places imported globals before defined globals in the runtime global index space.
+3. **Immutable numeric global imports.** Embedders can register immutable i32/i64/f32/f64 globals explicitly. Instantiation checks binding presence, exact value type, and immutability.
+4. **Shared mutable global imports.** `GlobalHandle` provides single-threaded shared backing. Host writes are visible to WebAssembly and WebAssembly `global.set` writes are visible through the host's retained handle. Type and mutability must match the imported `GlobalType` exactly.
 
-Table imports, memory imports, and mutable global imports are parsed and validated but deliberately rejected at instantiation until the runtime has a shared backing abstraction that preserves aliasing semantics.
+Table and memory imports are parsed and validated but deliberately rejected at instantiation until equivalent shared backing preserves identity, growth, and mutation visibility.
 
 ## Goals
 
@@ -40,16 +41,33 @@ The parser decodes function, table, memory, and global imports.
 
 Execution support is intentionally narrower:
 - function imports resolve through the existing host-function registry and remain i32-only;
-- immutable numeric global imports resolve through `HostRegistry::register_immutable_global`;
-- table imports, memory imports, and mutable global imports remain runtime errors.
+- immutable numeric globals may be registered directly with `HostRegistry::register_immutable_global`;
+- mutable or immutable globals may be registered through a `GlobalHandle` with `HostRegistry::register_global`;
+- table and memory imports remain runtime errors.
 
-Immutable global binding performs exact `ValueType` matching. Missing bindings and type mismatches are distinct errors. Mutable imported state has observable aliasing semantics and is not approximated by copying values.
+Global binding performs exact `ValueType` and mutability matching. Missing bindings, type mismatches, and mutability mismatches are distinct errors.
 
-The next object-import step requires a shared backing abstraction whose ownership and mutability rules are explicit enough for imported memories, tables, and mutable globals to remain observable across all aliases.
+### Shared global identity
+
+`GlobalHandle` owns an `Rc<RefCell<Value>>` plus its declared runtime value type and mutability. The runtime itself is currently single-threaded, so this representation deliberately models single-threaded aliasing rather than claiming thread-safe shared-memory semantics.
+
+For an imported mutable global:
+
+```text
+host GlobalHandle clone ----+
+                            |
+                            +---- same shared cell ---- Instance global index
+```
+
+The host may update the handle between calls and the next WebAssembly `global.get` sees the new value. Conversely, WebAssembly `global.set` updates the shared cell observed by the host. The handle rejects writes to immutable globals and rejects values of the wrong numeric type.
+
+Defined globals use the same internal handle abstraction but remain instance-owned because no public alias is created for them.
+
+The next object-import step requires equivalent shared backing for tables or memories. Copying their contents would be incorrect because table/memory identity, mutation visibility, and memory growth are observable.
 
 ## Block type indices
 
-MVP block types encode either `0x40` or a value type. The multi-value extension also allows a signed type index. Phase 5C now accepts a type-index block signature when:
+MVP block types encode either `0x40` or a value type. The multi-value extension also allows a signed type index. Phase 5C accepts a type-index block signature when:
 - the referenced function type exists;
 - its parameters are supported numeric types;
 - its result list has at most one supported numeric value;
@@ -70,9 +88,10 @@ Conformance work is scoped to the supported feature set:
 - negative fixtures for malformed encodings, bad indices, type mismatches, and unsupported proposal combinations;
 - cross-layer tests that parse -> validate -> instantiate -> execute when execution exists;
 - runtime defense-in-depth tests for malformed host bindings and dynamic bounds/type errors;
-- mixed-import fixtures specifically checking that one object kind cannot perturb another kind's index space.
+- mixed-import fixtures specifically checking that one object kind cannot perturb another kind's index space;
+- aliasing fixtures that verify mutable imported state is observable from both sides of the host/runtime boundary.
 
-Current Phase-5C integration coverage includes signed-33 boundaries, multi-byte type indices, block parameters, loop label parameters, if/else restoration, missing/multi-result block types, mixed import ordering, imported object index visibility, fail-closed object imports, immutable global resolution, exact global type matching, and imported/defined global ordering.
+Current Phase-5C integration coverage includes signed-33 boundaries, multi-byte type indices, block parameters, loop label parameters, if/else restoration, missing/multi-result block types, mixed import ordering, imported object index visibility, fail-closed table/memory imports, immutable global resolution, exact global type/mutability matching, imported/defined global ordering, `GlobalHandle` write validation, and bidirectional mutable-global aliasing.
 
 Reference-engine differential testing remains Phase 6; Phase 5C must not add Wasmtime/Wasmer as a runtime dependency.
 
@@ -85,5 +104,5 @@ Reference-engine differential testing remains Phase 6; Phase 5C must not add Was
 - GC/reference-types beyond the existing funcref table subset
 - bulk-memory instructions unless implemented as a complete vertical slice
 - implicit host capabilities
-- copy-based emulation of mutable imported state
+- copy-based emulation of table or memory imports
 - JIT compilation
