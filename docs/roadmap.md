@@ -15,10 +15,10 @@ The roadmap favors complete vertical slices over a broad but shallow decoder.
 
 ## Phase 2 — validator and control flow
 
-- [x] typed operand/control stacks for the i32-only subset
+- [x] typed operand/control stacks for the original i32 subset
 - [x] `block`, `loop`, `if`, `else`
 - [x] `br`, `br_if`
-- [ ] comparison/test instructions
+- [x] core integer comparison/test instructions (completed in Phase 5B)
 - [x] unreachable/polymorphic stack rules
 - [ ] negative conformance corpus
 
@@ -45,7 +45,7 @@ The roadmap favors complete vertical slices over a broad but shallow decoder.
 
 ### Phase 5A — state, tables, and indirect calls
 
-- [x] defined i32 globals
+- [x] defined globals
 - [x] `global.get` / `global.set`
 - [x] funcref table section and limits
 - [x] active table-0 element segments
@@ -53,19 +53,30 @@ The roadmap favors complete vertical slices over a broad but shallow decoder.
 - [x] start section and `[] -> []` start execution
 - [x] table/global exports
 
-### Phase 5B — broader numeric execution
+### Phase 5B — typed numeric core
 
-- [ ] i64 execution
-- [ ] f32/f64 execution
-- [ ] comparison/test instructions
-- [ ] broader numeric conversions
+- [x] replace arity-only validation with one true typed operand stack
+- [x] i32/i64/f32/f64 defined-function params, locals, results, globals, and block results
+- [x] i64 constants and wrapping add/sub/mul
+- [x] f32/f64 constants and add/sub/mul/div
+- [x] i32/i64 signed/unsigned comparisons and `eqz`
+- [x] f32/f64 comparisons with IEEE NaN behavior
+- [x] selected non-trapping numeric conversions
+- [x] typed direct and indirect calls for defined functions
+- [x] typed runtime argument/control/global defense-in-depth checks
+- [x] typed CLI values
 
 ### Phase 5C — broader module forms + conformance
 
 - [ ] broader data/element modes
 - [ ] table/memory/global imports
+- [ ] non-i32 host import ABI
 - [ ] block parameters and type-index block signatures
+- [ ] multi-value results
+- [ ] broader numeric operators, reinterpret, and trapping conversions
+- [ ] i64/f32/f64 memory instruction families
 - [ ] WebAssembly spec tests for supported features
+- [ ] negative conformance corpus
 
 ## Phase 6 — engineering hardening
 
