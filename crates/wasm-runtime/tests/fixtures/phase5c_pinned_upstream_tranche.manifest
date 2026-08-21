@@ -1,0 +1,8 @@
+upstream_repo=WebAssembly/spec
+upstream_commit=fc209c5ed8afc4dfeb9252024d217da3376c7a6f
+source=test/core/i32.wast
+source=test/core/func.wast
+normalization=selected-supported-assertions-only
+expected_modules=2
+expected_assertions=11
+expected_filtered=0
