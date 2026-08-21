@@ -65,16 +65,11 @@ fn mixed_memory_function_import_module() -> Vec<u8> {
         &mut module,
         7,
         &[
-            0x02,
-            0x03, b'r', b'u', b'n', 0x00, 0x01, // defined function index is 1
+            0x02, 0x03, b'r', b'u', b'n', 0x00, 0x01, // defined function index is 1
             0x03, b'm', b'e', b'm', 0x02, 0x00, // imported memory index is 0
         ],
     );
-    push_section(
-        &mut module,
-        10,
-        &[0x01, 0x04, 0x00, 0x41, 0x2a, 0x0b],
-    );
+    push_section(&mut module, 10, &[0x01, 0x04, 0x00, 0x41, 0x2a, 0x0b]);
     module
 }
 
@@ -120,11 +115,7 @@ fn imported_table_is_visible_to_element_and_export_index_spaces() {
     push_section(&mut module, 2, &imports);
     push_section(&mut module, 3, &[0x01, 0x00]);
     push_section(&mut module, 7, &[0x01, 0x03, b't', b'a', b'b', 0x01, 0x00]);
-    push_section(
-        &mut module,
-        9,
-        &[0x01, 0x00, 0x41, 0x00, 0x0b, 0x01, 0x00],
-    );
+    push_section(&mut module, 9, &[0x01, 0x00, 0x41, 0x00, 0x0b, 0x01, 0x00]);
     push_section(&mut module, 10, &[0x01, 0x02, 0x00, 0x0b]);
 
     let parsed = parse_module(&module).unwrap();
