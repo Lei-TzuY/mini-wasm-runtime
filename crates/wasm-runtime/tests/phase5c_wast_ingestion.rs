@@ -5,6 +5,12 @@ use wast::parser::{self, ParseBuffer};
 use wast::{QuoteWat, Wast, WastArg, WastDirective, WastExecute, WastRet, Wat};
 
 const CONTRACT_FIXTURE: &str = include_str!("fixtures/phase5c_ingestion_contract.wast");
+const PINNED_UPSTREAM_TRANCHE: &str =
+    include_str!("fixtures/phase5c_pinned_upstream_tranche.wast");
+const PINNED_UPSTREAM_MANIFEST: &str =
+    include_str!("fixtures/phase5c_pinned_upstream_tranche.manifest");
+const PINNED_UPSTREAM_COMMIT: &str = "fc209c5ed8afc4dfeb9252024d217da3376c7a6f";
+const EXPECTED_PINNED_MANIFEST: &str = "upstream_repo=WebAssembly/spec\nupstream_commit=fc209c5ed8afc4dfeb9252024d217da3376c7a6f\nsource=test/core/i32.wast\nsource=test/core/func.wast\nnormalization=selected-supported-assertions-only\nexpected_modules=2\nexpected_assertions=11\nexpected_filtered=0\n";
 
 #[derive(Debug, PartialEq, Eq)]
 enum FilterReason {
@@ -269,6 +275,24 @@ fn systematic_wast_ingestion_executes_supported_subset_and_reports_filters() {
         &report.skipped[1],
         FilterReason::UnsupportedDirective(detail) if detail.starts_with("Register")
     ));
+}
+
+#[test]
+fn pinned_upstream_wast_tranche_executes_without_filtered_cases() {
+    assert_eq!(PINNED_UPSTREAM_MANIFEST, EXPECTED_PINNED_MANIFEST);
+    assert!(PINNED_UPSTREAM_TRANCHE.contains(PINNED_UPSTREAM_COMMIT));
+    assert!(PINNED_UPSTREAM_TRANCHE.contains("source: test/core/i32.wast"));
+    assert!(PINNED_UPSTREAM_TRANCHE.contains("source: test/core/func.wast"));
+
+    let report = run_fixture(PINNED_UPSTREAM_TRANCHE);
+
+    assert_eq!(report.modules, 2);
+    assert_eq!(report.executed_assertions, 11);
+    assert!(
+        report.skipped.is_empty(),
+        "selected pinned upstream assertions must remain fully supported, filtered={:?}",
+        report.skipped
+    );
 }
 
 #[test]
