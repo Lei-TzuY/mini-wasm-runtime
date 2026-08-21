@@ -38,6 +38,6 @@ jobs:
           rm scripts/phase5c_multi_value_gate_v2.py
           git config user.name "Lei-TzuY"
           git config user.email "52287354+Lei-TzuY@users.noreply.github.com"
-          git add -- crates/wasm-validator/src/lib.rs crates/wasm-validator/src/typed.rs crates/wasm-runtime/src/lib.rs crates/wasm-runtime/tests/phase5c_multi_value.rs crates/wasm-cli/src/main.rs docs/phase5c-multi-value.md .github/workflows/phase5c-multi-value-pr-gate.yml scripts/phase5c_multi_value_gate.py scripts/phase5c_multi_value_gate_v2.py
+          git add -- crates/wasm-validator/src/lib.rs crates/wasm-validator/src/typed.rs crates/wasm-runtime/src/lib.rs crates/wasm-runtime/tests/phase5c.rs crates/wasm-runtime/tests/phase5c_multi_value.rs crates/wasm-cli/src/main.rs docs/phase5c-multi-value.md .github/workflows/phase5c-multi-value-pr-gate.yml scripts/phase5c_multi_value_gate.py scripts/phase5c_multi_value_gate_v2.py
           git commit -m "feat: execute multi-value results"
           git push origin HEAD:feat/phase-5c-multi-value-results
