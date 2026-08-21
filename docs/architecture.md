@@ -14,7 +14,7 @@ wasm-parser  ---- rejects malformed/truncated/unsupported binary structure
 Module AST (types/imports/functions/tables/memory/globals/start/elements/code/data)
    |
    v
-wasm-validator ---- proves supported index, signature, stack, control, state, and memory invariants
+wasm-validator ---- proves typed stack, index, signature, control, state, and memory invariants
    |
    v
 validated Module + explicit HostRegistry + RuntimeLimits
@@ -23,7 +23,7 @@ validated Module + explicit HostRegistry + RuntimeLimits
 Instance ---- resolves imports; allocates table/memory/globals; applies segments; runs start
    |
    v
-wasm-runtime ---- meters and interprets checked instructions / invokes scoped host callbacks
+wasm-runtime ---- typed numeric interpreter / scoped host callbacks / trap checks
    |
    v
 Value / trap-like RuntimeError
@@ -33,88 +33,124 @@ The CLI is deliberately thin and does not own parsing, validation, instantiation
 
 ## `wasm-parser`
 
-The parser consumes raw bytes with a bounds-checked cursor. Lengths are checked before slices are formed. Phase 5A decodes standard sections 1 through 11: type, import, function, table, memory, global, export, start, element, code, and data. Custom sections remain skippable.
+The parser consumes raw bytes with a bounds-checked cursor. Lengths are checked before slices are formed. Standard sections 1 through 11 currently cover type, import, function, table, memory, global, export, start, element, code, and data. Custom sections remain skippable.
 
-Imports remain function-only. Tables are defined `funcref` tables; globals are defined globals whose initializer is currently limited to `i32.const ... end`. Active element support is deliberately narrow: mode 0, table 0, an `i32.const ... end` offset, and function-index payloads. Data segments retain the analogous active memory-0 restriction.
+Imports remain function-only. Tables are defined `funcref` tables. Defined global initializers accept the current MVP numeric constant-expression subset: `i32.const`, `i64.const`, `f32.const`, or `f64.const`, followed by `end`; the initializer's type must exactly equal the declared global type. Float constants are stored as raw `u32`/`u64` IEEE-754 bit patterns in the parsed `Constant` enum so parsing does not normalize NaN payloads.
 
-Unsupported import kinds, reference types, element/data modes, mutability encodings, constant expressions, value types, and malformed lengths fail explicitly rather than being approximated.
+Active element support remains deliberately narrow: mode 0, table 0, an `i32.const ... end` offset, and function-index payloads. Data segments retain the analogous active memory-0 restriction. Unsupported import kinds, reference types, segment modes, constant-expression forms, and malformed lengths fail explicitly.
 
-LEB128 decoding is centralized and reused by the validator and interpreter for instruction immediates.
+LEB128 decoding is centralized for u32, i32, and i64 instruction/data immediates.
 
 ## `wasm-validator`
 
-Validation combines cross-section checks with a typed instruction-stream pass. The current executable value domain remains intentionally i32-only.
+Phase 5B makes the typed validator the sole instruction-validation model. The earlier arity-only i32 validator was intentionally removed after differential validation and the expanded test suite were green.
 
-### Function index space
+### Typed operand and control stacks
 
-WebAssembly places imported functions before defined functions in one function index space. Code bodies still correspond only to defined functions. Function exports, direct calls, element payloads, start functions, and table entries all resolve against the appropriate validated function/type indices.
+The operand stack stores one `ValueType` for every reachable value. Defined code may use `I32`, `I64`, `F32`, or `F64`. A control frame stores:
 
-### Phase 5A state invariants
+- its kind (`function`, `block`, `loop`, `if`);
+- the operand-stack height at entry;
+- its optional result type;
+- its optional label type;
+- unreachable/polymorphic state;
+- whether an `if` has crossed an `else` boundary.
 
-The validator enforces:
+Every instruction is validated as an exact typed stack transform. Locals and globals use their declared type. Direct calls consume the target function's parameter types in reverse stack order and push its optional result. `call_indirect` additionally validates the table/type indices and applies the selected function type's exact static stack effect. Conditions, table selectors, memory addresses, and current memory values remain `i32` where required by the supported subset.
 
-- at most one defined `funcref` table and valid table min/max ordering;
-- defined globals are i32-only;
-- `global.get` indices exist;
-- `global.set` indices exist and target mutable globals;
-- table/global export indices exist;
-- start function index exists and its exact signature is `[] -> []`;
-- active element segments target the existing table and reference existing functions;
-- `call_indirect` references an existing table and function type;
-- indirect-call signatures remain i32-only with zero or one result;
-- `call_indirect` consumes the table selector plus the selected type's parameters and produces that type's results.
+Structured-control convergence checks both stack height and result type. Branches preserve the target label's exact result type. Loop labels currently have no parameter values because block parameters/type-index block signatures remain out of scope.
 
-All earlier invariants remain in force: function-import/defined index separation, code cardinality, typed locals/calls, structured-control convergence, branch labels, unreachable stack polymorphism, memory limits/alignment, data segments, and host-call signatures.
+Unreachable code follows WebAssembly-style stack polymorphism: once control is unreachable, a pop at the current frame's base height can satisfy an instruction without inventing a concrete value, while concrete values that are present above that base must still have the required type. Dead bytes remain opcode/immediate checked.
 
-Supported block types remain empty (`0x40`) and single-i32-result (`0x7f`). Block parameters and type-index block signatures are deferred.
+### Cross-section invariants
+
+Validation also enforces:
+
+- defined function declarations and code bodies have equal cardinality;
+- imported and defined function indices share the WebAssembly function index space;
+- defined functions have zero or one numeric result;
+- function imports remain i32-only with zero or one result in Phase 5B;
+- table/global/function/memory export indices exist and export names are unique;
+- at most one defined `funcref` table with valid min/max ordering;
+- global indices exist and `global.set` targets mutable globals;
+- start function exists and has exact signature `[] -> []`;
+- active element segments target the existing table and valid function indices;
+- active data segments target the existing memory;
+- at most one linear memory, with valid page limits/alignment/index immediates.
+
+Supported immediate block result types are empty, i32, i64, f32, and f64. Block parameters, type-index block signatures, and multi-value results are deferred.
 
 ## `wasm-runtime`
 
-Each `Instance` owns the validated module, precomputed function control maps, optional `LinearMemory`, optional function table, instantiated globals, resolved `HostRegistry`, and `RuntimeLimits`.
+Each `Instance` owns the validated module, precomputed control maps, optional `LinearMemory`, optional function table, typed global values, resolved `HostRegistry`, and `RuntimeLimits`.
+
+### Numeric value model
+
+`Value` is a four-variant runtime enum:
+
+```text
+I32(i32)
+I64(i64)
+F32(f32)
+F64(f64)
+```
+
+Locals are zero-initialized according to their declared type. Function invocation checks every supplied argument's runtime variant against the declared parameter type before executing code. Runtime stack helpers pop an expected type and return `ValueTypeMismatch` on disagreement, providing defense in depth behind static validation.
+
+Numeric constants execute as their native runtime type. i32/i64 addition, subtraction, and multiplication use wrapping integer semantics. f32/f64 add/sub/mul/div use native IEEE-754 arithmetic. Integer comparisons distinguish signed and unsigned variants; float comparisons follow IEEE behavior, including unordered NaN comparisons. The current conversion slice implements `i32.wrap_i64`, signed/unsigned i64 extension from i32, f64-to-f32 demotion, and f32-to-f64 promotion.
+
+Trapping float-to-integer conversions, reinterpret operations, and broader integer/floating operators remain intentionally unsupported rather than approximated.
+
+### Typed control execution
+
+Precomputed `ControlMap` metadata stores the optional result type for each structured-control opener. Active execution frames repeat that result type, so frame exit and branch unwinding check both the expected number of values and their runtime variant. This mirrors the typed validator rather than reverting to an arity-only runtime assumption.
 
 ### Globals
 
-Defined globals are instantiated from their validated i32 constant initializers. `global.get` reads the current value. `global.set` mutates only mutable globals; the runtime repeats the mutability/index checks as defense in depth. Global values persist across exported invocations.
+Defined globals are instantiated from typed parsed constants. `global.get` returns the current typed value. `global.set` repeats index, mutability, and runtime value-type checks before mutation. State persists across exported invocations.
 
 ### Tables, elements, and `call_indirect`
 
-The current table representation is `Vec<Option<u32>>`: each slot is either null/uninitialized or a function index. Allocation uses fallible reservation. Active element segments are applied during instantiation only after the complete target range is checked against the table's initial size.
+The table representation is `Vec<Option<u32>>`: each slot is null/uninitialized or a function index. Allocation uses fallible reservation. Active element segments are applied only after whole-range bounds checks.
 
-`call_indirect` pops an i32 table-element selector, interprets its bits as a u32 index, and distinguishes three runtime failure classes:
+`call_indirect` requires an i32 table selector and distinguishes:
 
 - selector outside the table -> `TableElementOutOfBounds`;
 - in-bounds null slot -> `UninitializedTableElement`;
-- populated slot whose actual function type differs from the call site's declared type -> `IndirectCallTypeMismatch`.
+- populated slot whose actual function type differs from the declared call-site type -> `IndirectCallTypeMismatch`.
 
-Only after the dynamic signature check does execution dispatch through the same imported/defined function machinery used by direct `call`.
-
-### Start function
-
-After imports are resolved and memory, globals, data segments, table, and element segments are initialized, an optional start function is invoked automatically. Validation guarantees `[] -> []`. Start execution uses the same call-depth, instruction-fuel, and host-call limits as ordinary execution, rather than bypassing resource metering during instantiation.
+After that dynamic signature check, calls use the same imported/defined dispatch path as direct `call`. Defined indirect targets may have any currently supported numeric signature.
 
 ### Host binding and capability boundary
 
-`HostRegistry` binds a function by `(module, name)` and declares the exact parameter/result signature expected by that callback. Instantiation fails if any function import is unresolved or mismatched. A host callback receives `HostContext`, not `Instance`; memory access requires explicit `NONE`, `MEMORY_READ`, or `MEMORY_READ_WRITE` capability presets.
+`HostRegistry` remains deliberately i32-only in Phase 5B. This keeps the external embedding ABI stable while the internal WebAssembly numeric model expands. Instantiation rejects non-i32 import signatures. Host calls validate runtime argument variants before invoking the callback, so malformed embedding input cannot reach a callback through an i32 declaration.
 
-### Runtime resource limits
+A host callback receives `HostContext`, not `Instance`; memory access requires explicit `NONE`, `MEMORY_READ`, or `MEMORY_READ_WRITE` capabilities.
 
-`RuntimeLimits` independently controls maximum WASM call depth, maximum linear-memory pages, optional per-export instruction fuel, and optional per-export host-call count. `memory.grow` respects both module and embedding ceilings.
+### Start function and resource limits
 
-### Structured control and linear memory
+After imports are resolved and memory/globals/data/table/elements are initialized, an optional validated `[] -> []` start function executes automatically. Start execution uses the same call-depth, instruction-fuel, and host-call limits as ordinary execution.
 
-Control maps precompute structured `block`/`loop`/`if` boundaries so branches do not rescan bytecode nesting. Linear memory retains 64-KiB pages, checked widened effective addresses, little-endian loads/stores, fallible growth, and whole-range data initialization.
+`RuntimeLimits` independently controls maximum WebAssembly call depth, maximum memory pages, optional per-export instruction fuel, and optional per-export host-call count.
 
-Runtime signature, stack, control-boundary, memory/table boundaries, global mutability, capability, indirect-type, and result-arity checks remain as defense in depth even when validation has already established related static invariants.
+### Linear memory
+
+Linear memory remains intentionally focused on the existing i32 family: 64-KiB pages, widened checked effective addresses, little-endian i32/narrow loads and stores, fallible growth, and whole-range data initialization. Phase 5B does not imply i64/f32/f64 memory opcodes.
+
+Runtime signature, value-type, stack, control-boundary, memory/table boundary, global mutability, capability, indirect-type, and result checks remain as defense in depth even after validation.
 
 ## Current non-goals
 
 - table, memory, or global imports
+- non-i32 host function imports/callback signatures
 - multiple tables or memories
 - passive/declarative/explicit-table element modes
 - passive or explicit-memory-index data segments
 - block parameters or type-index block signatures
-- i64/f32/f64 execution
-- complete WebAssembly comparison/test/conversion instruction coverage
+- multi-value results
+- i64/f32/f64 memory load/store families
+- trapping float-to-integer conversions and reinterpret instructions
+- complete WebAssembly numeric instruction coverage
 - complete spec-test conformance
 - host re-entrancy into the same `Instance`
 - JIT compilation
