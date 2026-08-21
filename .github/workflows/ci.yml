@@ -71,21 +71,22 @@ jobs:
 
           helper_start = body.index("    def rep(old, new):")
           helper_end = body.index("\n\n", helper_start)
-          loose = '''    def rep(old, new):
-              global s
-              import re
-              tokens = re.split(r"\\s+", old.strip())
-              pattern = r"\\s+".join(re.escape(token) for token in tokens)
-              matches = list(re.finditer(pattern, s, flags=re.MULTILINE))
-              if len(matches) != 1:
-                  raise SystemExit(
-                      f'expected exactly one token-sequence match, found {len(matches)}:\\n'
-                      + old[:300]
-                  )
-              match = matches[0]
-              replacement = new.strip()
-              s = s[:match.start()] + replacement + s[match.end():]
-          '''
+          loose = (
+              "    def rep(old, new):\n"
+              "        global s\n"
+              "        import re\n"
+              "        tokens = re.split(r'\\s+', old.strip())\n"
+              "        pattern = r'\\s+'.join(re.escape(token) for token in tokens)\n"
+              "        matches = list(re.finditer(pattern, s, flags=re.MULTILINE))\n"
+              "        if len(matches) != 1:\n"
+              "            raise SystemExit(\n"
+              "                f'expected exactly one token-sequence match, found {len(matches)}:\\n'\n"
+              "                + old[:300]\n"
+              "            )\n"
+              "        match = matches[0]\n"
+              "        replacement = new.strip()\n"
+              "        s = s[:match.start()] + replacement + s[match.end():]\n"
+          )
           body = body[:helper_start] + loose + body[helper_end + 2:]
           Path('/tmp/apply_phase5c_memory.py').write_text("if True:\n" + body)
           PY
