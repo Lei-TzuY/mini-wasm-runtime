@@ -16,7 +16,7 @@ Phase 5C is broadening module forms and conformance without weakening the fail-c
 - structured `block`, `loop`, and `if` signatures from immediate value types or type indices, including block parameters and correctly typed loop labels
 - typed direct calls and `call_indirect`, including non-i32 defined-function signatures
 - mutable/immutable defined numeric globals with `global.get` / `global.set`
-- executable **immutable numeric global imports** resolved explicitly through `HostRegistry`
+- executable immutable and mutable numeric global imports resolved through shared `GlobalHandle` backing
 - `funcref` table plus active table-0 element segments and precise indirect-call traps
 - numeric constants, integer/floating comparisons, i32/i64 arithmetic, f32/f64 arithmetic, and selected non-trapping conversions
 - one 32-bit linear memory with 64 KiB pages and the checked i32 load/store family
@@ -34,7 +34,7 @@ Arithmetic/conversions: i32/i64 `add`, `sub`, `mul`; f32/f64 `add`, `sub`, `mul`
 
 Memory: `i32.load`, `i32.load8_s`, `i32.load8_u`, `i32.load16_s`, `i32.load16_u`, `i32.store`, `i32.store8`, `i32.store16`, `memory.size`, `memory.grow`.
 
-Function and block results remain limited to zero or one numeric value. The runtime supports at most one table and one linear memory across imported and defined objects. The parser and validator understand function/table/memory/global import descriptors, but execution currently resolves only function imports and immutable numeric global imports. Table imports, memory imports, and mutable global imports remain fail-closed until shared backing/aliasing semantics are implemented. Host function signatures remain i32-only.
+Function and block results remain limited to zero or one numeric value. The runtime supports at most one table and one linear memory across imported and defined objects. The parser and validator understand function/table/memory/global import descriptors. Execution resolves function imports plus immutable and mutable numeric global imports. Table and memory imports remain fail-closed until equivalent shared backing/aliasing semantics are implemented. Host function signatures remain i32-only.
 
 Trapping float-to-integer conversions, reinterpret instructions, broader numeric operators, broader segment modes, multi-value execution, and complete spec-test conformance remain later work.
 
@@ -56,7 +56,7 @@ The standalone CLI intentionally installs no implicit host functions, globals, o
 
 ```rust
 use wasm_parser::ValueType;
-use wasm_runtime::{HostCapabilities, HostRegistry, Instance, Value};
+use wasm_runtime::{GlobalHandle, HostCapabilities, HostRegistry, Instance, Value};
 
 let mut hosts = HostRegistry::new();
 hosts.register(
@@ -70,10 +70,13 @@ hosts.register(
 
 hosts.register_immutable_global("env", "build_id", Value::I64(42))?;
 
+let counter = GlobalHandle::mutable(Value::I32(0));
+hosts.register_global("env", "counter", counter.clone())?;
+
 let mut instance = Instance::with_hosts(module, hosts)?;
 ```
 
-Callbacks receive a `HostContext`, not the `Instance`. Memory access is denied unless the function registration explicitly grants `MEMORY_READ` or `MEMORY_READ_WRITE`. Immutable global imports have no callback and must match the module's declared numeric `ValueType` exactly. Mutable global imports remain unsupported because copying a value would violate WebAssembly aliasing semantics.
+Callbacks receive a `HostContext`, not the `Instance`. Memory access is denied unless the function registration explicitly grants `MEMORY_READ` or `MEMORY_READ_WRITE`. Global imports require exact numeric type and mutability matching. A mutable `GlobalHandle` is shared between the embedding application and the instance: host writes are immediately visible to `global.get`, and WebAssembly `global.set` updates the same handle. This runtime is currently single-threaded; `GlobalHandle` deliberately uses single-threaded shared ownership rather than pretending to provide threads/shared-memory semantics.
 
 ## Workspace
 
@@ -81,7 +84,7 @@ Callbacks receive a `HostContext`, not the `Instance`. Memory access is denied u
 crates/
   wasm-parser/     binary format + import descriptors + typed constants + module sections
   wasm-validator/  typed operand/control stacks + independent index-space invariants
-  wasm-runtime/    typed interpreter + globals + table + linear memory + host boundary
+  wasm-runtime/    typed interpreter + shared globals + table + linear memory + host boundary
   wasm-cli/        inspect/run command-line frontend
 docs/
   architecture.md
@@ -99,7 +102,7 @@ docs/
 5. **Validate types, not just arity.** Every reachable operand slot carries a `ValueType`; locals, globals, calls, labels, and control results must match exactly.
 6. **Trap precisely.** Indirect calls distinguish out-of-bounds, null entries, and dynamic type mismatches; memory ranges are checked before access.
 7. **Least capability at the host boundary.** Host callbacks receive only explicitly granted facilities.
-8. **Do not fake aliasing.** Imported mutable state is rejected until the runtime can represent shared backing semantics correctly.
+8. **Do not fake aliasing.** Mutable globals use true shared backing; table/memory imports remain rejected until they can preserve identity and mutation visibility too.
 9. **Meter untrusted work.** Embedders may cap call depth, memory pages, instruction fuel, and host calls.
 10. **Defense in depth.** Runtime type, stack, control, memory, table, global, and host checks remain even after static validation.
 11. **Small vertical slices.** Every phase increment ends in executable behavior and adversarial tests.
