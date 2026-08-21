@@ -25,6 +25,7 @@ jobs:
         run: |
           python3 scripts/phase5c_segment_modes.py
           python3 scripts/phase5c_segment_modes_fix1.py
+          python3 scripts/phase5c_segment_modes_fix2.py
           cargo fmt --all
           cargo fmt --all -- --check
           cargo clippy --workspace --all-targets -- -D warnings
@@ -36,8 +37,9 @@ jobs:
           rm .github/workflows/phase5c-segment-modes-pr-gate.yml
           rm scripts/phase5c_segment_modes.py
           rm scripts/phase5c_segment_modes_fix1.py
+          rm scripts/phase5c_segment_modes_fix2.py
           git config user.name "Lei-TzuY"
           git config user.email "52287354+Lei-TzuY@users.noreply.github.com"
-          git add -- crates/wasm-parser/src/lib.rs crates/wasm-runtime/src/lib.rs crates/wasm-runtime/tests/host_boundary.rs crates/wasm-runtime/tests/phase5c_segment_modes.rs crates/wasm-validator/src/lib.rs crates/wasm-validator/src/phase5.rs .github/workflows/phase5c-segment-modes-pr-gate.yml scripts/phase5c_segment_modes.py scripts/phase5c_segment_modes_fix1.py
+          git add -- crates/wasm-parser/src/lib.rs crates/wasm-runtime/src/lib.rs crates/wasm-runtime/tests/host_boundary.rs crates/wasm-runtime/tests/phase5c_imported_memory.rs crates/wasm-runtime/tests/phase5c_segment_modes.rs crates/wasm-validator/src/lib.rs crates/wasm-validator/src/phase5.rs .github/workflows/phase5c-segment-modes-pr-gate.yml scripts/phase5c_segment_modes.py scripts/phase5c_segment_modes_fix1.py scripts/phase5c_segment_modes_fix2.py
           git commit -m "feat: support passive and explicit segment modes"
           git push origin HEAD:feat/phase-5c-segment-modes
