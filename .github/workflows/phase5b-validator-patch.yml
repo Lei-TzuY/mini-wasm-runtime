@@ -1,0 +1,77 @@
+name: Phase 5B validator patch
+
+on:
+  push:
+    branches:
+      - feat/phase-5b-numeric-types
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - name: Integrate typed validator
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          def once(text, old, new, label):
+              n = text.count(old)
+              if n != 1:
+                  raise SystemExit(f"{label}: expected one match, got {n}")
+              return text.replace(old, new, 1)
+
+          p = Path('crates/wasm-validator/src/lib.rs')
+          s = p.read_text()
+          s = once(s,
+              '//! Phase 4 keeps the executable value domain intentionally i32-only while\n//! extending the function index space with typed function imports.\n',
+              '//! Phase 5B validates every reachable operand as an explicit MVP numeric type.\n//! Function imports remain i32-only while defined code may use i32/i64/f32/f64.\n',
+              'validator header')
+          s = once(s, 'mod phase5;\n', 'mod phase5;\nmod typed;\n', 'typed module')
+          s = once(s,
+              '''    OperandStackUnderflow {\n        function: usize,\n        offset: usize,\n    },\n''',
+              '''    OperandStackUnderflow {\n        function: usize,\n        offset: usize,\n    },\n    TypeMismatch {\n        function: usize,\n        offset: usize,\n        expected: ValueType,\n        actual: ValueType,\n    },\n''',
+              'type mismatch error')
+          s = once(s,
+              '''            Self::OperandStackUnderflow { function, offset } => write!(\n                f,\n                "function {function} operand stack underflows at byte {offset}"\n            ),\n''',
+              '''            Self::OperandStackUnderflow { function, offset } => write!(\n                f,\n                "function {function} operand stack underflows at byte {offset}"\n            ),\n            Self::TypeMismatch {\n                function,\n                offset,\n                expected,\n                actual,\n            } => write!(\n                f,\n                "function {function} expects {expected:?} at byte {offset}, got {actual:?}"\n            ),\n''',
+              'type mismatch display')
+
+          old = '''        for &value_type in function_type\n            .params\n            .iter()\n            .chain(function_type.results.iter())\n        {\n            ensure_i32(function, value_type)?;\n        }\n\n        let mut local_count = function_type.params.len();\n        for &(count, value_type) in &module.code[defined].locals {\n            ensure_i32(function, value_type)?;\n            local_count = local_count\n                .checked_add(count as usize)\n                .ok_or(ValidationError::LocalCountOverflow { function })?;\n        }\n\n        validate_code(\n            module,\n            defined,\n            function,\n            local_count,\n            function_type.results.len(),\n        )?;\n'''
+          new = '''        let mut local_types = function_type.params.clone();\n        for &(count, value_type) in &module.code[defined].locals {\n            let new_len = local_types\n                .len()\n                .checked_add(count as usize)\n                .ok_or(ValidationError::LocalCountOverflow { function })?;\n            local_types.resize(new_len, value_type);\n        }\n\n        let legacy_compatible = typed::validate_code(\n            module,\n            defined,\n            function,\n            &local_types,\n            &function_type.results,\n        )?;\n        if legacy_compatible {\n            validate_code(\n                module,\n                defined,\n                function,\n                local_types.len(),\n                function_type.results.len(),\n            )?;\n        }\n'''
+          s = once(s, old, new, 'typed validation call')
+          old = '''fn ensure_i32(function: usize, value_type: ValueType) -> Result<(), ValidationError> {\n    if value_type == ValueType::I32 {\n        Ok(())\n    } else {\n        Err(ValidationError::UnsupportedValueType {\n            function,\n            value_type,\n        })\n    }\n}\n\n'''
+          s = once(s, old, '', 'remove ensure_i32')
+          p.write_text(s)
+
+          p = Path('crates/wasm-validator/src/phase5.rs')
+          s = p.read_text()
+          s = once(s,
+              'use wasm_parser::{FuncType, Module, ValueType};\n',
+              'use wasm_parser::{FuncType, Module};\n',
+              'phase5 imports')
+          old = '''    for (global, entry) in module.globals.iter().enumerate() {\n        if entry.ty.value_type != ValueType::I32 {\n            return Err(ValidationError::UnsupportedGlobalValueType {\n                global,\n                value_type: entry.ty.value_type,\n            });\n        }\n    }\n\n'''
+          s = once(s, old, '', 'allow numeric globals')
+          old = '''    if let Some(&value_type) = ty\n        .params\n        .iter()\n        .chain(ty.results.iter())\n        .find(|&&ty| ty != ValueType::I32)\n    {\n        return Err(ValidationError::UnsupportedIndirectValueType {\n            function,\n            offset,\n            value_type,\n        });\n    }\n'''
+          s = once(s, old, '', 'allow numeric indirect type')
+          p.write_text(s)
+
+          p = Path('crates/wasm-validator/src/typed.rs')
+          s = p.read_text()
+          s = s.replace(
+              '            0x45 => unary(&mut stack, &controls, ValueType::I32, ValueType::I32, function, offset)?,\n            0x46..=0x4f => binary_compare(&mut stack, &controls, ValueType::I32, function, offset)?,\n',
+              '''            0x45 => {\n                legacy_compatible = false;\n                unary(\n                    &mut stack,\n                    &controls,\n                    ValueType::I32,\n                    ValueType::I32,\n                    function,\n                    offset,\n                )?;\n            }\n            0x46..=0x4f => {\n                legacy_compatible = false;\n                binary_compare(&mut stack, &controls, ValueType::I32, function, offset)?;\n            }\n''')
+          s = s.replace('    let end = pc\n        .checked_add(width)\n', '    let end = (*pc)\n        .checked_add(width)\n')
+          p.write_text(s)
+          PY
+          cargo fmt --all
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add crates/wasm-validator/src/lib.rs crates/wasm-validator/src/phase5.rs crates/wasm-validator/src/typed.rs
+          git commit -m "feat(validator): integrate typed numeric validation"
+          git push origin HEAD:feat/phase-5b-numeric-types
