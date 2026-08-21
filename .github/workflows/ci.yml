@@ -6,50 +6,9 @@ on:
   pull_request:
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
-  phase5c-shared-tables:
-    name: phase5c-shared-tables
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v5
-        with:
-          ref: feat/phase-5c-module-forms-conformance
-          fetch-depth: 0
-      - name: Install Rust
-        shell: bash
-        run: |
-          rustup toolchain install stable --profile minimal --component rustfmt,clippy
-          rustup default stable
-      - name: Apply shared imported tables
-        shell: bash
-        run: |
-          sed -i 's/unresolved host global import/unresolved host immutable global import/' scripts/phase5c_shared_tables.py
-          python3 - <<'PY'
-          from pathlib import Path
-          path = Path('crates/wasm-runtime/src/lib.rs')
-          text = path.read_text()
-          head, tail = text.split('fn instantiate_globals(', 1)
-          old = '''    for import in &module.imports {
-                  let ImportDesc::Global(global_type) = import.desc else {'''
-          new = '''    for import in &module.imports {
-                  // Preserve imported globals in WebAssembly global-index order.
-                  let ImportDesc::Global(global_type) = import.desc else {'''
-          if tail.count(old) != 1:
-              raise SystemExit(f'global instantiate anchor count: {tail.count(old)}')
-          path.write_text(head + 'fn instantiate_globals(' + tail.replace(old, new, 1))
-          PY
-          python3 scripts/phase5c_shared_tables.py
-          cargo fmt --all
-          cargo clippy --workspace --all-targets -- -D warnings
-          cargo test --workspace --all-targets
-          git config user.name 'github-actions[bot]'
-          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add -- crates/wasm-runtime/src/lib.rs crates/wasm-runtime/tests/phase5c_imports.rs crates/wasm-runtime/tests/phase5c_imported_tables.rs
-          git commit -m 'feat: add shared backing for imported tables'
-          git push origin HEAD:feat/phase-5c-module-forms-conformance
-
   test:
     name: Rust ${{ matrix.rust }} / ${{ matrix.os }}
     strategy:
