@@ -4,7 +4,7 @@
 //! Function imports remain i32-only while defined code may use i32/i64/f32/f64.
 
 use std::{collections::HashSet, fmt};
-use wasm_parser::{decode_i32, decode_u32, ExportKind, FuncType, Module, ValueType};
+use wasm_parser::{decode_u32, ExportKind, FuncType, Module, ValueType};
 
 mod phase5;
 mod typed;
@@ -471,16 +471,6 @@ enum ControlKind {
     If,
 }
 
-#[derive(Debug, Clone, Copy)]
-struct ControlFrame {
-    kind: ControlKind,
-    height: usize,
-    end_arity: usize,
-    label_arity: usize,
-    unreachable: bool,
-    seen_else: bool,
-}
-
 pub fn validate(module: &Module) -> Result<(), ValidationError> {
     validate_memories(module)?;
     validate_imports(module)?;
@@ -521,22 +511,13 @@ pub fn validate(module: &Module) -> Result<(), ValidationError> {
             local_types.resize(new_len, value_type);
         }
 
-        let legacy_compatible = typed::validate_code(
+        typed::validate_code(
             module,
             defined,
             function,
             &local_types,
             &function_type.results,
         )?;
-        if legacy_compatible {
-            validate_code(
-                module,
-                defined,
-                function,
-                local_types.len(),
-                function_type.results.len(),
-            )?;
-        }
     }
 
     let total_functions = module.imports.len() + module.function_type_indices.len();
@@ -662,206 +643,6 @@ fn function_type(module: &Module, function_index: u32) -> Option<&FuncType> {
     module.types.get(type_index)
 }
 
-fn validate_code(
-    module: &Module,
-    body_index: usize,
-    function: usize,
-    local_count: usize,
-    function_result_arity: usize,
-) -> Result<(), ValidationError> {
-    let code = &module.code[body_index].code;
-    if code.last().copied() != Some(0x0b) {
-        return Err(ValidationError::MissingFunctionEnd { function });
-    }
-
-    let mut stack_height = 0usize;
-    let mut controls = vec![ControlFrame {
-        kind: ControlKind::Function,
-        height: 0,
-        end_arity: function_result_arity,
-        label_arity: function_result_arity,
-        unreachable: false,
-        seen_else: false,
-    }];
-    let mut pc = 0usize;
-
-    while pc < code.len() {
-        let offset = pc;
-        let opcode = code[pc];
-        pc += 1;
-
-        match opcode {
-            0x02 | 0x03 => {
-                let end_arity = read_block_arity(code, &mut pc, function, offset)?;
-                let kind = if opcode == 0x02 {
-                    ControlKind::Block
-                } else {
-                    ControlKind::Loop
-                };
-                controls.push(ControlFrame {
-                    kind,
-                    height: stack_height,
-                    end_arity,
-                    label_arity: if kind == ControlKind::Loop {
-                        0
-                    } else {
-                        end_arity
-                    },
-                    unreachable: false,
-                    seen_else: false,
-                });
-            }
-            0x04 => {
-                let end_arity = read_block_arity(code, &mut pc, function, offset)?;
-                pop_values(&mut stack_height, &controls, 1, function, offset)?;
-                controls.push(ControlFrame {
-                    kind: ControlKind::If,
-                    height: stack_height,
-                    end_arity,
-                    label_arity: end_arity,
-                    unreachable: false,
-                    seen_else: false,
-                });
-            }
-            0x05 => transition_to_else(&mut stack_height, &mut controls, function, offset)?,
-            0x0b => {
-                let frame = *controls
-                    .last()
-                    .ok_or(ValidationError::UnexpectedEnd { function, offset })?;
-                if frame.kind == ControlKind::If && frame.end_arity > 0 && !frame.seen_else {
-                    return Err(ValidationError::MissingElseForResult { function, offset });
-                }
-
-                finish_frame(&mut stack_height, &frame, function, offset)?;
-                controls.pop();
-
-                if frame.kind == ControlKind::Function {
-                    if pc != code.len() {
-                        return Err(ValidationError::UnexpectedEnd { function, offset });
-                    }
-                } else {
-                    stack_height = frame.height + frame.end_arity;
-                }
-            }
-            0x0c => {
-                let depth = read_u32_immediate(code, &mut pc, function, offset)?;
-                let label_arity = label_arity(&controls, depth, function, offset)?;
-                require_values(stack_height, &controls, label_arity, function, offset)?;
-                mark_unreachable(&mut stack_height, &mut controls);
-            }
-            0x0d => {
-                let depth = read_u32_immediate(code, &mut pc, function, offset)?;
-                pop_values(&mut stack_height, &controls, 1, function, offset)?;
-                let label_arity = label_arity(&controls, depth, function, offset)?;
-                require_values(stack_height, &controls, label_arity, function, offset)?;
-            }
-            0x0f => {
-                let result_arity = controls.first().map(|frame| frame.label_arity).unwrap_or(0);
-                require_values(stack_height, &controls, result_arity, function, offset)?;
-                mark_unreachable(&mut stack_height, &mut controls);
-            }
-            0x10 => {
-                let target = read_u32_immediate(code, &mut pc, function, offset)?;
-                let Some(ty) = function_type(module, target) else {
-                    return Err(ValidationError::CallTargetOutOfBounds {
-                        function,
-                        offset,
-                        target,
-                    });
-                };
-                pop_values(
-                    &mut stack_height,
-                    &controls,
-                    ty.params.len(),
-                    function,
-                    offset,
-                )?;
-                stack_height += ty.results.len();
-            }
-            0x11 => {
-                let type_index = read_u32_immediate(code, &mut pc, function, offset)?;
-                let table_index = read_u32_immediate(code, &mut pc, function, offset)?;
-                let ty = phase5::indirect_type(module, function, offset, type_index, table_index)?;
-                pop_values(&mut stack_height, &controls, 1, function, offset)?;
-                pop_values(
-                    &mut stack_height,
-                    &controls,
-                    ty.params.len(),
-                    function,
-                    offset,
-                )?;
-                stack_height += ty.results.len();
-            }
-            0x20 => {
-                read_local_index(code, &mut pc, function, offset, local_count)?;
-                stack_height += 1;
-            }
-            0x21 => {
-                read_local_index(code, &mut pc, function, offset, local_count)?;
-                pop_values(&mut stack_height, &controls, 1, function, offset)?;
-            }
-            0x22 => {
-                read_local_index(code, &mut pc, function, offset, local_count)?;
-                require_values(stack_height, &controls, 1, function, offset)?;
-            }
-            0x23 => {
-                let global_index = read_u32_immediate(code, &mut pc, function, offset)?;
-                phase5::global_get(module, function, offset, global_index)?;
-                stack_height += 1;
-            }
-            0x24 => {
-                let global_index = read_u32_immediate(code, &mut pc, function, offset)?;
-                phase5::global_set(module, function, offset, global_index)?;
-                pop_values(&mut stack_height, &controls, 1, function, offset)?;
-            }
-            0x28 | 0x2c..=0x2f => {
-                ensure_memory(module, function, offset)?;
-                let maximum = natural_alignment(opcode);
-                read_memarg(code, &mut pc, function, offset, maximum)?;
-                pop_values(&mut stack_height, &controls, 1, function, offset)?;
-                stack_height += 1;
-            }
-            0x36 | 0x3a | 0x3b => {
-                ensure_memory(module, function, offset)?;
-                let maximum = natural_alignment(opcode);
-                read_memarg(code, &mut pc, function, offset, maximum)?;
-                pop_values(&mut stack_height, &controls, 2, function, offset)?;
-            }
-            0x3f => {
-                read_memory_index(code, &mut pc, module, function, offset)?;
-                stack_height += 1;
-            }
-            0x40 => {
-                read_memory_index(code, &mut pc, module, function, offset)?;
-                pop_values(&mut stack_height, &controls, 1, function, offset)?;
-                stack_height += 1;
-            }
-            0x41 => {
-                let (_, used) = decode_i32(&code[pc..])
-                    .map_err(|_| ValidationError::MalformedImmediate { function, offset })?;
-                pc += used;
-                stack_height += 1;
-            }
-            0x6a..=0x6c => {
-                pop_values(&mut stack_height, &controls, 2, function, offset)?;
-                stack_height += 1;
-            }
-            opcode => {
-                return Err(ValidationError::UnsupportedOpcode {
-                    function,
-                    offset,
-                    opcode,
-                });
-            }
-        }
-    }
-
-    if !controls.is_empty() {
-        return Err(ValidationError::MissingFunctionEnd { function });
-    }
-    Ok(())
-}
-
 fn ensure_memory(module: &Module, function: usize, offset: usize) -> Result<(), ValidationError> {
     if module.memories.is_empty() {
         Err(ValidationError::MemoryInstructionWithoutMemory { function, offset })
@@ -916,159 +697,6 @@ fn read_memory_index(
         });
     }
     Ok(memory_index)
-}
-
-fn transition_to_else(
-    stack_height: &mut usize,
-    controls: &mut [ControlFrame],
-    function: usize,
-    offset: usize,
-) -> Result<(), ValidationError> {
-    let frame = *controls
-        .last()
-        .ok_or(ValidationError::UnexpectedElse { function, offset })?;
-    if frame.kind != ControlKind::If {
-        return Err(ValidationError::UnexpectedElse { function, offset });
-    }
-    if frame.seen_else {
-        return Err(ValidationError::DuplicateElse { function, offset });
-    }
-
-    finish_frame(stack_height, &frame, function, offset)?;
-    *stack_height = frame.height;
-    let current = controls
-        .last_mut()
-        .ok_or(ValidationError::UnexpectedElse { function, offset })?;
-    current.unreachable = false;
-    current.seen_else = true;
-    Ok(())
-}
-
-fn finish_frame(
-    stack_height: &mut usize,
-    frame: &ControlFrame,
-    function: usize,
-    offset: usize,
-) -> Result<(), ValidationError> {
-    if frame.unreachable {
-        *stack_height = frame.height;
-        return Ok(());
-    }
-
-    let expected = frame.height + frame.end_arity;
-    if *stack_height != expected {
-        return Err(ValidationError::StackHeightMismatch {
-            function,
-            offset,
-            expected,
-            actual: *stack_height,
-        });
-    }
-    Ok(())
-}
-
-fn pop_values(
-    stack_height: &mut usize,
-    controls: &[ControlFrame],
-    count: usize,
-    function: usize,
-    offset: usize,
-) -> Result<(), ValidationError> {
-    let frame = controls
-        .last()
-        .ok_or(ValidationError::OperandStackUnderflow { function, offset })?;
-    let available = stack_height.saturating_sub(frame.height);
-    if available < count {
-        if frame.unreachable {
-            *stack_height = frame.height;
-            return Ok(());
-        }
-        return Err(ValidationError::OperandStackUnderflow { function, offset });
-    }
-    *stack_height -= count;
-    Ok(())
-}
-
-fn require_values(
-    stack_height: usize,
-    controls: &[ControlFrame],
-    count: usize,
-    function: usize,
-    offset: usize,
-) -> Result<(), ValidationError> {
-    let frame = controls
-        .last()
-        .ok_or(ValidationError::OperandStackUnderflow { function, offset })?;
-    let available = stack_height.saturating_sub(frame.height);
-    if available < count && !frame.unreachable {
-        return Err(ValidationError::OperandStackUnderflow { function, offset });
-    }
-    Ok(())
-}
-
-fn mark_unreachable(stack_height: &mut usize, controls: &mut [ControlFrame]) {
-    if let Some(frame) = controls.last_mut() {
-        *stack_height = frame.height;
-        frame.unreachable = true;
-    }
-}
-
-fn label_arity(
-    controls: &[ControlFrame],
-    depth: u32,
-    function: usize,
-    offset: usize,
-) -> Result<usize, ValidationError> {
-    let depth = depth as usize;
-    let index =
-        controls
-            .len()
-            .checked_sub(depth + 1)
-            .ok_or(ValidationError::BranchDepthOutOfBounds {
-                function,
-                offset,
-                depth: depth as u32,
-            })?;
-    Ok(controls[index].label_arity)
-}
-
-fn read_block_arity(
-    code: &[u8],
-    pc: &mut usize,
-    function: usize,
-    offset: usize,
-) -> Result<usize, ValidationError> {
-    let block_type = *code
-        .get(*pc)
-        .ok_or(ValidationError::MalformedImmediate { function, offset })?;
-    *pc += 1;
-    match block_type {
-        0x40 => Ok(0),
-        0x7f => Ok(1),
-        _ => Err(ValidationError::UnsupportedBlockType {
-            function,
-            offset,
-            block_type,
-        }),
-    }
-}
-
-fn read_local_index(
-    code: &[u8],
-    pc: &mut usize,
-    function: usize,
-    offset: usize,
-    local_count: usize,
-) -> Result<u32, ValidationError> {
-    let local_index = read_u32_immediate(code, pc, function, offset)?;
-    if local_index as usize >= local_count {
-        return Err(ValidationError::LocalIndexOutOfBounds {
-            function,
-            offset,
-            local_index,
-        });
-    }
-    Ok(local_index)
 }
 
 fn read_u32_immediate(

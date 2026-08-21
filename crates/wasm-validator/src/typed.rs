@@ -17,15 +17,13 @@ pub(super) fn validate_code(
     function: usize,
     local_types: &[ValueType],
     function_results: &[ValueType],
-) -> Result<bool, ValidationError> {
+) -> Result<(), ValidationError> {
     let code = &module.code[body_index].code;
     if code.last().copied() != Some(0x0b) {
         return Err(ValidationError::MissingFunctionEnd { function });
     }
 
     let function_result = function_results.first().copied();
-    let mut legacy_compatible = function_results.iter().all(|ty| *ty == ValueType::I32)
-        && local_types.iter().all(|ty| *ty == ValueType::I32);
     let mut stack = Vec::<ValueType>::new();
     let mut controls = vec![ControlFrame {
         kind: ControlKind::Function,
@@ -45,9 +43,6 @@ pub(super) fn validate_code(
         match opcode {
             0x02 | 0x03 => {
                 let end_type = read_block_type(code, &mut pc, function, offset)?;
-                if end_type.is_some_and(|ty| ty != ValueType::I32) {
-                    legacy_compatible = false;
-                }
                 let kind = if opcode == 0x02 {
                     ControlKind::Block
                 } else {
@@ -68,9 +63,6 @@ pub(super) fn validate_code(
             }
             0x04 => {
                 let end_type = read_block_type(code, &mut pc, function, offset)?;
-                if end_type.is_some_and(|ty| ty != ValueType::I32) {
-                    legacy_compatible = false;
-                }
                 pop_expect(&mut stack, &controls, ValueType::I32, function, offset)?;
                 controls.push(ControlFrame {
                     kind: ControlKind::If,
@@ -131,9 +123,6 @@ pub(super) fn validate_code(
                         target,
                     });
                 };
-                if signature_uses_non_i32(ty) {
-                    legacy_compatible = false;
-                }
                 apply_call_signature(&mut stack, &controls, ty, function, offset)?;
             }
             0x11 => {
@@ -160,34 +149,22 @@ pub(super) fn validate_code(
                         results: ty.results.len(),
                     });
                 }
-                if signature_uses_non_i32(ty) {
-                    legacy_compatible = false;
-                }
                 pop_expect(&mut stack, &controls, ValueType::I32, function, offset)?;
                 apply_call_signature(&mut stack, &controls, ty, function, offset)?;
             }
             0x20 => {
                 let index = read_local(code, &mut pc, function, offset, local_types)?;
                 let ty = local_types[index as usize];
-                if ty != ValueType::I32 {
-                    legacy_compatible = false;
-                }
                 stack.push(ty);
             }
             0x21 => {
                 let index = read_local(code, &mut pc, function, offset, local_types)?;
                 let ty = local_types[index as usize];
-                if ty != ValueType::I32 {
-                    legacy_compatible = false;
-                }
                 pop_expect(&mut stack, &controls, ty, function, offset)?;
             }
             0x22 => {
                 let index = read_local(code, &mut pc, function, offset, local_types)?;
                 let ty = local_types[index as usize];
-                if ty != ValueType::I32 {
-                    legacy_compatible = false;
-                }
                 peek_expect(&stack, &controls, ty, function, offset)?;
             }
             0x23 => {
@@ -199,9 +176,7 @@ pub(super) fn validate_code(
                         global_index,
                     });
                 };
-                if global.ty.value_type != ValueType::I32 {
-                    legacy_compatible = false;
-                }
+                if global.ty.value_type != ValueType::I32 {}
                 stack.push(global.ty.value_type);
             }
             0x24 => {
@@ -220,9 +195,7 @@ pub(super) fn validate_code(
                         global_index,
                     });
                 }
-                if global.ty.value_type != ValueType::I32 {
-                    legacy_compatible = false;
-                }
+                if global.ty.value_type != ValueType::I32 {}
                 pop_expect(
                     &mut stack,
                     &controls,
@@ -269,22 +242,18 @@ pub(super) fn validate_code(
                 stack.push(ValueType::I32);
             }
             0x42 => {
-                legacy_compatible = false;
                 skip_i64(code, &mut pc, function, offset)?;
                 stack.push(ValueType::I64);
             }
             0x43 => {
-                legacy_compatible = false;
                 skip_fixed(code, &mut pc, 4, function, offset)?;
                 stack.push(ValueType::F32);
             }
             0x44 => {
-                legacy_compatible = false;
                 skip_fixed(code, &mut pc, 8, function, offset)?;
                 stack.push(ValueType::F64);
             }
             0x45 => {
-                legacy_compatible = false;
                 unary(
                     &mut stack,
                     &controls,
@@ -295,11 +264,9 @@ pub(super) fn validate_code(
                 )?;
             }
             0x46..=0x4f => {
-                legacy_compatible = false;
                 binary_compare(&mut stack, &controls, ValueType::I32, function, offset)?;
             }
             0x50 => {
-                legacy_compatible = false;
                 unary(
                     &mut stack,
                     &controls,
@@ -310,32 +277,25 @@ pub(super) fn validate_code(
                 )?;
             }
             0x51..=0x5a => {
-                legacy_compatible = false;
                 binary_compare(&mut stack, &controls, ValueType::I64, function, offset)?;
             }
             0x5b..=0x60 => {
-                legacy_compatible = false;
                 binary_compare(&mut stack, &controls, ValueType::F32, function, offset)?;
             }
             0x61..=0x66 => {
-                legacy_compatible = false;
                 binary_compare(&mut stack, &controls, ValueType::F64, function, offset)?;
             }
             0x6a..=0x6c => binary_same(&mut stack, &controls, ValueType::I32, function, offset)?,
             0x7c..=0x7e => {
-                legacy_compatible = false;
                 binary_same(&mut stack, &controls, ValueType::I64, function, offset)?;
             }
             0x92..=0x95 => {
-                legacy_compatible = false;
                 binary_same(&mut stack, &controls, ValueType::F32, function, offset)?;
             }
             0xa0..=0xa3 => {
-                legacy_compatible = false;
                 binary_same(&mut stack, &controls, ValueType::F64, function, offset)?;
             }
             0xa7 => {
-                legacy_compatible = false;
                 unary(
                     &mut stack,
                     &controls,
@@ -346,7 +306,6 @@ pub(super) fn validate_code(
                 )?;
             }
             0xac | 0xad => {
-                legacy_compatible = false;
                 unary(
                     &mut stack,
                     &controls,
@@ -357,7 +316,6 @@ pub(super) fn validate_code(
                 )?;
             }
             0xb6 => {
-                legacy_compatible = false;
                 unary(
                     &mut stack,
                     &controls,
@@ -368,7 +326,6 @@ pub(super) fn validate_code(
                 )?;
             }
             0xbb => {
-                legacy_compatible = false;
                 unary(
                     &mut stack,
                     &controls,
@@ -391,14 +348,7 @@ pub(super) fn validate_code(
     if !controls.is_empty() {
         return Err(ValidationError::MissingFunctionEnd { function });
     }
-    Ok(legacy_compatible)
-}
-
-fn signature_uses_non_i32(ty: &FuncType) -> bool {
-    ty.params
-        .iter()
-        .chain(ty.results.iter())
-        .any(|value| *value != ValueType::I32)
+    Ok(())
 }
 
 fn apply_call_signature(

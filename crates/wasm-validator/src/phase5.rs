@@ -1,5 +1,5 @@
 use super::{function_type, ValidationError};
-use wasm_parser::{FuncType, Module};
+use wasm_parser::Module;
 
 pub(super) fn validate_phase5(module: &Module) -> Result<(), ValidationError> {
     if module.tables.len() > 1 {
@@ -54,74 +54,4 @@ pub(super) fn validate_phase5(module: &Module) -> Result<(), ValidationError> {
 
 pub(super) fn validate_global_export(module: &Module, index: u32) -> bool {
     (index as usize) < module.globals.len()
-}
-
-pub(super) fn global_get(
-    module: &Module,
-    function: usize,
-    offset: usize,
-    global_index: u32,
-) -> Result<(), ValidationError> {
-    if global_index as usize >= module.globals.len() {
-        return Err(ValidationError::GlobalIndexOutOfBounds {
-            function,
-            offset,
-            global_index,
-        });
-    }
-    Ok(())
-}
-
-pub(super) fn global_set(
-    module: &Module,
-    function: usize,
-    offset: usize,
-    global_index: u32,
-) -> Result<(), ValidationError> {
-    let Some(global) = module.globals.get(global_index as usize) else {
-        return Err(ValidationError::GlobalIndexOutOfBounds {
-            function,
-            offset,
-            global_index,
-        });
-    };
-    if !global.ty.mutable {
-        return Err(ValidationError::ImmutableGlobalSet {
-            function,
-            offset,
-            global_index,
-        });
-    }
-    Ok(())
-}
-
-pub(super) fn indirect_type(
-    module: &Module,
-    function: usize,
-    offset: usize,
-    type_index: u32,
-    table_index: u32,
-) -> Result<&FuncType, ValidationError> {
-    if table_index as usize >= module.tables.len() {
-        return Err(ValidationError::TableIndexOutOfBounds {
-            function,
-            offset,
-            table_index,
-        });
-    }
-    let Some(ty) = module.types.get(type_index as usize) else {
-        return Err(ValidationError::IndirectTypeIndexOutOfBounds {
-            function,
-            offset,
-            type_index,
-        });
-    };
-    if ty.results.len() > 1 {
-        return Err(ValidationError::UnsupportedIndirectResultArity {
-            function,
-            offset,
-            results: ty.results.len(),
-        });
-    }
-    Ok(ty)
 }
