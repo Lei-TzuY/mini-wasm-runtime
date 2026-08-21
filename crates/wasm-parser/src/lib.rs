@@ -596,18 +596,15 @@ mod tests {
 
     fn add_module() -> Vec<u8> {
         vec![
-            0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00,
-            0x01, 0x07, 0x01, 0x60, 0x02, 0x7f, 0x7f, 0x01, 0x7f,
-            0x03, 0x02, 0x01, 0x00,
-            0x07, 0x07, 0x01, 0x03, b'a', b'd', b'd', 0x00, 0x00,
-            0x0a, 0x09, 0x01, 0x07, 0x00, 0x20, 0x00, 0x20, 0x01, 0x6a, 0x0b,
+            0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00, 0x01, 0x07, 0x01, 0x60, 0x02, 0x7f,
+            0x7f, 0x01, 0x7f, 0x03, 0x02, 0x01, 0x00, 0x07, 0x07, 0x01, 0x03, b'a', b'd', b'd',
+            0x00, 0x00, 0x0a, 0x09, 0x01, 0x07, 0x00, 0x20, 0x00, 0x20, 0x01, 0x6a, 0x0b,
         ]
     }
 
     fn memory_data_module() -> Vec<u8> {
         vec![
-            0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00,
-            0x05, 0x04, 0x01, 0x01, 0x01, 0x02,
+            0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00, 0x05, 0x04, 0x01, 0x01, 0x01, 0x02,
             0x0b, 0x09, 0x01, 0x00, 0x41, 0x04, 0x0b, 0x03, b'w', b'a', b's',
         ]
     }
@@ -616,8 +613,7 @@ mod tests {
         let mut bytes = vec![0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00];
         bytes.extend([0x01, 0x06, 0x01, 0x60, 0x01, 0x7f, 0x01, 0x7f]);
         let import = [
-            0x01, 0x03, b'e', b'n', b'v', 0x06, b'd', b'o', b'u', b'b', b'l', b'e', 0x00,
-            0x00,
+            0x01, 0x03, b'e', b'n', b'v', 0x06, b'd', b'o', b'u', b'b', b'l', b'e', 0x00, 0x00,
         ];
         push_section(&mut bytes, 2, &import);
         bytes
@@ -647,7 +643,10 @@ mod tests {
         let mut bytes = imported_function_module();
         let kind_offset = bytes.len() - 2;
         bytes[kind_offset] = 0x02;
-        assert_eq!(parse_module(&bytes), Err(ParseError::InvalidImportKind(0x02)));
+        assert_eq!(
+            parse_module(&bytes),
+            Err(ParseError::InvalidImportKind(0x02))
+        );
     }
 
     #[test]
@@ -661,7 +660,13 @@ mod tests {
         push_section(&mut bytes, 9, &[0x01, 0x00, 0x41, 0x01, 0x0b, 0x01, 0x00]);
         push_section(&mut bytes, 10, &[0x01, 0x02, 0x00, 0x0b]);
         let module = parse_module(&bytes).expect("phase 5A sections parse");
-        assert_eq!(module.tables[0].limits, Limits { min: 2, max: Some(4) });
+        assert_eq!(
+            module.tables[0].limits,
+            Limits {
+                min: 2,
+                max: Some(4)
+            }
+        );
         assert_eq!(module.globals[0].init, 42);
         assert!(module.globals[0].ty.mutable);
         assert_eq!(module.start, Some(0));
@@ -673,7 +678,10 @@ mod tests {
     fn rejects_non_funcref_table() {
         let mut bytes = vec![0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00];
         push_section(&mut bytes, 4, &[0x01, 0x6f, 0x00, 0x01]);
-        assert_eq!(parse_module(&bytes), Err(ParseError::InvalidReferenceType(0x6f)));
+        assert_eq!(
+            parse_module(&bytes),
+            Err(ParseError::InvalidReferenceType(0x6f))
+        );
     }
 
     #[test]
@@ -700,7 +708,10 @@ mod tests {
     fn rejects_bad_magic() {
         let mut bytes = add_module();
         bytes[0] = 0xff;
-        assert!(matches!(parse_module(&bytes), Err(ParseError::InvalidMagic(_))));
+        assert!(matches!(
+            parse_module(&bytes),
+            Err(ParseError::InvalidMagic(_))
+        ));
     }
 
     #[test]

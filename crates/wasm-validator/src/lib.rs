@@ -6,6 +6,8 @@
 use std::{collections::HashSet, fmt};
 use wasm_parser::{decode_i32, decode_u32, ExportKind, FuncType, Module, ValueType};
 
+mod phase5;
+
 pub const MAX_MEMORY_PAGES: u32 = 65_536;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -37,6 +39,70 @@ pub enum ValidationError {
     MemoryExportOutOfBounds {
         name: String,
         memory_index: u32,
+    },
+    TableExportOutOfBounds {
+        name: String,
+        table_index: u32,
+    },
+    GlobalExportOutOfBounds {
+        name: String,
+        global_index: u32,
+    },
+    UnsupportedTableCount {
+        count: usize,
+    },
+    InvalidTableLimits {
+        table: usize,
+        min: u32,
+        max: u32,
+    },
+    UnsupportedGlobalValueType {
+        global: usize,
+        value_type: ValueType,
+    },
+    StartFunctionOutOfBounds {
+        function_index: u32,
+    },
+    InvalidStartSignature {
+        function_index: u32,
+    },
+    ElementTableOutOfBounds {
+        segment: usize,
+        table_index: u32,
+    },
+    ElementFunctionOutOfBounds {
+        segment: usize,
+        function_index: u32,
+    },
+    GlobalIndexOutOfBounds {
+        function: usize,
+        offset: usize,
+        global_index: u32,
+    },
+    ImmutableGlobalSet {
+        function: usize,
+        offset: usize,
+        global_index: u32,
+    },
+    TableIndexOutOfBounds {
+        function: usize,
+        offset: usize,
+        table_index: u32,
+    },
+    IndirectTypeIndexOutOfBounds {
+        function: usize,
+        offset: usize,
+        type_index: u32,
+    },
+    UnsupportedIndirectResultArity {
+        function: usize,
+        offset: usize,
+        results: usize,
+    },
+    UnsupportedIndirectValueType {
+        function: usize,
+        offset: usize,
+        value_type: ValueType,
     },
     UnsupportedExportKind {
         name: String,
@@ -183,6 +249,64 @@ impl fmt::Display for ValidationError {
             } => write!(
                 f,
                 "export {name:?} refers to missing memory index {memory_index}"
+            ),
+            Self::TableExportOutOfBounds { name, table_index } => write!(
+                f,
+                "export {name:?} refers to missing table index {table_index}"
+            ),
+            Self::GlobalExportOutOfBounds { name, global_index } => write!(
+                f,
+                "export {name:?} refers to missing global index {global_index}"
+            ),
+            Self::UnsupportedTableCount { count } => {
+                write!(f, "this runtime supports at most one table, got {count}")
+            }
+            Self::InvalidTableLimits { table, min, max } => write!(
+                f,
+                "table {table} has invalid limits: minimum {min} exceeds maximum {max}"
+            ),
+            Self::UnsupportedGlobalValueType { global, value_type } => write!(
+                f,
+                "global {global} uses {value_type:?}; globals are currently i32-only"
+            ),
+            Self::StartFunctionOutOfBounds { function_index } => {
+                write!(f, "start function index {function_index} is out of bounds")
+            }
+            Self::InvalidStartSignature { function_index } => write!(
+                f,
+                "start function {function_index} must have signature [] -> []"
+            ),
+            Self::ElementTableOutOfBounds { segment, table_index } => write!(
+                f,
+                "element segment {segment} refers to missing table index {table_index}"
+            ),
+            Self::ElementFunctionOutOfBounds { segment, function_index } => write!(
+                f,
+                "element segment {segment} refers to missing function index {function_index}"
+            ),
+            Self::GlobalIndexOutOfBounds { function, offset, global_index } => write!(
+                f,
+                "function {function} global instruction at byte {offset} refers to missing global {global_index}"
+            ),
+            Self::ImmutableGlobalSet { function, offset, global_index } => write!(
+                f,
+                "function {function} global.set at byte {offset} targets immutable global {global_index}"
+            ),
+            Self::TableIndexOutOfBounds { function, offset, table_index } => write!(
+                f,
+                "function {function} call_indirect at byte {offset} refers to missing table {table_index}"
+            ),
+            Self::IndirectTypeIndexOutOfBounds { function, offset, type_index } => write!(
+                f,
+                "function {function} call_indirect at byte {offset} refers to missing type {type_index}"
+            ),
+            Self::UnsupportedIndirectResultArity { function, offset, results } => write!(
+                f,
+                "function {function} call_indirect at byte {offset} uses a type with {results} results; at most one is supported"
+            ),
+            Self::UnsupportedIndirectValueType { function, offset, value_type } => write!(
+                f,
+                "function {function} call_indirect at byte {offset} uses unsupported {value_type:?}"
             ),
             Self::UnsupportedExportKind { name } => {
                 write!(f, "export {name:?} has a kind not supported by this runtime")
@@ -344,6 +468,7 @@ struct ControlFrame {
 pub fn validate(module: &Module) -> Result<(), ValidationError> {
     validate_memories(module)?;
     validate_imports(module)?;
+    phase5::validate_phase5(module)?;
 
     if module.function_type_indices.len() != module.code.len() {
         return Err(ValidationError::FunctionCodeLengthMismatch {
@@ -419,10 +544,21 @@ pub fn validate(module: &Module) -> Result<(), ValidationError> {
                     });
                 }
             }
-            ExportKind::Table | ExportKind::Global => {
-                return Err(ValidationError::UnsupportedExportKind {
-                    name: export.name.clone(),
-                });
+            ExportKind::Table => {
+                if export.index as usize >= module.tables.len() {
+                    return Err(ValidationError::TableExportOutOfBounds {
+                        name: export.name.clone(),
+                        table_index: export.index,
+                    });
+                }
+            }
+            ExportKind::Global => {
+                if !phase5::validate_global_export(module, export.index) {
+                    return Err(ValidationError::GlobalExportOutOfBounds {
+                        name: export.name.clone(),
+                        global_index: export.index,
+                    });
+                }
             }
         }
     }
@@ -635,6 +771,20 @@ fn validate_code(
                 )?;
                 stack_height += ty.results.len();
             }
+            0x11 => {
+                let type_index = read_u32_immediate(code, &mut pc, function, offset)?;
+                let table_index = read_u32_immediate(code, &mut pc, function, offset)?;
+                let ty = phase5::indirect_type(module, function, offset, type_index, table_index)?;
+                pop_values(&mut stack_height, &controls, 1, function, offset)?;
+                pop_values(
+                    &mut stack_height,
+                    &controls,
+                    ty.params.len(),
+                    function,
+                    offset,
+                )?;
+                stack_height += ty.results.len();
+            }
             0x20 => {
                 read_local_index(code, &mut pc, function, offset, local_count)?;
                 stack_height += 1;
@@ -646,6 +796,16 @@ fn validate_code(
             0x22 => {
                 read_local_index(code, &mut pc, function, offset, local_count)?;
                 require_values(stack_height, &controls, 1, function, offset)?;
+            }
+            0x23 => {
+                let global_index = read_u32_immediate(code, &mut pc, function, offset)?;
+                phase5::global_get(module, function, offset, global_index)?;
+                stack_height += 1;
+            }
+            0x24 => {
+                let global_index = read_u32_immediate(code, &mut pc, function, offset)?;
+                phase5::global_set(module, function, offset, global_index)?;
+                pop_values(&mut stack_height, &controls, 1, function, offset)?;
             }
             0x28 | 0x2c..=0x2f => {
                 ensure_memory(module, function, offset)?;

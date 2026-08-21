@@ -1,4 +1,4 @@
-//! Stack interpreter for the Phase-4 WebAssembly subset.
+//! Stack interpreter for the Phase-5A WebAssembly subset.
 
 use std::{collections::HashMap, fmt};
 use wasm_parser::{decode_i32, decode_u32, ExportKind, FuncType, Module, ParseError, ValueType};
@@ -268,6 +268,23 @@ pub enum RuntimeError {
         offset: u64,
         length: usize,
     },
+    TableAllocationFailed {
+        elements: u32,
+    },
+    ElementSegmentOutOfBounds {
+        segment: usize,
+        offset: u64,
+        length: usize,
+    },
+    GlobalOutOfBounds(u32),
+    ImmutableGlobalSet(u32),
+    TableIndexOutOfBounds(u32),
+    TableElementOutOfBounds(u32),
+    UninitializedTableElement(u32),
+    IndirectCallTypeMismatch {
+        expected_type: u32,
+        function_index: u32,
+    },
     UnresolvedImport {
         module: String,
         name: String,
@@ -348,6 +365,30 @@ impl fmt::Display for RuntimeError {
             } => write!(
                 f,
                 "data segment {segment} at byte {offset} with length {length} does not fit initial memory"
+            ),
+            Self::TableAllocationFailed { elements } => {
+                write!(f, "failed to allocate table with {elements} elements")
+            }
+            Self::ElementSegmentOutOfBounds { segment, offset, length } => write!(
+                f,
+                "element segment {segment} at table offset {offset} with length {length} does not fit initial table"
+            ),
+            Self::GlobalOutOfBounds(index) => write!(f, "global index {index} is out of bounds"),
+            Self::ImmutableGlobalSet(index) => {
+                write!(f, "global index {index} is immutable")
+            }
+            Self::TableIndexOutOfBounds(index) => {
+                write!(f, "table index {index} is out of bounds")
+            }
+            Self::TableElementOutOfBounds(index) => {
+                write!(f, "table element index {index} is out of bounds")
+            }
+            Self::UninitializedTableElement(index) => {
+                write!(f, "table element index {index} is uninitialized")
+            }
+            Self::IndirectCallTypeMismatch { expected_type, function_index } => write!(
+                f,
+                "call_indirect expected type {expected_type}, but table function {function_index} has a different type"
             ),
             Self::UnresolvedImport { module, name } => {
                 write!(f, "unresolved host function import {module}.{name}")
@@ -566,6 +607,17 @@ impl LinearMemory {
     }
 }
 
+fn allocate_table(elements: u32) -> Result<Vec<Option<u32>>, RuntimeError> {
+    let len =
+        usize::try_from(elements).map_err(|_| RuntimeError::TableAllocationFailed { elements })?;
+    let mut table = Vec::new();
+    table
+        .try_reserve_exact(len)
+        .map_err(|_| RuntimeError::TableAllocationFailed { elements })?;
+    table.resize(len, None);
+    Ok(table)
+}
+
 fn pages_to_bytes(pages: u32) -> Option<usize> {
     let bytes = u64::from(pages).checked_mul(WASM_PAGE_SIZE as u64)?;
     usize::try_from(bytes).ok()
@@ -672,6 +724,8 @@ pub struct Instance {
     module: Module,
     control_maps: Vec<ControlMap>,
     memory: Option<LinearMemory>,
+    table: Option<Vec<Option<u32>>>,
+    globals: Vec<Value>,
     hosts: HostRegistry,
     limits: RuntimeLimits,
 }
@@ -708,15 +762,37 @@ impl Instance {
                 )
             })
             .transpose()?;
+        let table = module
+            .tables
+            .first()
+            .map(|table_type| allocate_table(table_type.limits.min))
+            .transpose()?;
+        let globals = module
+            .globals
+            .iter()
+            .map(|global| Value::I32(global.init))
+            .collect();
 
         let mut instance = Self {
             module,
             control_maps,
             memory,
+            table,
+            globals,
             hosts,
             limits,
         };
         instance.initialize_data_segments()?;
+        instance.initialize_element_segments()?;
+        if let Some(start) = instance.module.start {
+            let mut budget = ExecutionBudget::new(instance.limits);
+            let result = instance.invoke_function(start, &[], 0, &mut budget)?;
+            if result.is_some() {
+                return Err(RuntimeError::ControlInvariant(
+                    "validated start function returned a value",
+                ));
+            }
+        }
         Ok(instance)
     }
 
@@ -745,6 +821,10 @@ impl Instance {
         self.memory.as_ref()
     }
 
+    pub fn global(&self, index: u32) -> Option<Value> {
+        self.globals.get(index as usize).copied()
+    }
+
     fn initialize_data_segments(&mut self) -> Result<(), RuntimeError> {
         for (segment_index, segment) in self.module.data.iter().enumerate() {
             let offset = u64::from(segment.offset as u32);
@@ -767,6 +847,38 @@ impl Instance {
                 });
             }
             memory.bytes[offset as usize..end as usize].copy_from_slice(&segment.bytes);
+        }
+        Ok(())
+    }
+
+    fn initialize_element_segments(&mut self) -> Result<(), RuntimeError> {
+        let elements = self.module.elements.clone();
+        for (segment_index, segment) in elements.iter().enumerate() {
+            if segment.table_index != 0 {
+                return Err(RuntimeError::TableIndexOutOfBounds(segment.table_index));
+            }
+            let offset = u64::from(segment.offset as u32);
+            let end = offset
+                .checked_add(segment.function_indices.len() as u64)
+                .ok_or(RuntimeError::ElementSegmentOutOfBounds {
+                    segment: segment_index,
+                    offset,
+                    length: segment.function_indices.len(),
+                })?;
+            let table = self
+                .table
+                .as_mut()
+                .ok_or(RuntimeError::TableIndexOutOfBounds(0))?;
+            if end > table.len() as u64 {
+                return Err(RuntimeError::ElementSegmentOutOfBounds {
+                    segment: segment_index,
+                    offset,
+                    length: segment.function_indices.len(),
+                });
+            }
+            for (slot, &function_index) in segment.function_indices.iter().enumerate() {
+                table[offset as usize + slot] = Some(function_index);
+            }
         }
         Ok(())
     }
@@ -1016,6 +1128,46 @@ impl Instance {
                         stack.push(result);
                     }
                 }
+                0x11 => {
+                    let expected_type_index = read_u32_immediate(code, &mut pc)?;
+                    let table_index = read_u32_immediate(code, &mut pc)?;
+                    if table_index != 0 || self.table.is_none() {
+                        return Err(RuntimeError::TableIndexOutOfBounds(table_index));
+                    }
+                    let element_index =
+                        stack.pop().ok_or(RuntimeError::StackUnderflow)?.as_i32() as u32;
+                    let callee = self
+                        .table
+                        .as_ref()
+                        .and_then(|table| table.get(element_index as usize))
+                        .ok_or(RuntimeError::TableElementOutOfBounds(element_index))?
+                        .ok_or(RuntimeError::UninitializedTableElement(element_index))?;
+                    let expected_type = self
+                        .module
+                        .types
+                        .get(expected_type_index as usize)
+                        .cloned()
+                        .ok_or(RuntimeError::ControlInvariant(
+                            "validated call_indirect type is missing",
+                        ))?;
+                    let actual_type = self.function_type(callee)?;
+                    if actual_type != expected_type {
+                        return Err(RuntimeError::IndirectCallTypeMismatch {
+                            expected_type: expected_type_index,
+                            function_index: callee,
+                        });
+                    }
+                    let param_count = expected_type.params.len();
+                    if stack.len() < param_count {
+                        return Err(RuntimeError::StackUnderflow);
+                    }
+                    let call_args = stack.split_off(stack.len() - param_count);
+                    if let Some(result) =
+                        self.invoke_function(callee, &call_args, depth + 1, budget)?
+                    {
+                        stack.push(result);
+                    }
+                }
                 0x20 => {
                     let index = read_u32_immediate(code, &mut pc)?;
                     let value = *locals
@@ -1038,6 +1190,32 @@ impl Instance {
                         .get_mut(index as usize)
                         .ok_or(RuntimeError::LocalOutOfBounds(index))?;
                     *local = value;
+                }
+                0x23 => {
+                    let index = read_u32_immediate(code, &mut pc)?;
+                    let value = *self
+                        .globals
+                        .get(index as usize)
+                        .ok_or(RuntimeError::GlobalOutOfBounds(index))?;
+                    stack.push(value);
+                }
+                0x24 => {
+                    let index = read_u32_immediate(code, &mut pc)?;
+                    let mutable = self
+                        .module
+                        .globals
+                        .get(index as usize)
+                        .ok_or(RuntimeError::GlobalOutOfBounds(index))?
+                        .ty
+                        .mutable;
+                    if !mutable {
+                        return Err(RuntimeError::ImmutableGlobalSet(index));
+                    }
+                    let value = stack.pop().ok_or(RuntimeError::StackUnderflow)?;
+                    *self
+                        .globals
+                        .get_mut(index as usize)
+                        .ok_or(RuntimeError::GlobalOutOfBounds(index))? = value;
                 }
                 0x28 | 0x2c..=0x2f => {
                     let (_, displacement) = read_memarg(code, &mut pc)?;
@@ -1263,7 +1441,11 @@ fn build_control_map(code: &[u8]) -> Result<ControlMap, RuntimeError> {
                     ));
                 }
             }
-            0x0c | 0x0d | 0x10 | 0x20..=0x22 | 0x3f | 0x40 => {
+            0x0c | 0x0d | 0x10 | 0x20..=0x24 | 0x3f | 0x40 => {
+                let _ = read_u32_immediate(code, &mut pc)?;
+            }
+            0x11 => {
+                let _ = read_u32_immediate(code, &mut pc)?;
                 let _ = read_u32_immediate(code, &mut pc)?;
             }
             0x28 | 0x2c..=0x2f | 0x36 | 0x3a | 0x3b => {
