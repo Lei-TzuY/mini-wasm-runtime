@@ -42,7 +42,9 @@ impl fmt::Display for RuntimeError {
             Self::Decode(error) => write!(f, "instruction decode failed: {error}"),
             Self::ExportNotFound(name) => write!(f, "export {name:?} not found"),
             Self::ExportNotFunction(name) => write!(f, "export {name:?} is not a function"),
-            Self::FunctionOutOfBounds(index) => write!(f, "function index {index} is out of bounds"),
+            Self::FunctionOutOfBounds(index) => {
+                write!(f, "function index {index} is out of bounds")
+            }
             Self::UnsupportedType(ty) => write!(f, "runtime does not yet execute type {ty:?}"),
             Self::WrongArgumentCount { expected, actual } => {
                 write!(f, "expected {expected} arguments, got {actual}")
@@ -51,7 +53,10 @@ impl fmt::Display for RuntimeError {
             Self::StackUnderflow => write!(f, "operand stack underflow"),
             Self::UnsupportedOpcode(opcode) => write!(f, "unsupported opcode 0x{opcode:02x}"),
             Self::ResultArityMismatch { expected, actual } => {
-                write!(f, "expected {expected} result values, stack contains {actual}")
+                write!(
+                    f,
+                    "expected {expected} result values, stack contains {actual}"
+                )
             }
             Self::CallDepthExceeded => write!(f, "maximum call depth exceeded"),
         }
@@ -110,7 +115,8 @@ impl Instance {
             .module
             .function_type_indices
             .get(function)
-            .ok_or(RuntimeError::FunctionOutOfBounds(function_index))? as usize;
+            .ok_or(RuntimeError::FunctionOutOfBounds(function_index))?
+            as usize;
         let ty = &self.module.types[type_index];
         ensure_i32_types(&ty.params)?;
         ensure_i32_types(&ty.results)?;
@@ -252,7 +258,8 @@ mod tests {
     }
 
     fn instance(bytes: &[u8]) -> Instance {
-        Instance::new(parse_module(bytes).expect("parse test module")).expect("validate test module")
+        Instance::new(parse_module(bytes).expect("parse test module"))
+            .expect("validate test module")
     }
 
     #[test]
