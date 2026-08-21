@@ -4,21 +4,23 @@ A small WebAssembly runtime built from first principles in Rust.
 
 The project intentionally does **not** embed Wasmtime/Wasmer or another WebAssembly engine. The parser, validator, interpreter, numeric value model, linear memory, tables, globals, and host boundary live in this repository so the interesting invariants stay visible and testable.
 
-## Current milestone: Phase 5B
+## Current milestone: Phase 5C
 
-Phase 5B replaces the old i32-specialized validation/execution model with a typed MVP numeric core while preserving the Phase-5A state/table and Phase-4 host boundaries:
+Phase 5C is broadening module forms and conformance without weakening the fail-closed boundary established in earlier phases:
 
-- WebAssembly binary header plus u32/i32/i64 LEB128 decoding
-- type, function-import, function, table, memory, global, export, start, element, code, and active data sections
+- WebAssembly binary header plus u32/i32/i64 and signed-33 blocktype LEB128 decoding
+- type, import, function, table, memory, global, export, start, element, code, and active data sections
+- explicit function/table/memory/global import descriptors with independent WebAssembly index spaces
 - `i32`, `i64`, `f32`, and `f64` defined-function parameters, locals, zero-or-one results, globals, and block results
 - a single typed operand-stack validator; the legacy arity-only validator has been removed
+- structured `block`, `loop`, and `if` signatures from immediate value types or type indices, including block parameters and correctly typed loop labels
 - typed direct calls and `call_indirect`, including non-i32 defined-function signatures
-- mutable/immutable numeric globals with `global.get` / `global.set`
+- mutable/immutable defined numeric globals with `global.get` / `global.set`
+- executable **immutable numeric global imports** resolved explicitly through `HostRegistry`
 - `funcref` table plus active table-0 element segments and precise indirect-call traps
-- structured `block`, `loop`, `if`, `else`, `br`, and `br_if` with exact result-type convergence
 - numeric constants, integer/floating comparisons, i32/i64 arithmetic, f32/f64 arithmetic, and selected non-trapping conversions
-- one 32-bit linear memory with 64 KiB pages and the existing checked i32 load/store family
-- typed `HostRegistry` and capability-scoped `HostContext`; function imports remain intentionally i32-only in this slice
+- one 32-bit linear memory with 64 KiB pages and the checked i32 load/store family
+- typed host functions with capability-scoped `HostContext`; imported host functions remain intentionally i32-only
 - configurable call-depth, memory-page, instruction-fuel, and host-call limits
 - CLI inspect/run commands and multi-platform CI plus Rust 1.81 MSRV validation
 
@@ -32,7 +34,9 @@ Arithmetic/conversions: i32/i64 `add`, `sub`, `mul`; f32/f64 `add`, `sub`, `mul`
 
 Memory: `i32.load`, `i32.load8_s`, `i32.load8_u`, `i32.load16_s`, `i32.load16_u`, `i32.store`, `i32.store8`, `i32.store16`, `memory.size`, `memory.grow`.
 
-Function and block results remain limited to zero or one numeric value. The runtime supports at most one defined table and one linear memory. Imports remain function-only and the host ABI remains i32-only. Trapping float-to-integer conversions, reinterpret instructions, broader numeric operators, broader segment/import forms, multi-value, and complete spec-test conformance remain later work.
+Function and block results remain limited to zero or one numeric value. The runtime supports at most one table and one linear memory across imported and defined objects. The parser and validator understand function/table/memory/global import descriptors, but execution currently resolves only function imports and immutable numeric global imports. Table imports, memory imports, and mutable global imports remain fail-closed until shared backing/aliasing semantics are implemented. Host function signatures remain i32-only.
+
+Trapping float-to-integer conversions, reinterpret instructions, broader numeric operators, broader segment modes, multi-value execution, and complete spec-test conformance remain later work.
 
 ## Quick start
 
@@ -44,11 +48,11 @@ cargo run -p wasm-cli -- run path/to/module.wasm some_i64_export i64:42
 cargo run -p wasm-cli -- run path/to/module.wasm some_float_export f32:1.5 f64:2.5
 ```
 
-CLI values default to `i32`; use explicit `i64:`, `f32:`, or `f64:` prefixes for the other numeric types. `mini-wasm inspect` reports imports, function index space, tables, memories, typed globals, exports, start function, and element/data segment counts.
+CLI values default to `i32`; use explicit `i64:`, `f32:`, or `f64:` prefixes for the other numeric types. `mini-wasm inspect` reports import kinds, independent index-space counts, defined objects, typed globals, exports, start function, and element/data segment counts.
 
-The standalone CLI intentionally installs no implicit host functions or capabilities. Executing a module with imports therefore requires an embedding application to construct a `HostRegistry` and instantiate with `Instance::with_hosts` or `Instance::with_config`.
+The standalone CLI intentionally installs no implicit host functions, globals, or capabilities. Executing a module with imports therefore requires an embedding application to construct a `HostRegistry` and instantiate with `Instance::with_hosts` or `Instance::with_config`.
 
-## Embedding host functions
+## Embedding host bindings
 
 ```rust
 use wasm_parser::ValueType;
@@ -64,38 +68,43 @@ hosts.register(
     |_ctx, args| Ok(Some(Value::I32(args[0].as_i32().wrapping_mul(2)))),
 )?;
 
+hosts.register_immutable_global("env", "build_id", Value::I64(42))?;
+
 let mut instance = Instance::with_hosts(module, hosts)?;
 ```
 
-Callbacks receive a `HostContext`, not the `Instance`. Memory access is denied unless the registration explicitly grants `MEMORY_READ` or `MEMORY_READ_WRITE`. Phase 5B deliberately keeps imported function signatures i32-only even though defined WebAssembly code now supports all four MVP numeric types.
+Callbacks receive a `HostContext`, not the `Instance`. Memory access is denied unless the function registration explicitly grants `MEMORY_READ` or `MEMORY_READ_WRITE`. Immutable global imports have no callback and must match the module's declared numeric `ValueType` exactly. Mutable global imports remain unsupported because copying a value would violate WebAssembly aliasing semantics.
 
 ## Workspace
 
 ```text
 crates/
-  wasm-parser/     binary format + typed numeric constants + module sections
-  wasm-validator/  typed operand/control stacks + index/state/table/memory invariants
+  wasm-parser/     binary format + import descriptors + typed constants + module sections
+  wasm-validator/  typed operand/control stacks + independent index-space invariants
   wasm-runtime/    typed interpreter + globals + table + linear memory + host boundary
   wasm-cli/        inspect/run command-line frontend
 docs/
   architecture.md
   phase5b-numeric-model.md
+  phase5c-module-forms.md
   roadmap.md
 ```
 
 ## Design principles
 
-1. **Fail closed.** Unsupported binary features, import kinds, segment modes, and opcodes are errors.
+1. **Fail closed.** Unsupported binary features, runtime import kinds, segment modes, and opcodes are errors.
 2. **No hidden engine dependency.** Runtime behavior is implemented here.
 3. **Parser != validator != executor.** Each layer has a narrow contract.
-4. **Validate types, not just arity.** Every reachable operand slot carries a `ValueType`; locals, globals, calls, labels, and control results must match exactly.
-5. **Trap precisely.** Indirect calls distinguish out-of-bounds, null entries, and dynamic type mismatches; memory ranges are checked before access.
-6. **Least capability at the host boundary.** Host callbacks receive only explicitly granted facilities.
-7. **Meter untrusted work.** Embedders may cap call depth, memory pages, instruction fuel, and host calls.
-8. **Defense in depth.** Runtime type, stack, control, memory, table, and host checks remain even after static validation.
-9. **Small vertical slices.** Every phase ends in executable behavior and tests.
+4. **Respect independent index spaces.** Function, table, memory, and global imports never share ordinal arithmetic.
+5. **Validate types, not just arity.** Every reachable operand slot carries a `ValueType`; locals, globals, calls, labels, and control results must match exactly.
+6. **Trap precisely.** Indirect calls distinguish out-of-bounds, null entries, and dynamic type mismatches; memory ranges are checked before access.
+7. **Least capability at the host boundary.** Host callbacks receive only explicitly granted facilities.
+8. **Do not fake aliasing.** Imported mutable state is rejected until the runtime can represent shared backing semantics correctly.
+9. **Meter untrusted work.** Embedders may cap call depth, memory pages, instruction fuel, and host calls.
+10. **Defense in depth.** Runtime type, stack, control, memory, table, global, and host checks remain even after static validation.
+11. **Small vertical slices.** Every phase increment ends in executable behavior and adversarial tests.
 
-See [`docs/architecture.md`](docs/architecture.md), [`docs/phase5b-numeric-model.md`](docs/phase5b-numeric-model.md), and [`docs/roadmap.md`](docs/roadmap.md).
+See [`docs/architecture.md`](docs/architecture.md), [`docs/phase5b-numeric-model.md`](docs/phase5b-numeric-model.md), [`docs/phase5c-module-forms.md`](docs/phase5c-module-forms.md), and [`docs/roadmap.md`](docs/roadmap.md).
 
 ## Status
 
