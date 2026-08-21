@@ -59,6 +59,17 @@ fn inspect(path: &Path) -> Result<(), Box<dyn Error>> {
         "function index space: {}",
         module.imports.len() + module.function_type_indices.len()
     );
+    println!("tables: {}", module.tables.len());
+    for (index, table) in module.tables.iter().enumerate() {
+        println!(
+            "  table #{index}: funcref min={} max={}",
+            table.limits.min,
+            table
+                .limits
+                .max
+                .map_or_else(|| "unbounded".to_owned(), |max| max.to_string())
+        );
+    }
     println!("memories: {}", module.memories.len());
     for (index, memory) in module.memories.iter().enumerate() {
         println!(
@@ -70,10 +81,24 @@ fn inspect(path: &Path) -> Result<(), Box<dyn Error>> {
                 .map_or_else(|| "unbounded".to_owned(), |max| max.to_string())
         );
     }
+    println!("globals: {}", module.globals.len());
+    for (index, global) in module.globals.iter().enumerate() {
+        println!(
+            "  global #{index}: {:?} mutable={} init={}",
+            global.ty.value_type, global.ty.mutable, global.init
+        );
+    }
     println!("exports: {}", module.exports.len());
     for export in &module.exports {
         println!("  {}: {:?} #{}", export.name, export.kind, export.index);
     }
+    println!(
+        "start: {}",
+        module
+            .start
+            .map_or_else(|| "none".to_owned(), |index| format!("function #{index}"))
+    );
+    println!("element segments: {}", module.elements.len());
     println!("code bodies: {}", module.code.len());
     println!("data segments: {}", module.data.len());
     Ok(())
