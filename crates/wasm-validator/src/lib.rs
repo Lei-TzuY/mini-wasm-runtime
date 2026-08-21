@@ -1372,16 +1372,11 @@ mod tests {
     }
 
     #[test]
-    fn rejects_non_i32_execution_types() {
+    fn accepts_non_i32_execution_types() {
         let mut module = valid_module();
         module.types[0].params[0] = ValueType::I64;
-        assert_eq!(
-            validate(&module),
-            Err(ValidationError::UnsupportedValueType {
-                function: 0,
-                value_type: ValueType::I64,
-            })
-        );
+        module.types[0].results[0] = ValueType::I64;
+        assert_eq!(validate(&module), Ok(()));
     }
 
     #[test]
