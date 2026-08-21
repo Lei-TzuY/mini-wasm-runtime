@@ -1,6 +1,6 @@
 use wasm_parser::{
-    parse_module, DataSegment, Export, ExportKind, FuncType, Import, ImportDesc, Limits, MemoryType,
-    Module, ValueType,
+    parse_module, DataSegment, Export, ExportKind, FuncType, Import, ImportDesc, Limits,
+    MemoryType, Module, ValueType,
 };
 use wasm_runtime::{
     HostCapabilities, HostRegistry, HostRegistryError, Instance, MemoryHandle, MemoryHandleError,
