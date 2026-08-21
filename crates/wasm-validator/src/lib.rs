@@ -784,14 +784,15 @@ fn label_arity(
     offset: usize,
 ) -> Result<usize, ValidationError> {
     let depth = depth as usize;
-    let index = controls
-        .len()
-        .checked_sub(depth + 1)
-        .ok_or(ValidationError::BranchDepthOutOfBounds {
-            function,
-            offset,
-            depth: depth as u32,
-        })?;
+    let index =
+        controls
+            .len()
+            .checked_sub(depth + 1)
+            .ok_or(ValidationError::BranchDepthOutOfBounds {
+                function,
+                offset,
+                depth: depth as u32,
+            })?;
     Ok(controls[index].label_arity)
 }
 
