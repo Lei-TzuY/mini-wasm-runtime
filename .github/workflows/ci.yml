@@ -67,8 +67,8 @@ jobs:
           start = workflow.index(start_marker) + len(start_marker)
           end = workflow.index(end_marker, start)
           lines = workflow[start:end].splitlines()
-          script = "\n".join(line[10:] if line.startswith("          ") else line for line in lines) + "\n"
-          Path('/tmp/apply_phase5c_memory.py').write_text(script)
+          body = "\n".join(line[6:] if line.startswith("      ") else line for line in lines) + "\n"
+          Path('/tmp/apply_phase5c_memory.py').write_text("if True:\n" + body)
           PY
           python3 /tmp/apply_phase5c_memory.py
           cargo fmt --all
