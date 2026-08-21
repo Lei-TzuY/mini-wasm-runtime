@@ -9,5 +9,8 @@ rust-version.workspace = true
 wasm-parser = { path = "../wasm-parser" }
 wasm-validator = { path = "../wasm-validator" }
 
+[dev-dependencies]
+wast = "=217.0.0"
+
 [lints]
 workspace = true
