@@ -95,6 +95,7 @@ The roadmap favors complete vertical slices over a broad but shallow decoder.
 - [ ] differential execution against a reference engine in tests only
 - [ ] deterministic benchmarks
 - [x] initial malformed-binary parser corpus
+- [x] untrusted-count parser allocation hardening
 - [ ] malformed-module corpus expansion across validation/runtime
 - [ ] security invariants and threat model
 
