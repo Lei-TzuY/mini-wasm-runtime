@@ -20,7 +20,7 @@ wasm-validator ---- proves typed stack, control, signature, and independent inde
 validated Module + explicit HostRegistry + RuntimeLimits
    |
    v
-Instance ---- resolves supported imports; allocates owned state; applies segments; runs start
+Instance ---- resolves supported imports; allocates owned state; attaches shared globals; applies segments; runs start
    |
    v
 wasm-runtime ---- typed numeric interpreter / scoped host callbacks / trap checks
@@ -104,7 +104,7 @@ Unreachable code follows WebAssembly-style stack polymorphism while still checki
 
 ## `wasm-runtime`
 
-Each `Instance` owns the validated module, precomputed control maps, optional owned `LinearMemory`, optional owned function table, a combined global value vector, resolved `HostRegistry`, and `RuntimeLimits`.
+Each `Instance` owns the validated module, precomputed control maps, optional owned `LinearMemory`, optional owned function table, a combined vector of global handles, resolved `HostRegistry`, and `RuntimeLimits`.
 
 ### Numeric value model
 
@@ -125,19 +125,36 @@ The numeric slice includes i32/i64 wrapping add/sub/mul, f32/f64 add/sub/mul/div
 
 `ControlMap` stores each structured opener's full supported block signature. Runtime frames retain block parameters and optional result types. Entry, frame exit, branch unwinding, loop backedges, and if/else transitions repeat the validator's typed invariants instead of reverting to arity-only assumptions.
 
-### Globals and immutable imported globals
+### Globals and shared imported state
 
-Runtime global storage uses the WebAssembly global index order:
+Runtime global storage follows WebAssembly global index order:
 
 ```text
-[ imported globals ... ][ defined globals ... ]
+[ imported global handles ... ][ defined global handles ... ]
 ```
 
-Defined globals are initialized from parsed constants. Immutable global imports are bound explicitly through `HostRegistry::register_immutable_global(module, name, value)` before instantiation. Binding requires exact numeric `ValueType` equality; missing bindings and type mismatches are distinct runtime errors.
+All runtime global slots use `GlobalHandle`. A handle stores:
 
-`global.get` indexes the combined runtime vector. `global.set` obtains mutability and value type through the combined module global index space, so imported globals cannot shift defined-global mutation targets.
+```text
+Rc<RefCell<Value>> + ValueType + mutable flag
+```
 
-Mutable global imports remain rejected. Copying the initial host value into the instance would violate observable WebAssembly aliasing semantics, so support waits for a shared backing abstraction.
+This matches the runtime's current single-threaded embedding model. It deliberately does not claim `Send`, `Sync`, threads, or shared-memory support.
+
+Defined globals get private handles initialized from parsed constants. Imported globals use handles supplied by the embedding application:
+
+- `HostRegistry::register_immutable_global(module, name, value)` creates an immutable handle;
+- `HostRegistry::register_global(module, name, handle)` registers a retained `GlobalHandle`, including mutable handles.
+
+Instantiation requires both the numeric `ValueType` and mutability flag to equal the imported `GlobalType`. Missing bindings, type mismatches, and mutability mismatches are distinct errors.
+
+For mutable imports, the host and instance clone the same handle rather than copying its value. Therefore:
+
+- a host `GlobalHandle::set` performed between WebAssembly calls is observed by the next `global.get`;
+- WebAssembly `global.set` mutates the same cell returned by host `GlobalHandle::get`;
+- the handle itself rejects writes to immutable globals and wrong-type writes.
+
+`global.get` and `global.set` still query the combined module global type information for defense-in-depth index/type/mutability checks, so imported globals cannot shift defined-global mutation targets incorrectly.
 
 ### Tables, elements, and `call_indirect`
 
@@ -145,7 +162,7 @@ The currently owned table representation is `Vec<Option<u32>>`. Active element s
 
 `call_indirect` distinguishes out-of-bounds selectors, null entries, and dynamic type mismatches before dispatching through the same imported/defined function path as direct calls.
 
-Table imports are parsed and validated in the correct index space but remain rejected at instantiation until shared backing semantics are available.
+Table imports are parsed and validated in the correct index space but remain rejected at instantiation until a shared table handle can preserve identity and mutation visibility.
 
 ### Linear memory
 
@@ -158,7 +175,7 @@ Memory imports participate in validation and the memory index space, but instant
 `HostRegistry` currently holds two executable binding classes:
 
 1. host functions, with i32-only signatures and zero-or-one result;
-2. immutable numeric globals, supporting all four current numeric `Value` variants.
+2. numeric `GlobalHandle` bindings, immutable or mutable, supporting all four current numeric `Value` variants.
 
 Host functions receive a `HostContext`, not the `Instance`. Memory access requires explicit `NONE`, `MEMORY_READ`, or `MEMORY_READ_WRITE` capabilities. Runtime arguments are type-checked before callbacks run.
 
@@ -172,9 +189,9 @@ After supported imports are resolved and state/segments are initialized, an opti
 
 ## Current non-goals
 
-- mutable global imports until shared backing exists
 - table imports until shared backing exists
 - memory imports until shared backing exists
+- thread-safe/shared-memory global handles
 - non-i32 host function callbacks
 - multiple tables or memories
 - passive/declarative element modes
