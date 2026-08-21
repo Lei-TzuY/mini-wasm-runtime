@@ -24,11 +24,11 @@ The roadmap favors complete vertical slices over a broad but shallow decoder.
 
 ## Phase 3 — linear memory
 
-- [ ] memory section and limits
-- [ ] `i32.load` / `i32.store` families
-- [ ] bounds checks and trap model
-- [ ] `memory.size` / `memory.grow`
-- [ ] data segments
+- [x] memory section and limits
+- [x] `i32.load` / `i32.store` families
+- [x] bounds checks and trap model
+- [x] `memory.size` / `memory.grow`
+- [x] active data segments for memory 0
 
 ## Phase 4 — imports and host boundary
 
@@ -43,7 +43,7 @@ The roadmap favors complete vertical slices over a broad but shallow decoder.
 - [ ] globals
 - [ ] tables and `call_indirect`
 - [ ] i64/f32/f64 execution
-- [ ] start/element/data sections
+- [ ] start/element/broader data modes
 - [ ] WebAssembly spec tests for supported features
 
 ## Phase 6 — engineering hardening
