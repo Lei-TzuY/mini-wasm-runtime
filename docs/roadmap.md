@@ -76,7 +76,7 @@ The roadmap favors complete vertical slices over a broad but shallow decoder.
 - [x] shared backing for memory imports with runtime-limit-safe shared linear-memory state
 - [x] non-i32 host function import ABI
 - [x] block parameters and type-index block signatures with zero-or-one result
-- [ ] broader data/element modes
+- [x] broader data/element modes
 - [ ] multi-value results
 - [ ] broader numeric operators, reinterpret, and trapping conversions
 - [x] i64/f32/f64 memory instruction families
