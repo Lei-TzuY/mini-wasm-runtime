@@ -15,11 +15,11 @@ The roadmap favors complete vertical slices over a broad but shallow decoder.
 
 ## Phase 2 — validator and control flow
 
-- [ ] typed operand/control stacks
-- [ ] `block`, `loop`, `if`, `else`
-- [ ] `br`, `br_if`
+- [x] typed operand/control stacks for the i32-only subset
+- [x] `block`, `loop`, `if`, `else`
+- [x] `br`, `br_if`
 - [ ] comparison/test instructions
-- [ ] unreachable/polymorphic stack rules
+- [x] unreachable/polymorphic stack rules
 - [ ] negative conformance corpus
 
 ## Phase 3 — linear memory
