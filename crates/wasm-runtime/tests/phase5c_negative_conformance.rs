@@ -119,11 +119,7 @@ fn duplicate_export_names_are_rejected_before_execution() {
     push_section(
         &mut module,
         7,
-        &[
-            0x02,
-            0x01, b'x', 0x00, 0x00,
-            0x01, b'x', 0x00, 0x00,
-        ],
+        &[0x02, 0x01, b'x', 0x00, 0x00, 0x01, b'x', 0x00, 0x00],
     );
     push_section(&mut module, 10, &[0x01, 0x02, 0x00, 0x0b]);
 
@@ -195,22 +191,13 @@ fn table_export_cannot_resolve_through_memory_index_space() {
         .expect_err("memory index 0 must not satisfy table export index 0");
     assert!(matches!(
         error,
-        RuntimeError::Validation(ValidationError::TableExportOutOfBounds {
-            table_index: 0,
-            ..
-        })
+        RuntimeError::Validation(ValidationError::TableExportOutOfBounds { table_index: 0, .. })
     ));
 }
 
 #[test]
 fn memory_instruction_without_memory_is_rejected_before_execution() {
-    let module = minimal_function_module(
-        Some(0x7f),
-        &[
-            0x41, 0x00,
-            0x28, 0x02, 0x00,
-        ],
-    );
+    let module = minimal_function_module(Some(0x7f), &[0x41, 0x00, 0x28, 0x02, 0x00]);
 
     let error = Instance::new(parse_module(&module).unwrap())
         .expect_err("memory instruction without linear memory must fail closed");
