@@ -1,5 +1,7 @@
-use wasm_parser::{parse_module, ImportKind};
-use wasm_runtime::{HostRegistry, HostRegistryError, Instance, RuntimeError, Value};
+use wasm_parser::parse_module;
+use wasm_runtime::{
+    GlobalHandle, GlobalHandleError, HostRegistry, HostRegistryError, Instance, RuntimeError, Value,
+};
 
 const I32: u8 = 0x7f;
 const I64: u8 = 0x7e;
@@ -150,20 +152,104 @@ fn immutable_global_binding_requires_exact_numeric_type() {
     ));
 }
 
+fn mutable_global_accessors() -> Vec<u8> {
+    let mut module = module_header();
+    let types = [
+        0x02, 0x60, 0x00, 0x01, I32, // [] -> i32
+        0x60, 0x01, I32, 0x00, // [i32] -> []
+    ];
+    push_section(&mut module, 1, &types);
+
+    let mut imports = vec![0x01];
+    push_name(&mut imports, "env");
+    push_name(&mut imports, "g");
+    imports.extend([0x03, I32, 0x01]);
+    push_section(&mut module, 2, &imports);
+
+    push_section(&mut module, 3, &[0x02, 0x00, 0x01]);
+    push_section(
+        &mut module,
+        7,
+        &[
+            0x02, 0x03, b'g', b'e', b't', 0x00, 0x00, 0x03, b's', b'e', b't', 0x00, 0x01,
+        ],
+    );
+
+    let getter = [0x00, 0x23, 0x00, 0x0b];
+    let setter = [0x00, 0x20, 0x00, 0x24, 0x00, 0x0b];
+    let mut code = vec![0x02];
+    push_u32(&mut code, getter.len() as u32);
+    code.extend(getter);
+    push_u32(&mut code, setter.len() as u32);
+    code.extend(setter);
+    push_section(&mut module, 10, &code);
+    module
+}
+
 #[test]
-fn mutable_global_import_remains_fail_closed() {
-    let module = parse_module(&imported_global_getter(I32, true)).unwrap();
+fn mutable_global_import_preserves_bidirectional_aliasing() {
+    let module = parse_module(&mutable_global_accessors()).unwrap();
+    let global = GlobalHandle::mutable(Value::I32(7));
     let mut hosts = HostRegistry::new();
-    hosts
+    hosts.register_global("env", "g", global.clone()).unwrap();
+    let mut vm = Instance::with_hosts(module, hosts).unwrap();
+
+    global.set(Value::I32(11)).unwrap();
+    assert_eq!(vm.invoke_export("get", &[]).unwrap(), Some(Value::I32(11)));
+
+    assert_eq!(vm.invoke_export("set", &[Value::I32(42)]).unwrap(), None);
+    assert_eq!(global.get(), Value::I32(42));
+    assert_eq!(vm.global(0), Some(Value::I32(42)));
+}
+
+#[test]
+fn imported_global_mutability_must_match_exactly() {
+    let mutable_module = parse_module(&imported_global_getter(I32, true)).unwrap();
+    let mut immutable_hosts = HostRegistry::new();
+    immutable_hosts
         .register_immutable_global("env", "g", Value::I32(7))
         .unwrap();
     assert!(matches!(
-        Instance::with_hosts(module, hosts),
-        Err(RuntimeError::UnsupportedObjectImport {
-            kind: ImportKind::Global,
+        Instance::with_hosts(mutable_module, immutable_hosts),
+        Err(RuntimeError::HostGlobalMutabilityMismatch {
+            expected: true,
+            actual: false,
             ..
         })
     ));
+
+    let immutable_module = parse_module(&imported_global_getter(I32, false)).unwrap();
+    let mut mutable_hosts = HostRegistry::new();
+    mutable_hosts
+        .register_global("env", "g", GlobalHandle::mutable(Value::I32(7)))
+        .unwrap();
+    assert!(matches!(
+        Instance::with_hosts(immutable_module, mutable_hosts),
+        Err(RuntimeError::HostGlobalMutabilityMismatch {
+            expected: false,
+            actual: true,
+            ..
+        })
+    ));
+}
+
+#[test]
+fn global_handle_enforces_mutability_and_type_outside_the_vm() {
+    let immutable = GlobalHandle::immutable(Value::I32(1));
+    assert_eq!(
+        immutable.set(Value::I32(2)),
+        Err(GlobalHandleError::Immutable)
+    );
+
+    let mutable = GlobalHandle::mutable(Value::I32(1));
+    assert_eq!(
+        mutable.set(Value::I64(2)),
+        Err(GlobalHandleError::TypeMismatch {
+            expected: wasm_parser::ValueType::I32,
+            actual: wasm_parser::ValueType::I64,
+        })
+    );
+    assert_eq!(mutable.get(), Value::I32(1));
 }
 
 #[test]

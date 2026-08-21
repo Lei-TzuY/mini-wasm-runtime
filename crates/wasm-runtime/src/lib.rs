@@ -1,6 +1,6 @@
 //! Stack interpreter for the Phase-5B typed numeric WebAssembly subset.
 
-use std::{collections::HashMap, fmt};
+use std::{cell::RefCell, collections::HashMap, fmt, rc::Rc};
 use wasm_parser::{
     decode_i32, decode_i64, decode_s33, decode_u32, Constant, ExportKind, FuncType, ImportDesc,
     ImportKind, Module, ParseError, ValueType,
@@ -65,6 +65,80 @@ impl fmt::Display for HostError {
 }
 
 impl std::error::Error for HostError {}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum GlobalHandleError {
+    Immutable,
+    TypeMismatch {
+        expected: ValueType,
+        actual: ValueType,
+    },
+}
+
+impl fmt::Display for GlobalHandleError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Immutable => write!(f, "global is immutable"),
+            Self::TypeMismatch { expected, actual } => {
+                write!(f, "global expects {expected:?}, got {actual:?}")
+            }
+        }
+    }
+}
+
+impl std::error::Error for GlobalHandleError {}
+
+#[derive(Debug, Clone)]
+pub struct GlobalHandle {
+    value: Rc<RefCell<Value>>,
+    value_type: ValueType,
+    mutable: bool,
+}
+
+impl GlobalHandle {
+    pub fn immutable(value: Value) -> Self {
+        Self::new(value, false)
+    }
+
+    pub fn mutable(value: Value) -> Self {
+        Self::new(value, true)
+    }
+
+    fn new(value: Value, mutable: bool) -> Self {
+        Self {
+            value: Rc::new(RefCell::new(value)),
+            value_type: value.value_type(),
+            mutable,
+        }
+    }
+
+    pub fn value_type(&self) -> ValueType {
+        self.value_type
+    }
+
+    pub fn is_mutable(&self) -> bool {
+        self.mutable
+    }
+
+    pub fn get(&self) -> Value {
+        *self.value.borrow()
+    }
+
+    pub fn set(&self, value: Value) -> Result<(), GlobalHandleError> {
+        if !self.mutable {
+            return Err(GlobalHandleError::Immutable);
+        }
+        let actual = value.value_type();
+        if actual != self.value_type {
+            return Err(GlobalHandleError::TypeMismatch {
+                expected: self.value_type,
+                actual,
+            });
+        }
+        *self.value.borrow_mut() = value;
+        Ok(())
+    }
+}
 
 pub struct HostContext<'a> {
     memory: Option<&'a mut LinearMemory>,
@@ -148,14 +222,14 @@ impl std::error::Error for HostRegistryError {}
 #[derive(Default)]
 pub struct HostRegistry {
     functions: HashMap<(String, String), HostFunction>,
-    immutable_globals: HashMap<(String, String), Value>,
+    globals: HashMap<(String, String), GlobalHandle>,
 }
 
 impl fmt::Debug for HostRegistry {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("HostRegistry")
             .field("function_count", &self.functions.len())
-            .field("immutable_global_count", &self.immutable_globals.len())
+            .field("global_count", &self.globals.len())
             .finish()
     }
 }
@@ -210,13 +284,22 @@ impl HostRegistry {
         name: impl Into<String>,
         value: Value,
     ) -> Result<(), HostRegistryError> {
+        self.register_global(module, name, GlobalHandle::immutable(value))
+    }
+
+    pub fn register_global(
+        &mut self,
+        module: impl Into<String>,
+        name: impl Into<String>,
+        global: GlobalHandle,
+    ) -> Result<(), HostRegistryError> {
         let module = module.into();
         let name = name.into();
         let key = (module.clone(), name.clone());
-        if self.immutable_globals.contains_key(&key) {
+        if self.globals.contains_key(&key) {
             return Err(HostRegistryError::DuplicateGlobal { module, name });
         }
-        self.immutable_globals.insert(key, value);
+        self.globals.insert(key, global);
         Ok(())
     }
 }
@@ -325,6 +408,12 @@ pub enum RuntimeError {
         name: String,
         expected: ValueType,
         actual: ValueType,
+    },
+    HostGlobalMutabilityMismatch {
+        module: String,
+        name: String,
+        expected: bool,
+        actual: bool,
     },
     UnsupportedObjectImport {
         module: String,
@@ -456,6 +545,15 @@ impl fmt::Display for RuntimeError {
             } => write!(
                 f,
                 "registered host global {module}.{name} has type {actual:?}, expected {expected:?}"
+            ),
+            Self::HostGlobalMutabilityMismatch {
+                module,
+                name,
+                expected,
+                actual,
+            } => write!(
+                f,
+                "registered host global {module}.{name} has mutable={actual}, expected mutable={expected}"
             ),
             Self::UnsupportedObjectImport { module, name, kind } => write!(
                 f,
@@ -800,7 +898,7 @@ pub struct Instance {
     control_maps: Vec<ControlMap>,
     memory: Option<LinearMemory>,
     table: Option<Vec<Option<u32>>>,
-    globals: Vec<Value>,
+    globals: Vec<GlobalHandle>,
     hosts: HostRegistry,
     limits: RuntimeLimits,
 }
@@ -894,7 +992,7 @@ impl Instance {
     }
 
     pub fn global(&self, index: u32) -> Option<Value> {
-        self.globals.get(index as usize).copied()
+        self.globals.get(index as usize).map(GlobalHandle::get)
     }
 
     fn initialize_data_segments(&mut self) -> Result<(), RuntimeError> {
@@ -1281,10 +1379,11 @@ impl Instance {
                 }
                 0x23 => {
                     let index = read_u32_immediate(code, &mut pc)?;
-                    let value = *self
+                    let value = self
                         .globals
                         .get(index as usize)
-                        .ok_or(RuntimeError::GlobalOutOfBounds(index))?;
+                        .ok_or(RuntimeError::GlobalOutOfBounds(index))?
+                        .get();
                     stack.push(value);
                 }
                 0x24 => {
@@ -1297,10 +1396,16 @@ impl Instance {
                         return Err(RuntimeError::ImmutableGlobalSet(index));
                     }
                     let value = numeric::pop_typed(&mut stack, global_type.value_type)?;
-                    *self
-                        .globals
-                        .get_mut(index as usize)
-                        .ok_or(RuntimeError::GlobalOutOfBounds(index))? = value;
+                    self.globals
+                        .get(index as usize)
+                        .ok_or(RuntimeError::GlobalOutOfBounds(index))?
+                        .set(value)
+                        .map_err(|error| match error {
+                            GlobalHandleError::Immutable => RuntimeError::ImmutableGlobalSet(index),
+                            GlobalHandleError::TypeMismatch { expected, actual } => {
+                                RuntimeError::ValueTypeMismatch { expected, actual }
+                            }
+                        })?;
                 }
                 0x28 | 0x2c..=0x2f => {
                     let (_, displacement) = read_memarg(code, &mut pc)?;
@@ -1396,8 +1501,7 @@ impl Instance {
 fn reject_unsupported_object_imports(module: &Module) -> Result<(), RuntimeError> {
     for import in &module.imports {
         match import.desc {
-            ImportDesc::Function(_) => {}
-            ImportDesc::Global(global_type) if !global_type.mutable => {}
+            ImportDesc::Function(_) | ImportDesc::Global(_) => {}
             _ => {
                 return Err(RuntimeError::UnsupportedObjectImport {
                     module: import.module.clone(),
@@ -1436,17 +1540,16 @@ fn validate_host_bindings(module: &Module, hosts: &HostRegistry) -> Result<(), R
         let ImportDesc::Global(global_type) = import.desc else {
             continue;
         };
-        if global_type.mutable {
-            continue;
-        }
         let key = (import.module.clone(), import.name.clone());
-        let value = hosts.immutable_globals.get(&key).copied().ok_or_else(|| {
-            RuntimeError::UnresolvedGlobalImport {
-                module: import.module.clone(),
-                name: import.name.clone(),
-            }
-        })?;
-        let actual = value.value_type();
+        let global =
+            hosts
+                .globals
+                .get(&key)
+                .ok_or_else(|| RuntimeError::UnresolvedGlobalImport {
+                    module: import.module.clone(),
+                    name: import.name.clone(),
+                })?;
+        let actual = global.value_type();
         if actual != global_type.value_type {
             return Err(RuntimeError::HostGlobalTypeMismatch {
                 module: import.module.clone(),
@@ -1455,38 +1558,57 @@ fn validate_host_bindings(module: &Module, hosts: &HostRegistry) -> Result<(), R
                 actual,
             });
         }
+        if global.is_mutable() != global_type.mutable {
+            return Err(RuntimeError::HostGlobalMutabilityMismatch {
+                module: import.module.clone(),
+                name: import.name.clone(),
+                expected: global_type.mutable,
+                actual: global.is_mutable(),
+            });
+        }
     }
     Ok(())
 }
 
-fn instantiate_globals(module: &Module, hosts: &HostRegistry) -> Result<Vec<Value>, RuntimeError> {
+fn instantiate_globals(
+    module: &Module,
+    hosts: &HostRegistry,
+) -> Result<Vec<GlobalHandle>, RuntimeError> {
     let mut globals = Vec::with_capacity(module.global_count());
     for import in &module.imports {
         let ImportDesc::Global(global_type) = import.desc else {
             continue;
         };
-        if global_type.mutable {
-            return Err(RuntimeError::UnsupportedObjectImport {
-                module: import.module.clone(),
-                name: import.name.clone(),
-                kind: ImportKind::Global,
-            });
-        }
         let key = (import.module.clone(), import.name.clone());
-        let value = hosts.immutable_globals.get(&key).copied().ok_or_else(|| {
+        let global = hosts.globals.get(&key).cloned().ok_or_else(|| {
             RuntimeError::UnresolvedGlobalImport {
                 module: import.module.clone(),
                 name: import.name.clone(),
             }
         })?;
-        numeric::expect_type(value, global_type.value_type)?;
-        globals.push(value);
+        if global.value_type() != global_type.value_type {
+            return Err(RuntimeError::HostGlobalTypeMismatch {
+                module: import.module.clone(),
+                name: import.name.clone(),
+                expected: global_type.value_type,
+                actual: global.value_type(),
+            });
+        }
+        if global.is_mutable() != global_type.mutable {
+            return Err(RuntimeError::HostGlobalMutabilityMismatch {
+                module: import.module.clone(),
+                name: import.name.clone(),
+                expected: global_type.mutable,
+                actual: global.is_mutable(),
+            });
+        }
+        globals.push(global);
     }
     globals.extend(
         module
             .globals
             .iter()
-            .map(|global| value_from_constant(global.init)),
+            .map(|global| GlobalHandle::new(value_from_constant(global.init), global.ty.mutable)),
     );
     Ok(globals)
 }
