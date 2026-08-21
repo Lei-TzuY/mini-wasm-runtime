@@ -162,6 +162,12 @@ pub enum ValidationError {
         offset: usize,
         opcode: u8,
     },
+    UnsupportedPrefixedOpcode {
+        function: usize,
+        offset: usize,
+        prefix: u8,
+        subopcode: u32,
+    },
     BlockTypeIndexOutOfBounds {
         function: usize,
         offset: usize,
@@ -398,6 +404,15 @@ impl fmt::Display for ValidationError {
             } => write!(
                 f,
                 "function {function} uses unsupported opcode 0x{opcode:02x} at byte {offset}"
+            ),
+            Self::UnsupportedPrefixedOpcode {
+                function,
+                offset,
+                prefix,
+                subopcode,
+            } => write!(
+                f,
+                "function {function} uses unsupported prefixed opcode 0x{prefix:02x}:{subopcode} at byte {offset}"
             ),
             Self::BlockTypeIndexOutOfBounds {
                 function,

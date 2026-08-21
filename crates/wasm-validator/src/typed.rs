@@ -492,6 +492,24 @@ pub(super) fn validate_code(
                 function,
                 offset,
             )?,
+            0xfc => {
+                let subopcode = read_u32(code, &mut pc, function, offset)?;
+                let (input, output) = match subopcode {
+                    0 | 1 => (ValueType::F32, ValueType::I32),
+                    2 | 3 => (ValueType::F64, ValueType::I32),
+                    4 | 5 => (ValueType::F32, ValueType::I64),
+                    6 | 7 => (ValueType::F64, ValueType::I64),
+                    _ => {
+                        return Err(ValidationError::UnsupportedPrefixedOpcode {
+                            function,
+                            offset,
+                            prefix: 0xfc,
+                            subopcode,
+                        })
+                    }
+                };
+                unary(&mut stack, &controls, input, output, function, offset)?;
+            }
             other => {
                 return Err(ValidationError::UnsupportedOpcode {
                     function,

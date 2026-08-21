@@ -682,3 +682,78 @@ fn trunc_to_i64(value: f64, signed: bool) -> Result<i64, RuntimeError> {
         Ok((value as u64) as i64)
     }
 }
+
+pub(super) fn trunc_sat(stack: &mut Vec<Value>, subopcode: u32) -> Result<(), RuntimeError> {
+    let value = match subopcode {
+        0 => Value::I32(trunc_sat_i32(f64::from(f32_from_stack(stack)?), true)),
+        1 => Value::I32(trunc_sat_i32(f64::from(f32_from_stack(stack)?), false)),
+        2 => Value::I32(trunc_sat_i32(f64_from_stack(stack)?, true)),
+        3 => Value::I32(trunc_sat_i32(f64_from_stack(stack)?, false)),
+        4 => Value::I64(trunc_sat_i64(f64::from(f32_from_stack(stack)?), true)),
+        5 => Value::I64(trunc_sat_i64(f64::from(f32_from_stack(stack)?), false)),
+        6 => Value::I64(trunc_sat_i64(f64_from_stack(stack)?, true)),
+        7 => Value::I64(trunc_sat_i64(f64_from_stack(stack)?, false)),
+        _ => {
+            return Err(RuntimeError::UnsupportedPrefixedOpcode {
+                prefix: 0xfc,
+                subopcode,
+            })
+        }
+    };
+    stack.push(value);
+    Ok(())
+}
+
+fn trunc_sat_i32(value: f64, signed: bool) -> i32 {
+    if value.is_nan() {
+        return 0;
+    }
+    let value = value.trunc();
+    if signed {
+        const LOWER: f64 = -2_147_483_648.0;
+        const UPPER: f64 = 2_147_483_648.0;
+        if value <= LOWER {
+            i32::MIN
+        } else if value >= UPPER {
+            i32::MAX
+        } else {
+            value as i32
+        }
+    } else {
+        const UPPER: f64 = 4_294_967_296.0;
+        if value <= 0.0 {
+            0
+        } else if value >= UPPER {
+            -1
+        } else {
+            (value as u32) as i32
+        }
+    }
+}
+
+fn trunc_sat_i64(value: f64, signed: bool) -> i64 {
+    if value.is_nan() {
+        return 0;
+    }
+    let value = value.trunc();
+    if signed {
+        const LOWER: f64 = -9_223_372_036_854_775_808.0;
+        const UPPER: f64 = 9_223_372_036_854_775_808.0;
+        if value <= LOWER {
+            i64::MIN
+        } else if value >= UPPER {
+            i64::MAX
+        } else {
+            value as i64
+        }
+    } else {
+        const UPPER: f64 = 18_446_744_073_709_551_616.0;
+        if value <= 0.0 {
+            0
+        } else if value >= UPPER {
+            -1
+        } else {
+            (value as u64) as i64
+        }
+    }
+}

@@ -707,6 +707,10 @@ pub enum RuntimeError {
     IntegerDivisionByZero,
     IntegerOverflow,
     InvalidConversionToInteger,
+    UnsupportedPrefixedOpcode {
+        prefix: u8,
+        subopcode: u32,
+    },
     UnsupportedBlockType(u8),
     BlockTypeIndexOutOfBounds(u32),
     UnsupportedBlockResultArity {
@@ -871,6 +875,10 @@ impl fmt::Display for RuntimeError {
             Self::IntegerDivisionByZero => write!(f, "integer division by zero"),
             Self::IntegerOverflow => write!(f, "integer overflow"),
             Self::InvalidConversionToInteger => write!(f, "invalid conversion to integer"),
+            Self::UnsupportedPrefixedOpcode { prefix, subopcode } => write!(
+                f,
+                "unsupported prefixed opcode 0x{prefix:02x}:{subopcode}"
+            ),
             Self::UnsupportedBlockType(block_type) => {
                 write!(f, "unsupported block type 0x{block_type:02x}")
             }
@@ -2250,6 +2258,10 @@ impl Instance {
                 0x8b..=0x91 | 0x99..=0x9f => numeric::unary_float(&mut stack, opcode)?,
                 0x92..=0x98 | 0xa0..=0xa6 => numeric::binary_float(&mut stack, opcode)?,
                 0xa7..=0xbf => numeric::convert(&mut stack, opcode)?,
+                0xfc => {
+                    let subopcode = read_u32_immediate(code, &mut pc)?;
+                    numeric::trunc_sat(&mut stack, subopcode)?;
+                }
                 other => return Err(RuntimeError::UnsupportedOpcode(other)),
             }
         }
@@ -2775,6 +2787,15 @@ fn build_control_map(module: &Module, code: &[u8]) -> Result<ControlMap, Runtime
                 let _ = read_fixed_u64(code, &mut pc)?;
             }
             0x0f | 0x45..=0x66 | 0x67..=0x8a | 0x8b..=0xa6 | 0xa7..=0xbf => {}
+            0xfc => {
+                let subopcode = read_u32_immediate(code, &mut pc)?;
+                if subopcode > 7 {
+                    return Err(RuntimeError::UnsupportedPrefixedOpcode {
+                        prefix: 0xfc,
+                        subopcode,
+                    });
+                }
+            }
             other => return Err(RuntimeError::UnsupportedOpcode(other)),
         }
     }
