@@ -1,5 +1,5 @@
 use super::{function_type, ValidationError};
-use wasm_parser::Module;
+use wasm_parser::{ElementMode, Module};
 
 pub(super) fn validate_phase5(module: &Module) -> Result<(), ValidationError> {
     if module.table_count() > 1 {
@@ -37,11 +37,13 @@ pub(super) fn validate_phase5(module: &Module) -> Result<(), ValidationError> {
 
     let total_functions = module.function_count();
     for (segment, element) in module.elements.iter().enumerate() {
-        if element.table_index as usize >= module.table_count() {
-            return Err(ValidationError::ElementTableOutOfBounds {
-                segment,
-                table_index: element.table_index,
-            });
+        if let ElementMode::Active { table_index, .. } = element.mode {
+            if table_index as usize >= module.table_count() {
+                return Err(ValidationError::ElementTableOutOfBounds {
+                    segment,
+                    table_index,
+                });
+            }
         }
         for &function_index in &element.function_indices {
             if function_index as usize >= total_functions {

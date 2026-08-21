@@ -1,5 +1,5 @@
 use wasm_parser::{
-    DataSegment, Export, ExportKind, FuncType, FunctionBody, Import, ImportDesc, Limits,
+    DataMode, DataSegment, Export, ExportKind, FuncType, FunctionBody, Import, ImportDesc, Limits,
     MemoryType, Module, ValueType,
 };
 use wasm_runtime::{
@@ -29,8 +29,10 @@ fn imported_reader_module() -> Module {
             index: 0,
         }],
         data: vec![DataSegment {
-            memory_index: 0,
-            offset: 0,
+            mode: DataMode::Active {
+                memory_index: 0,
+                offset: 0,
+            },
             bytes: b"wasm".to_vec(),
         }],
         ..Module::default()

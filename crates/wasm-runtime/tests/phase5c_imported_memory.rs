@@ -1,5 +1,5 @@
 use wasm_parser::{
-    parse_module, DataSegment, Export, ExportKind, FuncType, Import, ImportDesc, Limits,
+    parse_module, DataMode, DataSegment, Export, ExportKind, FuncType, Import, ImportDesc, Limits,
     MemoryType, Module, ValueType,
 };
 use wasm_runtime::{
@@ -149,13 +149,17 @@ fn failed_data_segment_instantiation_is_atomic_for_shared_memory() {
     let mut module = parse_module(&imported_memory_module()).unwrap();
     module.data = vec![
         DataSegment {
-            memory_index: 0,
-            offset: 32,
+            mode: DataMode::Active {
+                memory_index: 0,
+                offset: 32,
+            },
             bytes: b"MUTATE".to_vec(),
         },
         DataSegment {
-            memory_index: 0,
-            offset: 131_071,
+            mode: DataMode::Active {
+                memory_index: 0,
+                offset: 131_071,
+            },
             bytes: vec![0xaa, 0xbb],
         },
     ];

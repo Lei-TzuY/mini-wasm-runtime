@@ -4,7 +4,7 @@
 //! Function imports and defined code may use i32/i64/f32/f64 with at most one result.
 
 use std::{collections::HashSet, fmt};
-use wasm_parser::{decode_u32, ExportKind, FuncType, ImportDesc, Module, ValueType};
+use wasm_parser::{decode_u32, DataMode, ExportKind, FuncType, ImportDesc, Module, ValueType};
 
 mod phase5;
 mod typed;
@@ -583,10 +583,13 @@ pub fn validate(module: &Module) -> Result<(), ValidationError> {
     }
 
     for (segment, data) in module.data.iter().enumerate() {
-        if data.memory_index as usize >= module.memory_count() {
+        let DataMode::Active { memory_index, .. } = data.mode else {
+            continue;
+        };
+        if memory_index as usize >= module.memory_count() {
             return Err(ValidationError::DataMemoryOutOfBounds {
                 segment,
-                memory_index: data.memory_index,
+                memory_index,
             });
         }
     }
@@ -743,7 +746,9 @@ fn read_u32_immediate(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use wasm_parser::{DataSegment, Export, FuncType, FunctionBody, Import, Limits, MemoryType};
+    use wasm_parser::{
+        DataMode, DataSegment, Export, FuncType, FunctionBody, Import, Limits, MemoryType,
+    };
 
     fn module_with_code(params: usize, results: usize, code: Vec<u8>) -> Module {
         Module {
@@ -896,8 +901,10 @@ mod tests {
             index: 0,
         });
         module.data.push(DataSegment {
-            memory_index: 0,
-            offset: 8,
+            mode: DataMode::Active {
+                memory_index: 0,
+                offset: 8,
+            },
             bytes: b"wasm".to_vec(),
         });
         assert_eq!(validate(&module), Ok(()));
@@ -984,8 +991,10 @@ mod tests {
     fn rejects_data_segment_without_memory() {
         let mut module = valid_module();
         module.data.push(DataSegment {
-            memory_index: 0,
-            offset: 0,
+            mode: DataMode::Active {
+                memory_index: 0,
+                offset: 0,
+            },
             bytes: vec![1],
         });
         assert!(matches!(

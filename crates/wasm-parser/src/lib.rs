@@ -27,6 +27,7 @@ pub enum ParseError {
     InvalidLimitsFlags(u8),
     InvalidReferenceType(u8),
     InvalidMutability(u8),
+    InvalidElementKind(u8),
     UnsupportedElementSegmentMode(u32),
     UnsupportedDataSegmentMode(u32),
     InvalidConstExprOpcode(u8),
@@ -69,6 +70,9 @@ impl fmt::Display for ParseError {
                 write!(f, "unsupported table reference type 0x{tag:02x}")
             }
             Self::InvalidMutability(value) => write!(f, "invalid global mutability byte {value}"),
+            Self::InvalidElementKind(kind) => {
+                write!(f, "invalid legacy element kind byte 0x{kind:02x}")
+            }
             Self::UnsupportedElementSegmentMode(mode) => {
                 write!(f, "unsupported element segment mode {mode}")
             }
@@ -214,10 +218,16 @@ pub struct Export {
     pub index: u32,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ElementMode {
+    Active { table_index: u32, offset: i32 },
+    Passive,
+    Declarative,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ElementSegment {
-    pub table_index: u32,
-    pub offset: i32,
+    pub mode: ElementMode,
     pub function_indices: Vec<u32>,
 }
 
@@ -229,12 +239,15 @@ pub struct FunctionBody {
     pub code: Vec<u8>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DataMode {
+    Active { memory_index: u32, offset: i32 },
+    Passive,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DataSegment {
-    /// Active segments currently target memory 0 only.
-    pub memory_index: u32,
-    /// Constant i32 byte offset evaluated during instantiation.
-    pub offset: i32,
+    pub mode: DataMode,
     pub bytes: Vec<u8>,
 }
 
@@ -659,23 +672,51 @@ fn parse_element_section(cursor: &mut Cursor<'_>, module: &mut Module) -> Result
     let count = cursor.read_u32()?;
     module.elements.reserve(count as usize);
     for _ in 0..count {
-        let mode = cursor.read_u32()?;
-        if mode != 0 {
-            return Err(ParseError::UnsupportedElementSegmentMode(mode));
-        }
-        let offset = read_i32_const_expr(cursor)?;
+        let flags = cursor.read_u32()?;
+        let mode = match flags {
+            0 => ElementMode::Active {
+                table_index: 0,
+                offset: read_i32_const_expr(cursor)?,
+            },
+            1 => {
+                read_legacy_element_kind(cursor)?;
+                ElementMode::Passive
+            }
+            2 => {
+                let table_index = cursor.read_u32()?;
+                let offset = read_i32_const_expr(cursor)?;
+                read_legacy_element_kind(cursor)?;
+                ElementMode::Active {
+                    table_index,
+                    offset,
+                }
+            }
+            3 => {
+                read_legacy_element_kind(cursor)?;
+                ElementMode::Declarative
+            }
+            other => return Err(ParseError::UnsupportedElementSegmentMode(other)),
+        };
         let function_count = cursor.read_u32()?;
         let mut function_indices = Vec::with_capacity(function_count as usize);
         for _ in 0..function_count {
             function_indices.push(cursor.read_u32()?);
         }
         module.elements.push(ElementSegment {
-            table_index: 0,
-            offset,
+            mode,
             function_indices,
         });
     }
     Ok(())
+}
+
+fn read_legacy_element_kind(cursor: &mut Cursor<'_>) -> Result<(), ParseError> {
+    let kind = cursor.read_u8()?;
+    if kind == 0x00 {
+        Ok(())
+    } else {
+        Err(ParseError::InvalidElementKind(kind))
+    }
 }
 
 fn parse_code_section(cursor: &mut Cursor<'_>, module: &mut Module) -> Result<(), ParseError> {
@@ -706,18 +747,22 @@ fn parse_data_section(cursor: &mut Cursor<'_>, module: &mut Module) -> Result<()
     let count = cursor.read_u32()?;
     module.data.reserve(count as usize);
     for _ in 0..count {
-        let mode = cursor.read_u32()?;
-        if mode != 0 {
-            return Err(ParseError::UnsupportedDataSegmentMode(mode));
-        }
-        let offset = read_i32_const_expr(cursor)?;
+        let flags = cursor.read_u32()?;
+        let mode = match flags {
+            0 => DataMode::Active {
+                memory_index: 0,
+                offset: read_i32_const_expr(cursor)?,
+            },
+            1 => DataMode::Passive,
+            2 => DataMode::Active {
+                memory_index: cursor.read_u32()?,
+                offset: read_i32_const_expr(cursor)?,
+            },
+            other => return Err(ParseError::UnsupportedDataSegmentMode(other)),
+        };
         let len = cursor.read_u32()? as usize;
         let bytes = cursor.read_exact(len)?.to_vec();
-        module.data.push(DataSegment {
-            memory_index: 0,
-            offset,
-            bytes,
-        });
+        module.data.push(DataSegment { mode, bytes });
     }
     Ok(())
 }
@@ -984,7 +1029,13 @@ mod tests {
         assert_eq!(module.globals[0].init, Constant::I32(42));
         assert!(module.globals[0].ty.mutable);
         assert_eq!(module.start, Some(0));
-        assert_eq!(module.elements[0].offset, 1);
+        assert_eq!(
+            module.elements[0].mode,
+            ElementMode::Active {
+                table_index: 0,
+                offset: 1,
+            }
+        );
         assert_eq!(module.elements[0].function_indices, vec![0]);
     }
 
@@ -1033,13 +1084,44 @@ mod tests {
     }
 
     #[test]
-    fn rejects_unsupported_element_mode() {
+    fn rejects_expression_based_element_mode() {
         let mut bytes = vec![0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00];
-        push_section(&mut bytes, 9, &[0x01, 0x01]);
+        push_section(&mut bytes, 9, &[0x01, 0x04]);
         assert_eq!(
             parse_module(&bytes),
-            Err(ParseError::UnsupportedElementSegmentMode(1))
+            Err(ParseError::UnsupportedElementSegmentMode(4))
         );
+    }
+
+    #[test]
+    fn rejects_invalid_legacy_element_kind() {
+        let mut bytes = vec![0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00];
+        push_section(&mut bytes, 9, &[0x01, 0x01, 0x01]);
+        assert_eq!(parse_module(&bytes), Err(ParseError::InvalidElementKind(1)));
+    }
+
+    #[test]
+    fn parses_passive_explicit_and_declarative_element_modes() {
+        let mut bytes = vec![0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00];
+        let elements = [
+            0x03, 0x01, 0x00, 0x01, 0x00, 0x02, 0x00, 0x41, 0x02, 0x0b, 0x00, 0x01, 0x00, 0x03,
+            0x00, 0x01, 0x00,
+        ];
+        push_section(&mut bytes, 9, &elements);
+        let module = parse_module(&bytes).expect("legacy element modes parse");
+        assert_eq!(module.elements[0].mode, ElementMode::Passive);
+        assert_eq!(
+            module.elements[1].mode,
+            ElementMode::Active {
+                table_index: 0,
+                offset: 2,
+            }
+        );
+        assert_eq!(module.elements[2].mode, ElementMode::Declarative);
+        assert!(module
+            .elements
+            .iter()
+            .all(|segment| segment.function_indices == vec![0]));
     }
 
     #[test]
@@ -1048,7 +1130,13 @@ mod tests {
         assert_eq!(module.memories.len(), 1);
         assert_eq!(module.memories[0].limits.min, 1);
         assert_eq!(module.memories[0].limits.max, Some(2));
-        assert_eq!(module.data[0].offset, 4);
+        assert_eq!(
+            module.data[0].mode,
+            DataMode::Active {
+                memory_index: 0,
+                offset: 4,
+            }
+        );
         assert_eq!(module.data[0].bytes, b"was");
     }
 
@@ -1091,10 +1179,31 @@ mod tests {
     #[test]
     fn rejects_unsupported_data_segment_mode() {
         let mut bytes = vec![0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00];
-        bytes.extend([0x0b, 0x03, 0x01, 0x01, 0x00]);
+        bytes.extend([0x0b, 0x03, 0x01, 0x03, 0x00]);
         assert_eq!(
             parse_module(&bytes),
-            Err(ParseError::UnsupportedDataSegmentMode(1))
+            Err(ParseError::UnsupportedDataSegmentMode(3))
         );
+    }
+
+    #[test]
+    fn parses_passive_and_explicit_data_modes() {
+        let mut bytes = vec![0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00];
+        let data = [
+            0x02, 0x01, 0x03, b'p', b'a', b's', 0x02, 0x00, 0x41, 0x05, 0x0b, 0x03, b'a', b'c',
+            b't',
+        ];
+        push_section(&mut bytes, 11, &data);
+        let module = parse_module(&bytes).expect("data modes parse");
+        assert_eq!(module.data[0].mode, DataMode::Passive);
+        assert_eq!(module.data[0].bytes, b"pas");
+        assert_eq!(
+            module.data[1].mode,
+            DataMode::Active {
+                memory_index: 0,
+                offset: 5,
+            }
+        );
+        assert_eq!(module.data[1].bytes, b"act");
     }
 }

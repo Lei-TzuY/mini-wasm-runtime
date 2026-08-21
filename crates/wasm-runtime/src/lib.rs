@@ -7,8 +7,8 @@ use std::{
     rc::{Rc, Weak},
 };
 use wasm_parser::{
-    decode_i32, decode_i64, decode_s33, decode_u32, Constant, ExportKind, FuncType, ImportDesc,
-    ImportKind, Module, ParseError, ValueType,
+    decode_i32, decode_i64, decode_s33, decode_u32, Constant, DataMode, ElementMode, ExportKind,
+    FuncType, ImportDesc, ImportKind, Module, ParseError, ValueType,
 };
 
 mod numeric;
@@ -1580,9 +1580,19 @@ impl Instance {
     fn initialize_data_segments(&mut self) -> Result<(), RuntimeError> {
         let data = self.module.data.clone();
 
-        // Preflight all active segments before mutating a potentially host-shared memory.
+        // Preflight every active segment before mutating a potentially host-shared memory.
         for (segment_index, segment) in data.iter().enumerate() {
-            let offset = u64::from(segment.offset as u32);
+            let DataMode::Active {
+                memory_index,
+                offset,
+            } = segment.mode
+            else {
+                continue;
+            };
+            if memory_index != 0 {
+                return Err(RuntimeError::MemoryIndexOutOfBounds(memory_index));
+            }
+            let offset = u64::from(offset as u32);
             let end = offset.checked_add(segment.bytes.len() as u64).ok_or(
                 RuntimeError::DataSegmentOutOfBounds {
                     segment: segment_index,
@@ -1601,7 +1611,10 @@ impl Instance {
         }
 
         for segment in &data {
-            let offset = u64::from(segment.offset as u32);
+            let DataMode::Active { offset, .. } = segment.mode else {
+                continue;
+            };
+            let offset = u64::from(offset as u32);
             self.with_memory_mut(|memory| {
                 let start = usize::try_from(offset).map_err(|_| {
                     RuntimeError::ControlInvariant("preflighted data offset no longer fits usize")
@@ -1620,10 +1633,17 @@ impl Instance {
         // Preflight every active segment before mutating a potentially host-shared table.
         // A later OOB segment must not leave earlier segment writes externally visible.
         for (segment_index, segment) in elements.iter().enumerate() {
-            if segment.table_index != 0 {
-                return Err(RuntimeError::TableIndexOutOfBounds(segment.table_index));
+            let ElementMode::Active {
+                table_index,
+                offset,
+            } = segment.mode
+            else {
+                continue;
+            };
+            if table_index != 0 {
+                return Err(RuntimeError::TableIndexOutOfBounds(table_index));
             }
-            let offset = u64::from(segment.offset as u32);
+            let offset = u64::from(offset as u32);
             let end = offset
                 .checked_add(segment.function_indices.len() as u64)
                 .ok_or(RuntimeError::ElementSegmentOutOfBounds {
@@ -1645,7 +1665,10 @@ impl Instance {
         }
 
         for segment in &elements {
-            let offset = u64::from(segment.offset as u32);
+            let ElementMode::Active { offset, .. } = segment.mode else {
+                continue;
+            };
+            let offset = u64::from(offset as u32);
             let table = self
                 .table
                 .as_ref()
@@ -3232,7 +3255,10 @@ mod tests {
     fn data_segment_out_of_bounds_fails_instantiation() {
         let bytes = module_with_memory(0, 0, &[0x0b], None, Some((4, b"wasm")));
         let mut module = parse_module(&bytes).expect("parse test module");
-        module.data[0].offset = (WASM_PAGE_SIZE - 2) as i32;
+        module.data[0].mode = DataMode::Active {
+            memory_index: 0,
+            offset: (WASM_PAGE_SIZE - 2) as i32,
+        };
         let error = Instance::new(module).expect_err("segment must fit initial memory");
         assert!(matches!(error, RuntimeError::DataSegmentOutOfBounds { .. }));
     }
