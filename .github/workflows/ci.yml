@@ -28,12 +28,13 @@ jobs:
         shell: bash
         run: |
           python3 scripts/phase5c_import_model.py
+          python3 scripts/phase5c_import_fixture_fix.py
           cargo fmt --all
           cargo clippy --workspace --all-targets -- -D warnings
           cargo test --workspace --all-targets
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add -- crates/wasm-parser/src/lib.rs crates/wasm-validator/src/lib.rs crates/wasm-validator/src/phase5.rs crates/wasm-validator/src/typed.rs crates/wasm-runtime/src/lib.rs crates/wasm-cli/src/main.rs
+          git add -- crates/wasm-parser/src/lib.rs crates/wasm-validator/src/lib.rs crates/wasm-validator/src/phase5.rs crates/wasm-validator/src/typed.rs crates/wasm-runtime/src/lib.rs crates/wasm-runtime/tests/host_boundary.rs crates/wasm-cli/src/main.rs
           git commit -m 'refactor: model independent WebAssembly import index spaces'
           git push origin HEAD:${{ github.event.pull_request.head.ref }}
 
