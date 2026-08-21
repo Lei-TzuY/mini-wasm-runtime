@@ -211,9 +211,7 @@ fn run_fixture(source: &str) -> IngestionReport {
                     expected.len(),
                     "assert_return result arity mismatch for export {name}"
                 );
-                for (index, (expected, actual)) in
-                    expected.iter().zip(actual.into_iter()).enumerate()
-                {
+                for (index, (expected, actual)) in expected.iter().zip(actual).enumerate() {
                     assert!(
                         value_matches(expected, actual),
                         "assert_return mismatch for export {name} result {index}: expected {expected:?}, actual {actual:?}"
