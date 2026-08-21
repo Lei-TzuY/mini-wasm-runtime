@@ -79,7 +79,8 @@ The roadmap favors complete vertical slices over a broad but shallow decoder.
 - [x] broader data/element modes
 - [ ] multi-value results
 - [x] MVP i32/i64 count, div/rem, bitwise, shift, and rotate operators
-- [ ] floating unary/min/max/copysign, reinterpret, and trapping/saturating conversions
+- [x] MVP f32/f64 unary, arithmetic, min/max, and copysign operators
+- [ ] reinterpret and remaining trapping/saturating numeric conversions
 - [x] i64/f32/f64 memory instruction families
 - [ ] WebAssembly spec tests for supported features
 - [ ] negative conformance corpus
