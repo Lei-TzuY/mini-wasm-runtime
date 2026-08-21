@@ -1,0 +1,694 @@
+use super::{function_type, ControlKind, ValidationError};
+use wasm_parser::{decode_i32, decode_i64, FuncType, Module, ValueType};
+
+#[derive(Debug, Clone, Copy)]
+struct ControlFrame {
+    kind: ControlKind,
+    height: usize,
+    end_type: Option<ValueType>,
+    label_type: Option<ValueType>,
+    unreachable: bool,
+    seen_else: bool,
+}
+
+pub(super) fn validate_code(
+    module: &Module,
+    body_index: usize,
+    function: usize,
+    local_types: &[ValueType],
+    function_results: &[ValueType],
+) -> Result<bool, ValidationError> {
+    let code = &module.code[body_index].code;
+    if code.last().copied() != Some(0x0b) {
+        return Err(ValidationError::MissingFunctionEnd { function });
+    }
+
+    let function_result = function_results.first().copied();
+    let mut legacy_compatible = function_results.iter().all(|ty| *ty == ValueType::I32)
+        && local_types.iter().all(|ty| *ty == ValueType::I32);
+    let mut stack = Vec::<ValueType>::new();
+    let mut controls = vec![ControlFrame {
+        kind: ControlKind::Function,
+        height: 0,
+        end_type: function_result,
+        label_type: function_result,
+        unreachable: false,
+        seen_else: false,
+    }];
+    let mut pc = 0usize;
+
+    while pc < code.len() {
+        let offset = pc;
+        let opcode = code[pc];
+        pc += 1;
+
+        match opcode {
+            0x02 | 0x03 => {
+                let end_type = read_block_type(code, &mut pc, function, offset)?;
+                if end_type.is_some_and(|ty| ty != ValueType::I32) {
+                    legacy_compatible = false;
+                }
+                let kind = if opcode == 0x02 {
+                    ControlKind::Block
+                } else {
+                    ControlKind::Loop
+                };
+                controls.push(ControlFrame {
+                    kind,
+                    height: stack.len(),
+                    end_type,
+                    label_type: if kind == ControlKind::Loop {
+                        None
+                    } else {
+                        end_type
+                    },
+                    unreachable: false,
+                    seen_else: false,
+                });
+            }
+            0x04 => {
+                let end_type = read_block_type(code, &mut pc, function, offset)?;
+                if end_type.is_some_and(|ty| ty != ValueType::I32) {
+                    legacy_compatible = false;
+                }
+                pop_expect(
+                    &mut stack,
+                    &controls,
+                    ValueType::I32,
+                    function,
+                    offset,
+                )?;
+                controls.push(ControlFrame {
+                    kind: ControlKind::If,
+                    height: stack.len(),
+                    end_type,
+                    label_type: end_type,
+                    unreachable: false,
+                    seen_else: false,
+                });
+            }
+            0x05 => transition_to_else(&mut stack, &mut controls, function, offset)?,
+            0x0b => {
+                let frame = *controls
+                    .last()
+                    .ok_or(ValidationError::UnexpectedEnd { function, offset })?;
+                if frame.kind == ControlKind::If && frame.end_type.is_some() && !frame.seen_else {
+                    return Err(ValidationError::MissingElseForResult { function, offset });
+                }
+                finish_frame(&mut stack, &frame, function, offset)?;
+                controls.pop();
+                if frame.kind == ControlKind::Function {
+                    if pc != code.len() {
+                        return Err(ValidationError::UnexpectedEnd { function, offset });
+                    }
+                } else {
+                    stack.truncate(frame.height);
+                    if let Some(ty) = frame.end_type {
+                        stack.push(ty);
+                    }
+                }
+            }
+            0x0c => {
+                let depth = read_u32(code, &mut pc, function, offset)?;
+                require_label_value(&stack, &controls, depth, function, offset)?;
+                mark_unreachable(&mut stack, &mut controls);
+            }
+            0x0d => {
+                let depth = read_u32(code, &mut pc, function, offset)?;
+                pop_expect(
+                    &mut stack,
+                    &controls,
+                    ValueType::I32,
+                    function,
+                    offset,
+                )?;
+                require_label_value(&stack, &controls, depth, function, offset)?;
+            }
+            0x0f => {
+                require_label_value(
+                    &stack,
+                    &controls,
+                    (controls.len() - 1) as u32,
+                    function,
+                    offset,
+                )?;
+                mark_unreachable(&mut stack, &mut controls);
+            }
+            0x10 => {
+                let target = read_u32(code, &mut pc, function, offset)?;
+                let Some(ty) = function_type(module, target) else {
+                    return Err(ValidationError::CallTargetOutOfBounds {
+                        function,
+                        offset,
+                        target,
+                    });
+                };
+                if signature_uses_non_i32(ty) {
+                    legacy_compatible = false;
+                }
+                apply_call_signature(&mut stack, &controls, ty, function, offset)?;
+            }
+            0x11 => {
+                let type_index = read_u32(code, &mut pc, function, offset)?;
+                let table_index = read_u32(code, &mut pc, function, offset)?;
+                if table_index as usize >= module.tables.len() {
+                    return Err(ValidationError::TableIndexOutOfBounds {
+                        function,
+                        offset,
+                        table_index,
+                    });
+                }
+                let Some(ty) = module.types.get(type_index as usize) else {
+                    return Err(ValidationError::IndirectTypeIndexOutOfBounds {
+                        function,
+                        offset,
+                        type_index,
+                    });
+                };
+                if ty.results.len() > 1 {
+                    return Err(ValidationError::UnsupportedIndirectResultArity {
+                        function,
+                        offset,
+                        results: ty.results.len(),
+                    });
+                }
+                if signature_uses_non_i32(ty) {
+                    legacy_compatible = false;
+                }
+                pop_expect(
+                    &mut stack,
+                    &controls,
+                    ValueType::I32,
+                    function,
+                    offset,
+                )?;
+                apply_call_signature(&mut stack, &controls, ty, function, offset)?;
+            }
+            0x20 => {
+                let index = read_local(code, &mut pc, function, offset, local_types)?;
+                let ty = local_types[index as usize];
+                if ty != ValueType::I32 {
+                    legacy_compatible = false;
+                }
+                stack.push(ty);
+            }
+            0x21 => {
+                let index = read_local(code, &mut pc, function, offset, local_types)?;
+                let ty = local_types[index as usize];
+                if ty != ValueType::I32 {
+                    legacy_compatible = false;
+                }
+                pop_expect(&mut stack, &controls, ty, function, offset)?;
+            }
+            0x22 => {
+                let index = read_local(code, &mut pc, function, offset, local_types)?;
+                let ty = local_types[index as usize];
+                if ty != ValueType::I32 {
+                    legacy_compatible = false;
+                }
+                peek_expect(&stack, &controls, ty, function, offset)?;
+            }
+            0x23 => {
+                let global_index = read_u32(code, &mut pc, function, offset)?;
+                let Some(global) = module.globals.get(global_index as usize) else {
+                    return Err(ValidationError::GlobalIndexOutOfBounds {
+                        function,
+                        offset,
+                        global_index,
+                    });
+                };
+                if global.ty.value_type != ValueType::I32 {
+                    legacy_compatible = false;
+                }
+                stack.push(global.ty.value_type);
+            }
+            0x24 => {
+                let global_index = read_u32(code, &mut pc, function, offset)?;
+                let Some(global) = module.globals.get(global_index as usize) else {
+                    return Err(ValidationError::GlobalIndexOutOfBounds {
+                        function,
+                        offset,
+                        global_index,
+                    });
+                };
+                if !global.ty.mutable {
+                    return Err(ValidationError::ImmutableGlobalSet {
+                        function,
+                        offset,
+                        global_index,
+                    });
+                }
+                if global.ty.value_type != ValueType::I32 {
+                    legacy_compatible = false;
+                }
+                pop_expect(
+                    &mut stack,
+                    &controls,
+                    global.ty.value_type,
+                    function,
+                    offset,
+                )?;
+            }
+            0x28 | 0x2c..=0x2f => {
+                super::ensure_memory(module, function, offset)?;
+                super::read_memarg(
+                    code,
+                    &mut pc,
+                    function,
+                    offset,
+                    super::natural_alignment(opcode),
+                )?;
+                pop_expect(
+                    &mut stack,
+                    &controls,
+                    ValueType::I32,
+                    function,
+                    offset,
+                )?;
+                stack.push(ValueType::I32);
+            }
+            0x36 | 0x3a | 0x3b => {
+                super::ensure_memory(module, function, offset)?;
+                super::read_memarg(
+                    code,
+                    &mut pc,
+                    function,
+                    offset,
+                    super::natural_alignment(opcode),
+                )?;
+                pop_expect(
+                    &mut stack,
+                    &controls,
+                    ValueType::I32,
+                    function,
+                    offset,
+                )?;
+                pop_expect(
+                    &mut stack,
+                    &controls,
+                    ValueType::I32,
+                    function,
+                    offset,
+                )?;
+            }
+            0x3f => {
+                super::read_memory_index(code, &mut pc, module, function, offset)?;
+                stack.push(ValueType::I32);
+            }
+            0x40 => {
+                super::read_memory_index(code, &mut pc, module, function, offset)?;
+                pop_expect(
+                    &mut stack,
+                    &controls,
+                    ValueType::I32,
+                    function,
+                    offset,
+                )?;
+                stack.push(ValueType::I32);
+            }
+            0x41 => {
+                skip_i32(code, &mut pc, function, offset)?;
+                stack.push(ValueType::I32);
+            }
+            0x42 => {
+                legacy_compatible = false;
+                skip_i64(code, &mut pc, function, offset)?;
+                stack.push(ValueType::I64);
+            }
+            0x43 => {
+                legacy_compatible = false;
+                skip_fixed(code, &mut pc, 4, function, offset)?;
+                stack.push(ValueType::F32);
+            }
+            0x44 => {
+                legacy_compatible = false;
+                skip_fixed(code, &mut pc, 8, function, offset)?;
+                stack.push(ValueType::F64);
+            }
+            0x45 => unary(&mut stack, &controls, ValueType::I32, ValueType::I32, function, offset)?,
+            0x46..=0x4f => binary_compare(&mut stack, &controls, ValueType::I32, function, offset)?,
+            0x50 => {
+                legacy_compatible = false;
+                unary(&mut stack, &controls, ValueType::I64, ValueType::I32, function, offset)?;
+            }
+            0x51..=0x5a => {
+                legacy_compatible = false;
+                binary_compare(&mut stack, &controls, ValueType::I64, function, offset)?;
+            }
+            0x5b..=0x60 => {
+                legacy_compatible = false;
+                binary_compare(&mut stack, &controls, ValueType::F32, function, offset)?;
+            }
+            0x61..=0x66 => {
+                legacy_compatible = false;
+                binary_compare(&mut stack, &controls, ValueType::F64, function, offset)?;
+            }
+            0x6a..=0x6c => binary_same(&mut stack, &controls, ValueType::I32, function, offset)?,
+            0x7c..=0x7e => {
+                legacy_compatible = false;
+                binary_same(&mut stack, &controls, ValueType::I64, function, offset)?;
+            }
+            0x92..=0x95 => {
+                legacy_compatible = false;
+                binary_same(&mut stack, &controls, ValueType::F32, function, offset)?;
+            }
+            0xa0..=0xa3 => {
+                legacy_compatible = false;
+                binary_same(&mut stack, &controls, ValueType::F64, function, offset)?;
+            }
+            0xa7 => {
+                legacy_compatible = false;
+                unary(&mut stack, &controls, ValueType::I64, ValueType::I32, function, offset)?;
+            }
+            0xac | 0xad => {
+                legacy_compatible = false;
+                unary(&mut stack, &controls, ValueType::I32, ValueType::I64, function, offset)?;
+            }
+            0xb6 => {
+                legacy_compatible = false;
+                unary(&mut stack, &controls, ValueType::F64, ValueType::F32, function, offset)?;
+            }
+            0xbb => {
+                legacy_compatible = false;
+                unary(&mut stack, &controls, ValueType::F32, ValueType::F64, function, offset)?;
+            }
+            other => {
+                return Err(ValidationError::UnsupportedOpcode {
+                    function,
+                    offset,
+                    opcode: other,
+                });
+            }
+        }
+    }
+
+    if !controls.is_empty() {
+        return Err(ValidationError::MissingFunctionEnd { function });
+    }
+    Ok(legacy_compatible)
+}
+
+fn signature_uses_non_i32(ty: &FuncType) -> bool {
+    ty.params
+        .iter()
+        .chain(ty.results.iter())
+        .any(|value| *value != ValueType::I32)
+}
+
+fn apply_call_signature(
+    stack: &mut Vec<ValueType>,
+    controls: &[ControlFrame],
+    ty: &FuncType,
+    function: usize,
+    offset: usize,
+) -> Result<(), ValidationError> {
+    for &param in ty.params.iter().rev() {
+        pop_expect(stack, controls, param, function, offset)?;
+    }
+    if let Some(&result) = ty.results.first() {
+        stack.push(result);
+    }
+    Ok(())
+}
+
+fn unary(
+    stack: &mut Vec<ValueType>,
+    controls: &[ControlFrame],
+    input: ValueType,
+    output: ValueType,
+    function: usize,
+    offset: usize,
+) -> Result<(), ValidationError> {
+    pop_expect(stack, controls, input, function, offset)?;
+    stack.push(output);
+    Ok(())
+}
+
+fn binary_same(
+    stack: &mut Vec<ValueType>,
+    controls: &[ControlFrame],
+    ty: ValueType,
+    function: usize,
+    offset: usize,
+) -> Result<(), ValidationError> {
+    pop_expect(stack, controls, ty, function, offset)?;
+    pop_expect(stack, controls, ty, function, offset)?;
+    stack.push(ty);
+    Ok(())
+}
+
+fn binary_compare(
+    stack: &mut Vec<ValueType>,
+    controls: &[ControlFrame],
+    ty: ValueType,
+    function: usize,
+    offset: usize,
+) -> Result<(), ValidationError> {
+    pop_expect(stack, controls, ty, function, offset)?;
+    pop_expect(stack, controls, ty, function, offset)?;
+    stack.push(ValueType::I32);
+    Ok(())
+}
+
+fn pop_expect(
+    stack: &mut Vec<ValueType>,
+    controls: &[ControlFrame],
+    expected: ValueType,
+    function: usize,
+    offset: usize,
+) -> Result<(), ValidationError> {
+    let frame = controls
+        .last()
+        .ok_or(ValidationError::OperandStackUnderflow { function, offset })?;
+    if stack.len() == frame.height && frame.unreachable {
+        return Ok(());
+    }
+    let actual = stack
+        .pop()
+        .ok_or(ValidationError::OperandStackUnderflow { function, offset })?;
+    if actual != expected {
+        return Err(ValidationError::TypeMismatch {
+            function,
+            offset,
+            expected,
+            actual,
+        });
+    }
+    Ok(())
+}
+
+fn peek_expect(
+    stack: &[ValueType],
+    controls: &[ControlFrame],
+    expected: ValueType,
+    function: usize,
+    offset: usize,
+) -> Result<(), ValidationError> {
+    let frame = controls
+        .last()
+        .ok_or(ValidationError::OperandStackUnderflow { function, offset })?;
+    if stack.len() == frame.height && frame.unreachable {
+        return Ok(());
+    }
+    let actual = *stack
+        .last()
+        .ok_or(ValidationError::OperandStackUnderflow { function, offset })?;
+    if actual != expected {
+        return Err(ValidationError::TypeMismatch {
+            function,
+            offset,
+            expected,
+            actual,
+        });
+    }
+    Ok(())
+}
+
+fn require_label_value(
+    stack: &[ValueType],
+    controls: &[ControlFrame],
+    depth: u32,
+    function: usize,
+    offset: usize,
+) -> Result<(), ValidationError> {
+    let frame = control_at_depth(controls, depth, function, offset)?;
+    if let Some(ty) = frame.label_type {
+        peek_expect(stack, controls, ty, function, offset)?;
+    }
+    Ok(())
+}
+
+fn control_at_depth(
+    controls: &[ControlFrame],
+    depth: u32,
+    function: usize,
+    offset: usize,
+) -> Result<ControlFrame, ValidationError> {
+    let index = controls
+        .len()
+        .checked_sub(depth as usize + 1)
+        .ok_or(ValidationError::BranchDepthOutOfBounds {
+            function,
+            offset,
+            depth,
+        })?;
+    Ok(controls[index])
+}
+
+fn mark_unreachable(stack: &mut Vec<ValueType>, controls: &mut [ControlFrame]) {
+    if let Some(frame) = controls.last_mut() {
+        stack.truncate(frame.height);
+        frame.unreachable = true;
+    }
+}
+
+fn transition_to_else(
+    stack: &mut Vec<ValueType>,
+    controls: &mut [ControlFrame],
+    function: usize,
+    offset: usize,
+) -> Result<(), ValidationError> {
+    let frame = *controls
+        .last()
+        .ok_or(ValidationError::UnexpectedElse { function, offset })?;
+    if frame.kind != ControlKind::If {
+        return Err(ValidationError::UnexpectedElse { function, offset });
+    }
+    if frame.seen_else {
+        return Err(ValidationError::DuplicateElse { function, offset });
+    }
+    finish_frame(stack, &frame, function, offset)?;
+    stack.truncate(frame.height);
+    let current = controls
+        .last_mut()
+        .ok_or(ValidationError::UnexpectedElse { function, offset })?;
+    current.unreachable = false;
+    current.seen_else = true;
+    Ok(())
+}
+
+fn finish_frame(
+    stack: &mut Vec<ValueType>,
+    frame: &ControlFrame,
+    function: usize,
+    offset: usize,
+) -> Result<(), ValidationError> {
+    if frame.unreachable {
+        stack.truncate(frame.height);
+        return Ok(());
+    }
+    let expected = frame.height + usize::from(frame.end_type.is_some());
+    if stack.len() != expected {
+        return Err(ValidationError::StackHeightMismatch {
+            function,
+            offset,
+            expected,
+            actual: stack.len(),
+        });
+    }
+    if let Some(expected_type) = frame.end_type {
+        let actual = stack[frame.height];
+        if actual != expected_type {
+            return Err(ValidationError::TypeMismatch {
+                function,
+                offset,
+                expected: expected_type,
+                actual,
+            });
+        }
+    }
+    Ok(())
+}
+
+fn read_block_type(
+    code: &[u8],
+    pc: &mut usize,
+    function: usize,
+    offset: usize,
+) -> Result<Option<ValueType>, ValidationError> {
+    let block_type = *code
+        .get(*pc)
+        .ok_or(ValidationError::MalformedImmediate { function, offset })?;
+    *pc += 1;
+    match block_type {
+        0x40 => Ok(None),
+        0x7f => Ok(Some(ValueType::I32)),
+        0x7e => Ok(Some(ValueType::I64)),
+        0x7d => Ok(Some(ValueType::F32)),
+        0x7c => Ok(Some(ValueType::F64)),
+        _ => Err(ValidationError::UnsupportedBlockType {
+            function,
+            offset,
+            block_type,
+        }),
+    }
+}
+
+fn read_local(
+    code: &[u8],
+    pc: &mut usize,
+    function: usize,
+    offset: usize,
+    locals: &[ValueType],
+) -> Result<u32, ValidationError> {
+    let index = read_u32(code, pc, function, offset)?;
+    if index as usize >= locals.len() {
+        return Err(ValidationError::LocalIndexOutOfBounds {
+            function,
+            offset,
+            local_index: index,
+        });
+    }
+    Ok(index)
+}
+
+fn read_u32(
+    code: &[u8],
+    pc: &mut usize,
+    function: usize,
+    offset: usize,
+) -> Result<u32, ValidationError> {
+    let (value, used) = wasm_parser::decode_u32(&code[*pc..])
+        .map_err(|_| ValidationError::MalformedImmediate { function, offset })?;
+    *pc += used;
+    Ok(value)
+}
+
+fn skip_i32(
+    code: &[u8],
+    pc: &mut usize,
+    function: usize,
+    offset: usize,
+) -> Result<(), ValidationError> {
+    let (_, used) = decode_i32(&code[*pc..])
+        .map_err(|_| ValidationError::MalformedImmediate { function, offset })?;
+    *pc += used;
+    Ok(())
+}
+
+fn skip_i64(
+    code: &[u8],
+    pc: &mut usize,
+    function: usize,
+    offset: usize,
+) -> Result<(), ValidationError> {
+    let (_, used) = decode_i64(&code[*pc..])
+        .map_err(|_| ValidationError::MalformedImmediate { function, offset })?;
+    *pc += used;
+    Ok(())
+}
+
+fn skip_fixed(
+    code: &[u8],
+    pc: &mut usize,
+    width: usize,
+    function: usize,
+    offset: usize,
+) -> Result<(), ValidationError> {
+    let end = pc
+        .checked_add(width)
+        .filter(|end| *end <= code.len())
+        .ok_or(ValidationError::MalformedImmediate { function, offset })?;
+    *pc = end;
+    Ok(())
+}
