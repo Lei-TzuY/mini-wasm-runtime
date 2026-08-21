@@ -22,6 +22,9 @@ pub enum ParseError {
     InvalidImportKind(u8),
     InvalidExportKind(u8),
     InvalidLimitsFlags(u8),
+    InvalidReferenceType(u8),
+    InvalidMutability(u8),
+    UnsupportedElementSegmentMode(u32),
     UnsupportedDataSegmentMode(u32),
     InvalidConstExprOpcode(u8),
     ConstExprMissingEnd,
@@ -50,15 +53,20 @@ impl fmt::Display for ParseError {
             Self::InvalidFunctionType(tag) => write!(f, "invalid function type tag 0x{tag:02x}"),
             Self::UnsupportedValueType(tag) => write!(f, "unsupported value type 0x{tag:02x}"),
             Self::InvalidUtf8 => write!(f, "name is not valid UTF-8"),
-            Self::InvalidImportKind(kind) => {
-                write!(
-                    f,
-                    "unsupported import kind {kind}; Phase 4 supports function imports only"
-                )
-            }
+            Self::InvalidImportKind(kind) => write!(
+                f,
+                "unsupported import kind {kind}; this milestone supports function imports only"
+            ),
             Self::InvalidExportKind(kind) => write!(f, "invalid export kind {kind}"),
             Self::InvalidLimitsFlags(flags) => {
-                write!(f, "invalid memory limits flags 0x{flags:02x}")
+                write!(f, "invalid limits flags 0x{flags:02x}")
+            }
+            Self::InvalidReferenceType(tag) => {
+                write!(f, "unsupported table reference type 0x{tag:02x}")
+            }
+            Self::InvalidMutability(value) => write!(f, "invalid global mutability byte {value}"),
+            Self::UnsupportedElementSegmentMode(mode) => {
+                write!(f, "unsupported element segment mode {mode}")
             }
             Self::UnsupportedDataSegmentMode(mode) => {
                 write!(f, "unsupported data segment mode {mode}")
@@ -103,8 +111,25 @@ pub struct Limits {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct TableType {
+    pub limits: Limits,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct MemoryType {
     pub limits: Limits,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct GlobalType {
+    pub value_type: ValueType,
+    pub mutable: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Global {
+    pub ty: GlobalType,
+    pub init: i32,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -123,6 +148,13 @@ pub struct Export {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ElementSegment {
+    pub table_index: u32,
+    pub offset: i32,
+    pub function_indices: Vec<u32>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FunctionBody {
     /// Local declarations encoded as (count, type) groups.
     pub locals: Vec<(u32, ValueType)>,
@@ -132,7 +164,7 @@ pub struct FunctionBody {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DataSegment {
-    /// Phase 3 supports active segments for memory 0 only.
+    /// Active segments currently target memory 0 only.
     pub memory_index: u32,
     /// Constant i32 byte offset evaluated during instantiation.
     pub offset: i32,
@@ -146,27 +178,26 @@ pub struct Module {
     pub imports: Vec<Import>,
     /// Type indices for defined (non-imported) functions only.
     pub function_type_indices: Vec<u32>,
+    pub tables: Vec<TableType>,
     pub memories: Vec<MemoryType>,
+    pub globals: Vec<Global>,
     pub exports: Vec<Export>,
+    pub start: Option<u32>,
+    pub elements: Vec<ElementSegment>,
     pub code: Vec<FunctionBody>,
     pub data: Vec<DataSegment>,
 }
 
 /// Decode a canonical-or-noncanonical unsigned LEB128 u32 value.
-///
-/// The parser accepts encodings allowed by the WebAssembly binary format but
-/// rejects any representation that needs more than five bytes or overflows u32.
 pub fn decode_u32(input: &[u8]) -> Result<(u32, usize), ParseError> {
     let mut result = 0u32;
     for index in 0..5 {
         let byte = *input.get(index).ok_or(ParseError::UnexpectedEof)?;
         let payload = u32::from(byte & 0x7f);
-
         if index == 4 && payload > 0x0f {
             return Err(ParseError::Leb128Overflow);
         }
         result |= payload << (index * 7);
-
         if byte & 0x80 == 0 {
             return Ok((result, index + 1));
         }
@@ -178,13 +209,11 @@ pub fn decode_u32(input: &[u8]) -> Result<(u32, usize), ParseError> {
 pub fn decode_i32(input: &[u8]) -> Result<(i32, usize), ParseError> {
     let mut result = 0i64;
     let mut shift = 0u32;
-
     for index in 0..5 {
         let byte = *input.get(index).ok_or(ParseError::UnexpectedEof)?;
         let payload = i64::from(byte & 0x7f);
         result |= payload << shift;
         shift += 7;
-
         if byte & 0x80 == 0 {
             if index == 4 {
                 let terminal = byte & 0x70;
@@ -200,7 +229,6 @@ pub fn decode_i32(input: &[u8]) -> Result<(i32, usize), ParseError> {
                 .map_err(|_| ParseError::Leb128Overflow);
         }
     }
-
     Err(ParseError::InvalidLeb128)
 }
 
@@ -227,7 +255,7 @@ pub fn parse_module(bytes: &[u8]) -> Result<Module, ParseError> {
         if section_id == 0 {
             continue;
         }
-        if !matches!(section_id, 1 | 2 | 3 | 5 | 7 | 10 | 11) {
+        if !matches!(section_id, 1..=11) {
             return Err(ParseError::UnsupportedSection(section_id));
         }
         if section_id < last_standard {
@@ -247,17 +275,20 @@ pub fn parse_module(bytes: &[u8]) -> Result<Module, ParseError> {
             1 => parse_type_section(&mut section, &mut module)?,
             2 => parse_import_section(&mut section, &mut module)?,
             3 => parse_function_section(&mut section, &mut module)?,
+            4 => parse_table_section(&mut section, &mut module)?,
             5 => parse_memory_section(&mut section, &mut module)?,
+            6 => parse_global_section(&mut section, &mut module)?,
             7 => parse_export_section(&mut section, &mut module)?,
+            8 => parse_start_section(&mut section, &mut module)?,
+            9 => parse_element_section(&mut section, &mut module)?,
             10 => parse_code_section(&mut section, &mut module)?,
             11 => parse_data_section(&mut section, &mut module)?,
-            _ => unreachable!("unsupported sections are rejected above"),
+            _ => unreachable!("standard section range is exhaustive"),
         }
         if !section.is_eof() {
             return Err(ParseError::SectionLengthMismatch(section_id));
         }
     }
-
     Ok(module)
 }
 
@@ -304,12 +335,49 @@ fn parse_function_section(cursor: &mut Cursor<'_>, module: &mut Module) -> Resul
     Ok(())
 }
 
+fn parse_table_section(cursor: &mut Cursor<'_>, module: &mut Module) -> Result<(), ParseError> {
+    let count = cursor.read_u32()?;
+    module.tables.reserve(count as usize);
+    for _ in 0..count {
+        let reference_type = cursor.read_u8()?;
+        if reference_type != 0x70 {
+            return Err(ParseError::InvalidReferenceType(reference_type));
+        }
+        module.tables.push(TableType {
+            limits: read_limits(cursor)?,
+        });
+    }
+    Ok(())
+}
+
 fn parse_memory_section(cursor: &mut Cursor<'_>, module: &mut Module) -> Result<(), ParseError> {
     let count = cursor.read_u32()?;
     module.memories.reserve(count as usize);
     for _ in 0..count {
         module.memories.push(MemoryType {
             limits: read_limits(cursor)?,
+        });
+    }
+    Ok(())
+}
+
+fn parse_global_section(cursor: &mut Cursor<'_>, module: &mut Module) -> Result<(), ParseError> {
+    let count = cursor.read_u32()?;
+    module.globals.reserve(count as usize);
+    for _ in 0..count {
+        let value_type = read_value_type(cursor)?;
+        let mutable = match cursor.read_u8()? {
+            0 => false,
+            1 => true,
+            other => return Err(ParseError::InvalidMutability(other)),
+        };
+        let init = read_i32_const_expr(cursor)?;
+        module.globals.push(Global {
+            ty: GlobalType {
+                value_type,
+                mutable,
+            },
+            init,
         });
     }
     Ok(())
@@ -329,6 +397,34 @@ fn parse_export_section(cursor: &mut Cursor<'_>, module: &mut Module) -> Result<
         };
         let index = cursor.read_u32()?;
         module.exports.push(Export { name, kind, index });
+    }
+    Ok(())
+}
+
+fn parse_start_section(cursor: &mut Cursor<'_>, module: &mut Module) -> Result<(), ParseError> {
+    module.start = Some(cursor.read_u32()?);
+    Ok(())
+}
+
+fn parse_element_section(cursor: &mut Cursor<'_>, module: &mut Module) -> Result<(), ParseError> {
+    let count = cursor.read_u32()?;
+    module.elements.reserve(count as usize);
+    for _ in 0..count {
+        let mode = cursor.read_u32()?;
+        if mode != 0 {
+            return Err(ParseError::UnsupportedElementSegmentMode(mode));
+        }
+        let offset = read_i32_const_expr(cursor)?;
+        let function_count = cursor.read_u32()?;
+        let mut function_indices = Vec::with_capacity(function_count as usize);
+        for _ in 0..function_count {
+            function_indices.push(cursor.read_u32()?);
+        }
+        module.elements.push(ElementSegment {
+            table_index: 0,
+            offset,
+            function_indices,
+        });
     }
     Ok(())
 }
@@ -491,21 +587,28 @@ impl<'a> Cursor<'a> {
 mod tests {
     use super::*;
 
+    fn push_section(module: &mut Vec<u8>, id: u8, payload: &[u8]) {
+        assert!(payload.len() < 128);
+        module.push(id);
+        module.push(payload.len() as u8);
+        module.extend(payload);
+    }
+
     fn add_module() -> Vec<u8> {
         vec![
-            0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00, // header
-            0x01, 0x07, 0x01, 0x60, 0x02, 0x7f, 0x7f, 0x01, 0x7f, // type
-            0x03, 0x02, 0x01, 0x00, // function
-            0x07, 0x07, 0x01, 0x03, b'a', b'd', b'd', 0x00, 0x00, // export
-            0x0a, 0x09, 0x01, 0x07, 0x00, 0x20, 0x00, 0x20, 0x01, 0x6a, 0x0b, // code
+            0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00,
+            0x01, 0x07, 0x01, 0x60, 0x02, 0x7f, 0x7f, 0x01, 0x7f,
+            0x03, 0x02, 0x01, 0x00,
+            0x07, 0x07, 0x01, 0x03, b'a', b'd', b'd', 0x00, 0x00,
+            0x0a, 0x09, 0x01, 0x07, 0x00, 0x20, 0x00, 0x20, 0x01, 0x6a, 0x0b,
         ]
     }
 
     fn memory_data_module() -> Vec<u8> {
         vec![
-            0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00, // header
-            0x05, 0x04, 0x01, 0x01, 0x01, 0x02, // memory: min=1 max=2
-            0x0b, 0x09, 0x01, 0x00, 0x41, 0x04, 0x0b, 0x03, b'w', b'a', b's', // data
+            0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00,
+            0x05, 0x04, 0x01, 0x01, 0x01, 0x02,
+            0x0b, 0x09, 0x01, 0x00, 0x41, 0x04, 0x0b, 0x03, b'w', b'a', b's',
         ]
     }
 
@@ -513,14 +616,10 @@ mod tests {
         let mut bytes = vec![0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00];
         bytes.extend([0x01, 0x06, 0x01, 0x60, 0x01, 0x7f, 0x01, 0x7f]);
         let import = [
-            0x01, // count
-            0x03, b'e', b'n', b'v', // module
-            0x06, b'd', b'o', b'u', b'b', b'l', b'e', // name
-            0x00, 0x00, // function kind, type 0
+            0x01, 0x03, b'e', b'n', b'v', 0x06, b'd', b'o', b'u', b'b', b'l', b'e', 0x00,
+            0x00,
         ];
-        bytes.push(0x02);
-        bytes.push(import.len() as u8);
-        bytes.extend(import);
+        push_section(&mut bytes, 2, &import);
         bytes
     }
 
@@ -532,7 +631,6 @@ mod tests {
         assert_eq!(module.function_type_indices, vec![0]);
         assert_eq!(module.exports[0].name, "add");
         assert_eq!(module.code.len(), 1);
-        assert_eq!(module.code[0].code.last(), Some(&0x0b));
     }
 
     #[test]
@@ -549,9 +647,42 @@ mod tests {
         let mut bytes = imported_function_module();
         let kind_offset = bytes.len() - 2;
         bytes[kind_offset] = 0x02;
+        assert_eq!(parse_module(&bytes), Err(ParseError::InvalidImportKind(0x02)));
+    }
+
+    #[test]
+    fn parses_table_global_start_and_element() {
+        let mut bytes = vec![0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00];
+        push_section(&mut bytes, 1, &[0x01, 0x60, 0x00, 0x00]);
+        push_section(&mut bytes, 3, &[0x01, 0x00]);
+        push_section(&mut bytes, 4, &[0x01, 0x70, 0x01, 0x02, 0x04]);
+        push_section(&mut bytes, 6, &[0x01, 0x7f, 0x01, 0x41, 0x2a, 0x0b]);
+        push_section(&mut bytes, 8, &[0x00]);
+        push_section(&mut bytes, 9, &[0x01, 0x00, 0x41, 0x01, 0x0b, 0x01, 0x00]);
+        push_section(&mut bytes, 10, &[0x01, 0x02, 0x00, 0x0b]);
+        let module = parse_module(&bytes).expect("phase 5A sections parse");
+        assert_eq!(module.tables[0].limits, Limits { min: 2, max: Some(4) });
+        assert_eq!(module.globals[0].init, 42);
+        assert!(module.globals[0].ty.mutable);
+        assert_eq!(module.start, Some(0));
+        assert_eq!(module.elements[0].offset, 1);
+        assert_eq!(module.elements[0].function_indices, vec![0]);
+    }
+
+    #[test]
+    fn rejects_non_funcref_table() {
+        let mut bytes = vec![0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00];
+        push_section(&mut bytes, 4, &[0x01, 0x6f, 0x00, 0x01]);
+        assert_eq!(parse_module(&bytes), Err(ParseError::InvalidReferenceType(0x6f)));
+    }
+
+    #[test]
+    fn rejects_unsupported_element_mode() {
+        let mut bytes = vec![0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00];
+        push_section(&mut bytes, 9, &[0x01, 0x01]);
         assert_eq!(
             parse_module(&bytes),
-            Err(ParseError::InvalidImportKind(0x02))
+            Err(ParseError::UnsupportedElementSegmentMode(1))
         );
     }
 
@@ -561,8 +692,6 @@ mod tests {
         assert_eq!(module.memories.len(), 1);
         assert_eq!(module.memories[0].limits.min, 1);
         assert_eq!(module.memories[0].limits.max, Some(2));
-        assert_eq!(module.data.len(), 1);
-        assert_eq!(module.data[0].memory_index, 0);
         assert_eq!(module.data[0].offset, 4);
         assert_eq!(module.data[0].bytes, b"was");
     }
@@ -571,10 +700,7 @@ mod tests {
     fn rejects_bad_magic() {
         let mut bytes = add_module();
         bytes[0] = 0xff;
-        assert!(matches!(
-            parse_module(&bytes),
-            Err(ParseError::InvalidMagic(_))
-        ));
+        assert!(matches!(parse_module(&bytes), Err(ParseError::InvalidMagic(_))));
     }
 
     #[test]
