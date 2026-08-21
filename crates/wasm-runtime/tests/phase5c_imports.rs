@@ -1,5 +1,5 @@
 use wasm_parser::{parse_module, ImportDesc, ValueType};
-use wasm_runtime::{Instance, RuntimeError};
+use wasm_runtime::{HostCapabilities, HostRegistry, Instance, RuntimeError, Value};
 use wasm_validator::{validate, ValidationError};
 
 fn push_u32(bytes: &mut Vec<u8>, mut value: u32) {
@@ -92,7 +92,20 @@ fn object_import_does_not_shift_function_index_space() {
 fn imported_memory_is_visible_to_export_validation_and_requires_binding() {
     let module = parse_module(&mixed_memory_function_import_module()).unwrap();
     assert_eq!(validate(&module), Ok(()));
-    let error = Instance::new(module).expect_err("imported memory must have an explicit host binding");
+
+    let mut hosts = HostRegistry::new();
+    hosts
+        .register(
+            "env",
+            "host",
+            vec![],
+            vec![ValueType::I32],
+            HostCapabilities::NONE,
+            |_context, _args| Ok(Some(Value::I32(0))),
+        )
+        .unwrap();
+    let error = Instance::with_hosts(module, hosts)
+        .expect_err("imported memory must have an explicit host binding");
     assert!(matches!(error, RuntimeError::UnresolvedMemoryImport { .. }));
 }
 
