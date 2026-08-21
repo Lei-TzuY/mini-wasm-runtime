@@ -49,7 +49,8 @@ fn function_module(params: &[u8], result: u8, instructions: &[u8]) -> Vec<u8> {
 }
 
 fn invoke(bytes: &[u8], args: &[Value]) -> Result<Option<Value>, RuntimeError> {
-    let mut instance = Instance::new(parse_module(bytes).expect("translated spec vector must parse"))?;
+    let mut instance =
+        Instance::new(parse_module(bytes).expect("translated spec vector must parse"))?;
     instance.invoke_export("run", args)
 }
 
