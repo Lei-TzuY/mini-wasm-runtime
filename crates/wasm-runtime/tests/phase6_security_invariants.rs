@@ -90,7 +90,10 @@ fn host_call_budget_is_enforced_before_callback_side_effects() {
         instance.invoke_export("write", &[]),
         Err(RuntimeError::HostCallLimitExceeded { limit: 0 })
     ));
-    assert!(!called.get(), "host-call budget must reject before callback entry");
+    assert!(
+        !called.get(),
+        "host-call budget must reject before callback entry"
+    );
     assert_eq!(
         read_zero_word(&mut instance),
         0,
@@ -126,7 +129,10 @@ fn denied_host_memory_write_is_side_effect_free() {
             ..
         })
     ));
-    assert!(called.get(), "the callback must be entered before capability use");
+    assert!(
+        called.get(),
+        "the callback must be entered before capability use"
+    );
     assert_eq!(
         read_zero_word(&mut instance),
         0,
@@ -162,7 +168,9 @@ fn out_of_bounds_host_memory_write_is_all_or_nothing() {
 
     let memory = instance.memory().expect("test module defines owned memory");
     assert!(
-        memory.bytes()[WASM_PAGE_SIZE - 4..].iter().all(|&byte| byte == 0),
+        memory.bytes()[WASM_PAGE_SIZE - 4..]
+            .iter()
+            .all(|&byte| byte == 0),
         "bounds failure must precede any partial memory copy"
     );
 }
