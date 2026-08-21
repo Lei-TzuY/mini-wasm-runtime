@@ -26,6 +26,20 @@ jobs:
         shell: bash
         run: |
           sed -i 's/unresolved host global import/unresolved host immutable global import/' scripts/phase5c_shared_tables.py
+          python3 - <<'PY'
+          from pathlib import Path
+          path = Path('crates/wasm-runtime/src/lib.rs')
+          text = path.read_text()
+          head, tail = text.split('fn instantiate_globals(', 1)
+          old = '''    for import in &module.imports {
+                  let ImportDesc::Global(global_type) = import.desc else {'''
+          new = '''    for import in &module.imports {
+                  // Preserve imported globals in WebAssembly global-index order.
+                  let ImportDesc::Global(global_type) = import.desc else {'''
+          if tail.count(old) != 1:
+              raise SystemExit(f'global instantiate anchor count: {tail.count(old)}')
+          path.write_text(head + 'fn instantiate_globals(' + tail.replace(old, new, 1))
+          PY
           python3 scripts/phase5c_shared_tables.py
           cargo fmt --all
           cargo clippy --workspace --all-targets -- -D warnings
