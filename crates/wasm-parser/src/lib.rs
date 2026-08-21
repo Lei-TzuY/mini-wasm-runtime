@@ -50,7 +50,9 @@ impl fmt::Display for ParseError {
             Self::UnsupportedValueType(tag) => write!(f, "unsupported value type 0x{tag:02x}"),
             Self::InvalidUtf8 => write!(f, "name is not valid UTF-8"),
             Self::InvalidExportKind(kind) => write!(f, "invalid export kind {kind}"),
-            Self::InvalidLimitsFlags(flags) => write!(f, "invalid memory limits flags 0x{flags:02x}"),
+            Self::InvalidLimitsFlags(flags) => {
+                write!(f, "invalid memory limits flags 0x{flags:02x}")
+            }
             Self::UnsupportedDataSegmentMode(mode) => {
                 write!(f, "unsupported data segment mode {mode}")
             }
