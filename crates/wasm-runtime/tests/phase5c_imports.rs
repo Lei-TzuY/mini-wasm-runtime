@@ -151,10 +151,7 @@ fn imported_global_participates_in_global_get_typing() {
     assert_eq!(validate(&parsed), Ok(()));
     assert!(matches!(
         Instance::new(parsed),
-        Err(RuntimeError::UnsupportedObjectImport {
-            kind: ImportKind::Global,
-            ..
-        })
+        Err(RuntimeError::UnresolvedGlobalImport { .. })
     ));
 }
 

@@ -119,6 +119,7 @@ struct HostFunction {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum HostRegistryError {
     DuplicateFunction { module: String, name: String },
+    DuplicateGlobal { module: String, name: String },
     UnsupportedSignature,
 }
 
@@ -127,6 +128,12 @@ impl fmt::Display for HostRegistryError {
         match self {
             Self::DuplicateFunction { module, name } => {
                 write!(f, "host function {module}.{name} is already registered")
+            }
+            Self::DuplicateGlobal { module, name } => {
+                write!(
+                    f,
+                    "host immutable global {module}.{name} is already registered"
+                )
             }
             Self::UnsupportedSignature => write!(
                 f,
@@ -141,12 +148,14 @@ impl std::error::Error for HostRegistryError {}
 #[derive(Default)]
 pub struct HostRegistry {
     functions: HashMap<(String, String), HostFunction>,
+    immutable_globals: HashMap<(String, String), Value>,
 }
 
 impl fmt::Debug for HostRegistry {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("HostRegistry")
             .field("function_count", &self.functions.len())
+            .field("immutable_global_count", &self.immutable_globals.len())
             .finish()
     }
 }
@@ -192,6 +201,22 @@ impl HostRegistry {
                 callback: Box::new(callback),
             },
         );
+        Ok(())
+    }
+
+    pub fn register_immutable_global(
+        &mut self,
+        module: impl Into<String>,
+        name: impl Into<String>,
+        value: Value,
+    ) -> Result<(), HostRegistryError> {
+        let module = module.into();
+        let name = name.into();
+        let key = (module.clone(), name.clone());
+        if self.immutable_globals.contains_key(&key) {
+            return Err(HostRegistryError::DuplicateGlobal { module, name });
+        }
+        self.immutable_globals.insert(key, value);
         Ok(())
     }
 }
@@ -290,6 +315,16 @@ pub enum RuntimeError {
     UnresolvedImport {
         module: String,
         name: String,
+    },
+    UnresolvedGlobalImport {
+        module: String,
+        name: String,
+    },
+    HostGlobalTypeMismatch {
+        module: String,
+        name: String,
+        expected: ValueType,
+        actual: ValueType,
     },
     UnsupportedObjectImport {
         module: String,
@@ -410,6 +445,18 @@ impl fmt::Display for RuntimeError {
             Self::UnresolvedImport { module, name } => {
                 write!(f, "unresolved host function import {module}.{name}")
             }
+            Self::UnresolvedGlobalImport { module, name } => {
+                write!(f, "unresolved host immutable global import {module}.{name}")
+            }
+            Self::HostGlobalTypeMismatch {
+                module,
+                name,
+                expected,
+                actual,
+            } => write!(
+                f,
+                "registered host global {module}.{name} has type {actual:?}, expected {expected:?}"
+            ),
             Self::UnsupportedObjectImport { module, name, kind } => write!(
                 f,
                 "import {module}.{name} has unsupported runtime object kind {kind:?}; shared object imports are not instantiated yet"
@@ -796,11 +843,7 @@ impl Instance {
             .first()
             .map(|table_type| allocate_table(table_type.limits.min))
             .transpose()?;
-        let globals = module
-            .globals
-            .iter()
-            .map(|global| value_from_constant(global.init))
-            .collect();
+        let globals = instantiate_globals(&module, &hosts)?;
 
         let mut instance = Self {
             module,
@@ -1246,18 +1289,14 @@ impl Instance {
                 }
                 0x24 => {
                     let index = read_u32_immediate(code, &mut pc)?;
-                    let mutable = self
+                    let global_type = self
                         .module
-                        .globals
-                        .get(index as usize)
-                        .ok_or(RuntimeError::GlobalOutOfBounds(index))?
-                        .ty
-                        .mutable;
-                    if !mutable {
+                        .global_type(index)
+                        .ok_or(RuntimeError::GlobalOutOfBounds(index))?;
+                    if !global_type.mutable {
                         return Err(RuntimeError::ImmutableGlobalSet(index));
                     }
-                    let expected = self.module.globals[index as usize].ty.value_type;
-                    let value = numeric::pop_typed(&mut stack, expected)?;
+                    let value = numeric::pop_typed(&mut stack, global_type.value_type)?;
                     *self
                         .globals
                         .get_mut(index as usize)
@@ -1356,12 +1395,16 @@ impl Instance {
 
 fn reject_unsupported_object_imports(module: &Module) -> Result<(), RuntimeError> {
     for import in &module.imports {
-        if !matches!(import.desc, ImportDesc::Function(_)) {
-            return Err(RuntimeError::UnsupportedObjectImport {
-                module: import.module.clone(),
-                name: import.name.clone(),
-                kind: import.kind(),
-            });
+        match import.desc {
+            ImportDesc::Function(_) => {}
+            ImportDesc::Global(global_type) if !global_type.mutable => {}
+            _ => {
+                return Err(RuntimeError::UnsupportedObjectImport {
+                    module: import.module.clone(),
+                    name: import.name.clone(),
+                    kind: import.kind(),
+                });
+            }
         }
     }
     Ok(())
@@ -1388,7 +1431,64 @@ fn validate_host_bindings(module: &Module, hosts: &HostRegistry) -> Result<(), R
             });
         }
     }
+
+    for import in &module.imports {
+        let ImportDesc::Global(global_type) = import.desc else {
+            continue;
+        };
+        if global_type.mutable {
+            continue;
+        }
+        let key = (import.module.clone(), import.name.clone());
+        let value = hosts.immutable_globals.get(&key).copied().ok_or_else(|| {
+            RuntimeError::UnresolvedGlobalImport {
+                module: import.module.clone(),
+                name: import.name.clone(),
+            }
+        })?;
+        let actual = value.value_type();
+        if actual != global_type.value_type {
+            return Err(RuntimeError::HostGlobalTypeMismatch {
+                module: import.module.clone(),
+                name: import.name.clone(),
+                expected: global_type.value_type,
+                actual,
+            });
+        }
+    }
     Ok(())
+}
+
+fn instantiate_globals(module: &Module, hosts: &HostRegistry) -> Result<Vec<Value>, RuntimeError> {
+    let mut globals = Vec::with_capacity(module.global_count());
+    for import in &module.imports {
+        let ImportDesc::Global(global_type) = import.desc else {
+            continue;
+        };
+        if global_type.mutable {
+            return Err(RuntimeError::UnsupportedObjectImport {
+                module: import.module.clone(),
+                name: import.name.clone(),
+                kind: ImportKind::Global,
+            });
+        }
+        let key = (import.module.clone(), import.name.clone());
+        let value = hosts.immutable_globals.get(&key).copied().ok_or_else(|| {
+            RuntimeError::UnresolvedGlobalImport {
+                module: import.module.clone(),
+                name: import.name.clone(),
+            }
+        })?;
+        numeric::expect_type(value, global_type.value_type)?;
+        globals.push(value);
+    }
+    globals.extend(
+        module
+            .globals
+            .iter()
+            .map(|global| value_from_constant(global.init)),
+    );
+    Ok(globals)
 }
 
 fn ensure_runtime_memory_index(instance: &Instance, index: u32) -> Result<(), RuntimeError> {
