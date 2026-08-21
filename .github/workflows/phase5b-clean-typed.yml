@@ -1,0 +1,34 @@
+name: Phase 5B typed validator cleanup
+
+on:
+  push:
+    branches:
+      - feat/phase-5b-numeric-types
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - name: Remove migration residue
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          p = Path('crates/wasm-validator/src/typed.rs')
+          s = p.read_text()
+          stale = '                if global.ty.value_type != ValueType::I32 {}\n'
+          if s.count(stale) != 2:
+              raise SystemExit(f'expected two stale typed-global ifs, got {s.count(stale)}')
+          p.write_text(s.replace(stale, ''))
+          PY
+          cargo fmt --all
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add crates/wasm-validator/src/typed.rs
+          git commit -m "refactor(validator): clean typed migration residue"
+          git push origin HEAD:feat/phase-5b-numeric-types
