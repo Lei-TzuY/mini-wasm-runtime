@@ -119,11 +119,7 @@ fn invoke_values(bytes: &[u8], args: &[Value]) -> Result<Vec<Value>, RuntimeErro
 }
 
 fn invoke_i32(opcode: u8, a: i32, b: i32) -> Result<i32, RuntimeError> {
-    let bytes = function_module(
-        &[I32, I32],
-        &[I32],
-        &[0x20, 0x00, 0x20, 0x01, opcode],
-    );
+    let bytes = function_module(&[I32, I32], &[I32], &[0x20, 0x00, 0x20, 0x01, opcode]);
     match invoke(&bytes, &[Value::I32(a), Value::I32(b)])? {
         Some(Value::I32(value)) => Ok(value),
         other => panic!("translated i32 vector returned wrong type: {other:?}"),
@@ -131,11 +127,7 @@ fn invoke_i32(opcode: u8, a: i32, b: i32) -> Result<i32, RuntimeError> {
 }
 
 fn invoke_i64(opcode: u8, a: i64, b: i64) -> Result<i64, RuntimeError> {
-    let bytes = function_module(
-        &[I64, I64],
-        &[I64],
-        &[0x20, 0x00, 0x20, 0x01, opcode],
-    );
+    let bytes = function_module(&[I64, I64], &[I64], &[0x20, 0x00, 0x20, 0x01, opcode]);
     match invoke(&bytes, &[Value::I64(a), Value::I64(b)])? {
         Some(Value::I64(value)) => Ok(value),
         other => panic!("translated i64 vector returned wrong type: {other:?}"),
@@ -194,16 +186,8 @@ fn upstream_signed_and_unsigned_comparison_vectors_do_not_confuse_views() {
     assert_eq!(invoke_i32(0x4a, -1, 1).unwrap(), 0); // i32.gt_s
     assert_eq!(invoke_i32(0x4b, -1, 1).unwrap(), 1); // i32.gt_u
 
-    let lt_s = function_module(
-        &[I64, I64],
-        &[I32],
-        &[0x20, 0x00, 0x20, 0x01, 0x53],
-    );
-    let lt_u = function_module(
-        &[I64, I64],
-        &[I32],
-        &[0x20, 0x00, 0x20, 0x01, 0x54],
-    );
+    let lt_s = function_module(&[I64, I64], &[I32], &[0x20, 0x00, 0x20, 0x01, 0x53]);
+    let lt_u = function_module(&[I64, I64], &[I32], &[0x20, 0x00, 0x20, 0x01, 0x54]);
     assert_eq!(
         invoke(&lt_s, &[Value::I64(-1), Value::I64(1)]).unwrap(),
         Some(Value::I32(1))
