@@ -1,0 +1,668 @@
+from pathlib import Path
+
+
+def read(path: str) -> str:
+    return Path(path).read_text()
+
+
+def write(path: str, text: str) -> None:
+    Path(path).write_text(text)
+
+
+def insert_before(path: str, marker: str, insertion: str, label: str) -> None:
+    text = read(path)
+    count = text.count(marker)
+    if count != 1:
+        raise SystemExit(f"{label}: expected exactly one marker, found {count}")
+    write(path, text.replace(marker, insertion + marker, 1))
+
+
+def replace_once(path: str, old: str, new: str, label: str) -> None:
+    text = read(path)
+    count = text.count(old)
+    if count != 1:
+        raise SystemExit(f"{label}: expected exactly one anchor, found {count}")
+    write(path, text.replace(old, new, 1))
+
+
+def replace_between(path: str, start: str, end: str, replacement: str, label: str) -> None:
+    text = read(path)
+    start_count = text.count(start)
+    end_count = text.count(end)
+    if start_count != 1 or end_count != 1:
+        raise SystemExit(
+            f"{label}: expected unique start/end markers, found {start_count}/{end_count}"
+        )
+    start_index = text.index(start)
+    end_index = text.index(end, start_index)
+    write(path, text[:start_index] + replacement + text[end_index:])
+
+
+runtime = "crates/wasm-runtime/src/lib.rs"
+validator_typed = "crates/wasm-validator/src/typed.rs"
+validator_lib = "crates/wasm-validator/src/lib.rs"
+
+numeric_loads = '''    fn load_i64(&self, address: i32, displacement: u32) -> Result<i64, RuntimeError> {
+        let range = self.checked_range(address, displacement, 8)?;
+        let bytes: [u8; 8] = self.bytes[range]
+            .try_into()
+            .expect("checked eight-byte range");
+        Ok(i64::from_le_bytes(bytes))
+    }
+
+    fn load_f32(&self, address: i32, displacement: u32) -> Result<f32, RuntimeError> {
+        let range = self.checked_range(address, displacement, 4)?;
+        let bytes: [u8; 4] = self.bytes[range]
+            .try_into()
+            .expect("checked four-byte range");
+        Ok(f32::from_bits(u32::from_le_bytes(bytes)))
+    }
+
+    fn load_f64(&self, address: i32, displacement: u32) -> Result<f64, RuntimeError> {
+        let range = self.checked_range(address, displacement, 8)?;
+        let bytes: [u8; 8] = self.bytes[range]
+            .try_into()
+            .expect("checked eight-byte range");
+        Ok(f64::from_bits(u64::from_le_bytes(bytes)))
+    }
+
+    fn load_i64_8_s(&self, address: i32, displacement: u32) -> Result<i64, RuntimeError> {
+        let range = self.checked_range(address, displacement, 1)?;
+        Ok(i64::from(self.bytes[range.start] as i8))
+    }
+
+    fn load_i64_8_u(&self, address: i32, displacement: u32) -> Result<i64, RuntimeError> {
+        let range = self.checked_range(address, displacement, 1)?;
+        Ok(i64::from(self.bytes[range.start]))
+    }
+
+    fn load_i64_16_s(&self, address: i32, displacement: u32) -> Result<i64, RuntimeError> {
+        let range = self.checked_range(address, displacement, 2)?;
+        let bytes: [u8; 2] = self.bytes[range]
+            .try_into()
+            .expect("checked two-byte range");
+        Ok(i64::from(i16::from_le_bytes(bytes)))
+    }
+
+    fn load_i64_16_u(&self, address: i32, displacement: u32) -> Result<i64, RuntimeError> {
+        let range = self.checked_range(address, displacement, 2)?;
+        let bytes: [u8; 2] = self.bytes[range]
+            .try_into()
+            .expect("checked two-byte range");
+        Ok(i64::from(u16::from_le_bytes(bytes)))
+    }
+
+    fn load_i64_32_s(&self, address: i32, displacement: u32) -> Result<i64, RuntimeError> {
+        let range = self.checked_range(address, displacement, 4)?;
+        let bytes: [u8; 4] = self.bytes[range]
+            .try_into()
+            .expect("checked four-byte range");
+        Ok(i64::from(i32::from_le_bytes(bytes)))
+    }
+
+    fn load_i64_32_u(&self, address: i32, displacement: u32) -> Result<i64, RuntimeError> {
+        let range = self.checked_range(address, displacement, 4)?;
+        let bytes: [u8; 4] = self.bytes[range]
+            .try_into()
+            .expect("checked four-byte range");
+        Ok(i64::from(u32::from_le_bytes(bytes)))
+    }
+
+'''
+insert_before(runtime, "    fn store_i32(\n", numeric_loads, "runtime numeric loads")
+
+numeric_stores = '''
+    fn store_i64(
+        &mut self,
+        address: i32,
+        displacement: u32,
+        value: i64,
+    ) -> Result<(), RuntimeError> {
+        let range = self.checked_range(address, displacement, 8)?;
+        self.bytes[range].copy_from_slice(&value.to_le_bytes());
+        Ok(())
+    }
+
+    fn store_f32(
+        &mut self,
+        address: i32,
+        displacement: u32,
+        value: f32,
+    ) -> Result<(), RuntimeError> {
+        let range = self.checked_range(address, displacement, 4)?;
+        self.bytes[range].copy_from_slice(&value.to_bits().to_le_bytes());
+        Ok(())
+    }
+
+    fn store_f64(
+        &mut self,
+        address: i32,
+        displacement: u32,
+        value: f64,
+    ) -> Result<(), RuntimeError> {
+        let range = self.checked_range(address, displacement, 8)?;
+        self.bytes[range].copy_from_slice(&value.to_bits().to_le_bytes());
+        Ok(())
+    }
+
+    fn store_i64_8(
+        &mut self,
+        address: i32,
+        displacement: u32,
+        value: i64,
+    ) -> Result<(), RuntimeError> {
+        let range = self.checked_range(address, displacement, 1)?;
+        self.bytes[range.start] = value as u8;
+        Ok(())
+    }
+
+    fn store_i64_16(
+        &mut self,
+        address: i32,
+        displacement: u32,
+        value: i64,
+    ) -> Result<(), RuntimeError> {
+        let range = self.checked_range(address, displacement, 2)?;
+        self.bytes[range].copy_from_slice(&(value as u16).to_le_bytes());
+        Ok(())
+    }
+
+    fn store_i64_32(
+        &mut self,
+        address: i32,
+        displacement: u32,
+        value: i64,
+    ) -> Result<(), RuntimeError> {
+        let range = self.checked_range(address, displacement, 4)?;
+        self.bytes[range].copy_from_slice(&(value as u32).to_le_bytes());
+        Ok(())
+    }
+'''
+insert_before(
+    runtime,
+    "\n}\n\nfn pages_to_bytes(pages: u32) -> Option<usize> {",
+    numeric_stores,
+    "runtime numeric stores",
+)
+
+runtime_dispatch = '''                0x28..=0x35 => {
+                    let (_, displacement) = read_memarg(code, &mut pc)?;
+                    let address = numeric::i32_from_stack(&mut stack)?;
+                    let value = match opcode {
+                        0x28 => Value::I32(
+                            self.with_memory(|memory| memory.load_i32(address, displacement))?,
+                        ),
+                        0x29 => Value::I64(
+                            self.with_memory(|memory| memory.load_i64(address, displacement))?,
+                        ),
+                        0x2a => Value::F32(
+                            self.with_memory(|memory| memory.load_f32(address, displacement))?,
+                        ),
+                        0x2b => Value::F64(
+                            self.with_memory(|memory| memory.load_f64(address, displacement))?,
+                        ),
+                        0x2c => Value::I32(
+                            self.with_memory(|memory| memory.load_i8_s(address, displacement))?,
+                        ),
+                        0x2d => Value::I32(
+                            self.with_memory(|memory| memory.load_i8_u(address, displacement))?,
+                        ),
+                        0x2e => Value::I32(
+                            self.with_memory(|memory| memory.load_i16_s(address, displacement))?,
+                        ),
+                        0x2f => Value::I32(
+                            self.with_memory(|memory| memory.load_i16_u(address, displacement))?,
+                        ),
+                        0x30 => Value::I64(
+                            self.with_memory(|memory| memory.load_i64_8_s(address, displacement))?,
+                        ),
+                        0x31 => Value::I64(
+                            self.with_memory(|memory| memory.load_i64_8_u(address, displacement))?,
+                        ),
+                        0x32 => Value::I64(
+                            self.with_memory(|memory| memory.load_i64_16_s(address, displacement))?,
+                        ),
+                        0x33 => Value::I64(
+                            self.with_memory(|memory| memory.load_i64_16_u(address, displacement))?,
+                        ),
+                        0x34 => Value::I64(
+                            self.with_memory(|memory| memory.load_i64_32_s(address, displacement))?,
+                        ),
+                        0x35 => Value::I64(
+                            self.with_memory(|memory| memory.load_i64_32_u(address, displacement))?,
+                        ),
+                        _ => unreachable!(),
+                    };
+                    stack.push(value);
+                }
+                0x36..=0x3e => {
+                    let (_, displacement) = read_memarg(code, &mut pc)?;
+                    match opcode {
+                        0x36 | 0x3a | 0x3b => {
+                            let value = numeric::i32_from_stack(&mut stack)?;
+                            let address = numeric::i32_from_stack(&mut stack)?;
+                            match opcode {
+                                0x36 => self.with_memory_mut(|memory| {
+                                    memory.store_i32(address, displacement, value)
+                                })?,
+                                0x3a => self.with_memory_mut(|memory| {
+                                    memory.store_i8(address, displacement, value)
+                                })?,
+                                0x3b => self.with_memory_mut(|memory| {
+                                    memory.store_i16(address, displacement, value)
+                                })?,
+                                _ => unreachable!(),
+                            }
+                        }
+                        0x37 | 0x3c..=0x3e => {
+                            let value = match numeric::pop_typed(&mut stack, ValueType::I64)? {
+                                Value::I64(value) => value,
+                                _ => unreachable!("pop_typed established i64"),
+                            };
+                            let address = numeric::i32_from_stack(&mut stack)?;
+                            match opcode {
+                                0x37 => self.with_memory_mut(|memory| {
+                                    memory.store_i64(address, displacement, value)
+                                })?,
+                                0x3c => self.with_memory_mut(|memory| {
+                                    memory.store_i64_8(address, displacement, value)
+                                })?,
+                                0x3d => self.with_memory_mut(|memory| {
+                                    memory.store_i64_16(address, displacement, value)
+                                })?,
+                                0x3e => self.with_memory_mut(|memory| {
+                                    memory.store_i64_32(address, displacement, value)
+                                })?,
+                                _ => unreachable!(),
+                            }
+                        }
+                        0x38 => {
+                            let value = match numeric::pop_typed(&mut stack, ValueType::F32)? {
+                                Value::F32(value) => value,
+                                _ => unreachable!("pop_typed established f32"),
+                            };
+                            let address = numeric::i32_from_stack(&mut stack)?;
+                            self.with_memory_mut(|memory| {
+                                memory.store_f32(address, displacement, value)
+                            })?;
+                        }
+                        0x39 => {
+                            let value = match numeric::pop_typed(&mut stack, ValueType::F64)? {
+                                Value::F64(value) => value,
+                                _ => unreachable!("pop_typed established f64"),
+                            };
+                            let address = numeric::i32_from_stack(&mut stack)?;
+                            self.with_memory_mut(|memory| {
+                                memory.store_f64(address, displacement, value)
+                            })?;
+                        }
+                        _ => unreachable!(),
+                    }
+                }
+'''
+replace_between(
+    runtime,
+    "                0x28 | 0x2c..=0x2f => {",
+    "                0x3f => {",
+    runtime_dispatch,
+    "runtime opcode dispatch",
+)
+replace_once(
+    runtime,
+    "            0x28 | 0x2c..=0x2f | 0x36 | 0x3a | 0x3b => {",
+    "            0x28..=0x3e => {",
+    "runtime control-map memarg skipping",
+)
+
+validator_memory = '''            0x28..=0x35 => {
+                super::ensure_memory(module, function, offset)?;
+                super::read_memarg(
+                    code,
+                    &mut pc,
+                    function,
+                    offset,
+                    super::natural_alignment(opcode),
+                )?;
+                pop_expect(&mut stack, &controls, ValueType::I32, function, offset)?;
+                let result = match opcode {
+                    0x28 | 0x2c..=0x2f => ValueType::I32,
+                    0x29 | 0x30..=0x35 => ValueType::I64,
+                    0x2a => ValueType::F32,
+                    0x2b => ValueType::F64,
+                    _ => unreachable!(),
+                };
+                stack.push(result);
+            }
+            0x36..=0x3e => {
+                super::ensure_memory(module, function, offset)?;
+                super::read_memarg(
+                    code,
+                    &mut pc,
+                    function,
+                    offset,
+                    super::natural_alignment(opcode),
+                )?;
+                let value_type = match opcode {
+                    0x36 | 0x3a | 0x3b => ValueType::I32,
+                    0x37 | 0x3c..=0x3e => ValueType::I64,
+                    0x38 => ValueType::F32,
+                    0x39 => ValueType::F64,
+                    _ => unreachable!(),
+                };
+                pop_expect(&mut stack, &controls, value_type, function, offset)?;
+                pop_expect(&mut stack, &controls, ValueType::I32, function, offset)?;
+            }
+'''
+replace_between(
+    validator_typed,
+    "            0x28 | 0x2c..=0x2f => {",
+    "            0x3f => {",
+    validator_memory,
+    "validator typed memory effects",
+)
+
+new_alignment = '''fn natural_alignment(opcode: u8) -> u32 {
+    match opcode {
+        0x29 | 0x2b | 0x37 | 0x39 => 3,
+        0x28 | 0x2a | 0x34 | 0x35 | 0x36 | 0x38 | 0x3e => 2,
+        0x2e | 0x2f | 0x32 | 0x33 | 0x3b | 0x3d => 1,
+        0x2c | 0x2d | 0x30 | 0x31 | 0x3a | 0x3c => 0,
+        _ => unreachable!("natural alignment queried only for supported memory access opcodes"),
+    }
+}'''
+replace_between(
+    validator_lib,
+    "fn natural_alignment(opcode: u8) -> u32 {",
+    "\n\nfn read_memarg(",
+    new_alignment,
+    "validator natural alignment",
+)
+
+test = r'''use wasm_parser::parse_module;
+use wasm_runtime::{HostRegistry, Instance, MemoryHandle, RuntimeError, Value};
+use wasm_validator::ValidationError;
+
+const I32: u8 = 0x7f;
+const I64: u8 = 0x7e;
+const F32: u8 = 0x7d;
+const F64: u8 = 0x7c;
+
+fn push_u32(bytes: &mut Vec<u8>, mut value: u32) {
+    loop {
+        let mut byte = (value & 0x7f) as u8;
+        value >>= 7;
+        if value != 0 {
+            byte |= 0x80;
+        }
+        bytes.push(byte);
+        if value == 0 {
+            break;
+        }
+    }
+}
+
+fn push_name(bytes: &mut Vec<u8>, name: &str) {
+    push_u32(bytes, name.len() as u32);
+    bytes.extend_from_slice(name.as_bytes());
+}
+
+fn push_section(module: &mut Vec<u8>, id: u8, payload: &[u8]) {
+    module.push(id);
+    push_u32(module, payload.len() as u32);
+    module.extend_from_slice(payload);
+}
+
+fn push_func_type(payload: &mut Vec<u8>, params: &[u8], result: Option<u8>) {
+    payload.push(0x60);
+    push_u32(payload, params.len() as u32);
+    payload.extend_from_slice(params);
+    match result {
+        Some(result) => payload.extend([0x01, result]),
+        None => payload.push(0x00),
+    }
+}
+
+fn push_body(payload: &mut Vec<u8>, instructions: &[u8]) {
+    let mut body = vec![0x00];
+    body.extend_from_slice(instructions);
+    body.push(0x0b);
+    push_u32(payload, body.len() as u32);
+    payload.extend(body);
+}
+
+fn single_function_memory_module(
+    params: &[u8],
+    result: Option<u8>,
+    instructions: &[u8],
+) -> Vec<u8> {
+    let mut module = vec![0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00];
+    let mut types = vec![0x01];
+    push_func_type(&mut types, params, result);
+    push_section(&mut module, 1, &types);
+    push_section(&mut module, 3, &[0x01, 0x00]);
+    push_section(&mut module, 5, &[0x01, 0x01, 0x01, 0x01]);
+    push_section(&mut module, 7, &[0x01, 0x03, b'r', b'u', b'n', 0x00, 0x00]);
+    let mut code = vec![0x01];
+    push_body(&mut code, instructions);
+    push_section(&mut module, 10, &code);
+    module
+}
+
+fn single_function_imported_memory_module(
+    params: &[u8],
+    result: Option<u8>,
+    instructions: &[u8],
+) -> Vec<u8> {
+    let mut module = vec![0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00];
+    let mut types = vec![0x01];
+    push_func_type(&mut types, params, result);
+    push_section(&mut module, 1, &types);
+    let mut imports = vec![0x01];
+    push_name(&mut imports, "env");
+    push_name(&mut imports, "mem");
+    imports.extend([0x02, 0x01, 0x01, 0x01]);
+    push_section(&mut module, 2, &imports);
+    push_section(&mut module, 3, &[0x01, 0x00]);
+    push_section(&mut module, 7, &[0x01, 0x03, b'r', b'u', b'n', 0x00, 0x00]);
+    let mut code = vec![0x01];
+    push_body(&mut code, instructions);
+    push_section(&mut module, 10, &code);
+    module
+}
+
+fn instance(bytes: &[u8]) -> Instance {
+    Instance::new(parse_module(bytes).expect("parse numeric-memory fixture"))
+        .expect("instantiate numeric-memory fixture")
+}
+
+fn store_then_load(store: u8, load: u8, alignment: u8) -> Vec<u8> {
+    vec![
+        0x20, 0x00, 0x20, 0x01, store, alignment, 0x00, 0x20, 0x00, load, alignment, 0x00,
+    ]
+}
+
+#[test]
+fn i64_full_width_memory_round_trip() {
+    let code = store_then_load(0x37, 0x29, 0x03);
+    let module = single_function_memory_module(&[I32, I64], Some(I64), &code);
+    let mut vm = instance(&module);
+    let value = 0x0102_0304_0506_0708i64;
+    assert_eq!(
+        vm.invoke_export("run", &[Value::I32(16), Value::I64(value)])
+            .unwrap(),
+        Some(Value::I64(value))
+    );
+}
+
+#[test]
+fn i64_narrow_stores_and_loads_truncate_then_extend() {
+    for (store, signed_load, unsigned_load, alignment, unsigned_expected) in [
+        (0x3c, 0x30, 0x31, 0x00, 0xffi64),
+        (0x3d, 0x32, 0x33, 0x01, 0xffffi64),
+        (0x3e, 0x34, 0x35, 0x02, 0xffff_ffffi64),
+    ] {
+        let signed = single_function_memory_module(
+            &[I32, I64],
+            Some(I64),
+            &store_then_load(store, signed_load, alignment),
+        );
+        let mut signed_vm = instance(&signed);
+        assert_eq!(
+            signed_vm
+                .invoke_export("run", &[Value::I32(24), Value::I64(-1)])
+                .unwrap(),
+            Some(Value::I64(-1))
+        );
+
+        let unsigned = single_function_memory_module(
+            &[I32, I64],
+            Some(I64),
+            &store_then_load(store, unsigned_load, alignment),
+        );
+        let mut unsigned_vm = instance(&unsigned);
+        assert_eq!(
+            unsigned_vm
+                .invoke_export("run", &[Value::I32(24), Value::I64(-1)])
+                .unwrap(),
+            Some(Value::I64(unsigned_expected))
+        );
+    }
+}
+
+#[test]
+fn f32_memory_round_trip_preserves_nan_payload_bits() {
+    let code = store_then_load(0x38, 0x2a, 0x02);
+    let module = single_function_memory_module(&[I32, F32], Some(F32), &code);
+    let mut vm = instance(&module);
+    let bits = 0x7fc1_2345u32;
+    let result = vm
+        .invoke_export("run", &[Value::I32(32), Value::F32(f32::from_bits(bits))])
+        .unwrap()
+        .expect("f32 result");
+    assert_eq!(result.as_f32().to_bits(), bits);
+}
+
+#[test]
+fn f64_shared_memory_round_trip_is_bit_exact_and_little_endian() {
+    let code = store_then_load(0x39, 0x2b, 0x03);
+    let module = single_function_imported_memory_module(&[I32, F64], Some(F64), &code);
+    let parsed = parse_module(&module).unwrap();
+    let memory = MemoryHandle::new(1, Some(1)).unwrap();
+    let mut hosts = HostRegistry::new();
+    hosts.register_memory("env", "mem", memory.clone()).unwrap();
+    let mut vm = Instance::with_hosts(parsed, hosts).unwrap();
+    let bits = 0x7ff8_0000_dead_beefu64;
+    let result = vm
+        .invoke_export("run", &[Value::I32(40), Value::F64(f64::from_bits(bits))])
+        .unwrap()
+        .expect("f64 result");
+    assert_eq!(result.as_f64().to_bits(), bits);
+    assert_eq!(memory.read(40, 8).unwrap(), bits.to_le_bytes());
+}
+
+#[test]
+fn validator_rejects_wrong_numeric_store_value_type() {
+    let module = single_function_memory_module(
+        &[I32, I32],
+        None,
+        &[0x20, 0x00, 0x20, 0x01, 0x39, 0x03, 0x00],
+    );
+    let error = Instance::new(parse_module(&module).unwrap()).unwrap_err();
+    assert!(matches!(
+        error,
+        RuntimeError::Validation(ValidationError::TypeMismatch {
+            expected: wasm_parser::ValueType::F64,
+            actual: wasm_parser::ValueType::I32,
+            ..
+        })
+    ));
+}
+
+#[test]
+fn validator_rejects_overaligned_numeric_memory_accesses() {
+    let loads = [
+        (0x29, I64, 3u8),
+        (0x2a, F32, 2),
+        (0x2b, F64, 3),
+        (0x30, I64, 0),
+        (0x31, I64, 0),
+        (0x32, I64, 1),
+        (0x33, I64, 1),
+        (0x34, I64, 2),
+        (0x35, I64, 2),
+    ];
+    for (opcode, result, maximum) in loads {
+        let module = single_function_memory_module(
+            &[I32],
+            Some(result),
+            &[0x20, 0x00, opcode, maximum + 1, 0x00],
+        );
+        let error = Instance::new(parse_module(&module).unwrap()).unwrap_err();
+        assert!(matches!(
+            error,
+            RuntimeError::Validation(ValidationError::InvalidMemoryAlignment {
+                alignment,
+                maximum: actual_maximum,
+                ..
+            }) if alignment == u32::from(maximum + 1) && actual_maximum == u32::from(maximum)
+        ));
+    }
+
+    let stores = [
+        (0x37, I64, 3u8),
+        (0x38, F32, 2),
+        (0x39, F64, 3),
+        (0x3c, I64, 0),
+        (0x3d, I64, 1),
+        (0x3e, I64, 2),
+    ];
+    for (opcode, value_type, maximum) in stores {
+        let module = single_function_memory_module(
+            &[I32, value_type],
+            None,
+            &[0x20, 0x00, 0x20, 0x01, opcode, maximum + 1, 0x00],
+        );
+        let error = Instance::new(parse_module(&module).unwrap()).unwrap_err();
+        assert!(matches!(
+            error,
+            RuntimeError::Validation(ValidationError::InvalidMemoryAlignment {
+                alignment,
+                maximum: actual_maximum,
+                ..
+            }) if alignment == u32::from(maximum + 1) && actual_maximum == u32::from(maximum)
+        ));
+    }
+}
+
+#[test]
+fn numeric_memory_oob_traps_report_exact_width() {
+    let load = single_function_memory_module(
+        &[I32],
+        Some(I64),
+        &[0x20, 0x00, 0x29, 0x03, 0x00],
+    );
+    let mut load_vm = instance(&load);
+    assert!(matches!(
+        load_vm.invoke_export("run", &[Value::I32(65_532)]),
+        Err(RuntimeError::MemoryOutOfBounds {
+            address: 65_532,
+            width: 8
+        })
+    ));
+
+    let store = single_function_memory_module(
+        &[I32, F32],
+        None,
+        &[0x20, 0x00, 0x20, 0x01, 0x38, 0x02, 0x00],
+    );
+    let mut store_vm = instance(&store);
+    assert!(matches!(
+        store_vm.invoke_export("run", &[Value::I32(65_534), Value::F32(1.0)]),
+        Err(RuntimeError::MemoryOutOfBounds {
+            address: 65_534,
+            width: 4
+        })
+    ));
+}
+'''
+Path("crates/wasm-runtime/tests/phase5c_numeric_memory.rs").write_text(test)
