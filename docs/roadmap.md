@@ -100,6 +100,7 @@ The roadmap favors complete vertical slices over a broad but shallow decoder.
 - [x] initial malformed-binary parser corpus
 - [x] untrusted-count parser allocation hardening
 - [ ] malformed-module corpus expansion across validation/runtime
-- [ ] security invariants and threat model
+- [x] initial runtime security invariants and threat model
+- [ ] revisit the threat model as host capabilities, concurrency, WASI-like interfaces, or JIT execution expand
 
 A future JIT is intentionally out of scope until the interpreter and validation model are trustworthy.
