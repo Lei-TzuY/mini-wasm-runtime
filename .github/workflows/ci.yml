@@ -14,11 +14,18 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        rust: [stable]
-        os: [ubuntu-latest, windows-latest, macos-latest]
+        include:
+          - rust: stable
+            os: ubuntu-latest
+          - rust: stable
+            os: windows-latest
+          - rust: stable
+            os: macos-latest
+          - rust: 1.81.0
+            os: ubuntu-latest
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: Install Rust
         shell: bash
         run: |
