@@ -94,7 +94,8 @@ The roadmap favors complete vertical slices over a broad but shallow decoder.
 - [ ] property-based tests
 - [ ] differential execution against a reference engine in tests only
 - [ ] deterministic benchmarks
-- [ ] malformed-module corpus
+- [x] initial malformed-binary parser corpus
+- [ ] malformed-module corpus expansion across validation/runtime
 - [ ] security invariants and threat model
 
 A future JIT is intentionally out of scope until the interpreter and validation model are trustworthy.
