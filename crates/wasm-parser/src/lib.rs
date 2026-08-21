@@ -20,6 +20,10 @@ pub enum ParseError {
     UnsupportedValueType(u8),
     InvalidUtf8,
     InvalidExportKind(u8),
+    InvalidLimitsFlags(u8),
+    UnsupportedDataSegmentMode(u32),
+    InvalidConstExprOpcode(u8),
+    ConstExprMissingEnd,
     FunctionBodyMissingEnd,
     TrailingBytes,
 }
@@ -46,6 +50,14 @@ impl fmt::Display for ParseError {
             Self::UnsupportedValueType(tag) => write!(f, "unsupported value type 0x{tag:02x}"),
             Self::InvalidUtf8 => write!(f, "name is not valid UTF-8"),
             Self::InvalidExportKind(kind) => write!(f, "invalid export kind {kind}"),
+            Self::InvalidLimitsFlags(flags) => write!(f, "invalid memory limits flags 0x{flags:02x}"),
+            Self::UnsupportedDataSegmentMode(mode) => {
+                write!(f, "unsupported data segment mode {mode}")
+            }
+            Self::InvalidConstExprOpcode(opcode) => {
+                write!(f, "unsupported constant-expression opcode 0x{opcode:02x}")
+            }
+            Self::ConstExprMissingEnd => write!(f, "constant expression is missing end opcode"),
             Self::FunctionBodyMissingEnd => write!(f, "function body is missing final end opcode"),
             Self::TrailingBytes => write!(f, "trailing bytes after parsed value"),
         }
@@ -66,6 +78,17 @@ pub enum ValueType {
 pub struct FuncType {
     pub params: Vec<ValueType>,
     pub results: Vec<ValueType>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Limits {
+    pub min: u32,
+    pub max: Option<u32>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct MemoryType {
+    pub limits: Limits,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -91,12 +114,23 @@ pub struct FunctionBody {
     pub code: Vec<u8>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DataSegment {
+    /// Phase 3 supports active segments for memory 0 only.
+    pub memory_index: u32,
+    /// Constant i32 byte offset evaluated during instantiation.
+    pub offset: i32,
+    pub bytes: Vec<u8>,
+}
+
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Module {
     pub types: Vec<FuncType>,
     pub function_type_indices: Vec<u32>,
+    pub memories: Vec<MemoryType>,
     pub exports: Vec<Export>,
     pub code: Vec<FunctionBody>,
+    pub data: Vec<DataSegment>,
 }
 
 /// Decode a canonical-or-noncanonical unsigned LEB128 u32 value.
@@ -164,7 +198,7 @@ pub fn parse_module(bytes: &[u8]) -> Result<Module, ParseError> {
 
     let mut module = Module::default();
     let mut last_standard = 0u8;
-    let mut seen = [false; 11];
+    let mut seen = [false; 12];
 
     while !cursor.is_eof() {
         let section_id = cursor.read_u8()?;
@@ -174,7 +208,7 @@ pub fn parse_module(bytes: &[u8]) -> Result<Module, ParseError> {
         if section_id == 0 {
             continue;
         }
-        if !matches!(section_id, 1 | 3 | 7 | 10) {
+        if !matches!(section_id, 1 | 3 | 5 | 7 | 10 | 11) {
             return Err(ParseError::UnsupportedSection(section_id));
         }
         if section_id < last_standard {
@@ -193,8 +227,10 @@ pub fn parse_module(bytes: &[u8]) -> Result<Module, ParseError> {
         match section_id {
             1 => parse_type_section(&mut section, &mut module)?,
             3 => parse_function_section(&mut section, &mut module)?,
+            5 => parse_memory_section(&mut section, &mut module)?,
             7 => parse_export_section(&mut section, &mut module)?,
             10 => parse_code_section(&mut section, &mut module)?,
+            11 => parse_data_section(&mut section, &mut module)?,
             _ => unreachable!("unsupported sections are rejected above"),
         }
         if !section.is_eof() {
@@ -224,6 +260,17 @@ fn parse_function_section(cursor: &mut Cursor<'_>, module: &mut Module) -> Resul
     module.function_type_indices.reserve(count as usize);
     for _ in 0..count {
         module.function_type_indices.push(cursor.read_u32()?);
+    }
+    Ok(())
+}
+
+fn parse_memory_section(cursor: &mut Cursor<'_>, module: &mut Module) -> Result<(), ParseError> {
+    let count = cursor.read_u32()?;
+    module.memories.reserve(count as usize);
+    for _ in 0..count {
+        module.memories.push(MemoryType {
+            limits: read_limits(cursor)?,
+        });
     }
     Ok(())
 }
@@ -268,6 +315,49 @@ fn parse_code_section(cursor: &mut Cursor<'_>, module: &mut Module) -> Result<()
         module.code.push(FunctionBody { locals, code });
     }
     Ok(())
+}
+
+fn parse_data_section(cursor: &mut Cursor<'_>, module: &mut Module) -> Result<(), ParseError> {
+    let count = cursor.read_u32()?;
+    module.data.reserve(count as usize);
+    for _ in 0..count {
+        let mode = cursor.read_u32()?;
+        if mode != 0 {
+            return Err(ParseError::UnsupportedDataSegmentMode(mode));
+        }
+        let offset = read_i32_const_expr(cursor)?;
+        let len = cursor.read_u32()? as usize;
+        let bytes = cursor.read_exact(len)?.to_vec();
+        module.data.push(DataSegment {
+            memory_index: 0,
+            offset,
+            bytes,
+        });
+    }
+    Ok(())
+}
+
+fn read_limits(cursor: &mut Cursor<'_>) -> Result<Limits, ParseError> {
+    let flags = cursor.read_u8()?;
+    let min = cursor.read_u32()?;
+    let max = match flags {
+        0x00 => None,
+        0x01 => Some(cursor.read_u32()?),
+        _ => return Err(ParseError::InvalidLimitsFlags(flags)),
+    };
+    Ok(Limits { min, max })
+}
+
+fn read_i32_const_expr(cursor: &mut Cursor<'_>) -> Result<i32, ParseError> {
+    let opcode = cursor.read_u8()?;
+    if opcode != 0x41 {
+        return Err(ParseError::InvalidConstExprOpcode(opcode));
+    }
+    let value = cursor.read_i32()?;
+    if cursor.read_u8()? != 0x0b {
+        return Err(ParseError::ConstExprMissingEnd);
+    }
+    Ok(value)
 }
 
 fn read_value_type_vec(cursor: &mut Cursor<'_>) -> Result<Vec<ValueType>, ParseError> {
@@ -326,6 +416,12 @@ impl<'a> Cursor<'a> {
         Ok(value)
     }
 
+    fn read_i32(&mut self) -> Result<i32, ParseError> {
+        let (value, used) = decode_i32(self.remaining())?;
+        self.offset += used;
+        Ok(value)
+    }
+
     fn read_array4(&mut self) -> Result<[u8; 4], ParseError> {
         let bytes = self.read_exact(4)?;
         Ok([bytes[0], bytes[1], bytes[2], bytes[3]])
@@ -365,6 +461,14 @@ mod tests {
         ]
     }
 
+    fn memory_data_module() -> Vec<u8> {
+        vec![
+            0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00, // header
+            0x05, 0x04, 0x01, 0x01, 0x01, 0x02, // memory: min=1 max=2
+            0x0b, 0x09, 0x01, 0x00, 0x41, 0x04, 0x0b, 0x03, b'w', b'a', b's', // data
+        ]
+    }
+
     #[test]
     fn parses_minimal_add_module() {
         let module = parse_module(&add_module()).expect("valid test module");
@@ -374,6 +478,18 @@ mod tests {
         assert_eq!(module.exports[0].name, "add");
         assert_eq!(module.code.len(), 1);
         assert_eq!(module.code[0].code.last(), Some(&0x0b));
+    }
+
+    #[test]
+    fn parses_memory_and_active_data_segment() {
+        let module = parse_module(&memory_data_module()).expect("valid memory module");
+        assert_eq!(module.memories.len(), 1);
+        assert_eq!(module.memories[0].limits.min, 1);
+        assert_eq!(module.memories[0].limits.max, Some(2));
+        assert_eq!(module.data.len(), 1);
+        assert_eq!(module.data[0].memory_index, 0);
+        assert_eq!(module.data[0].offset, 4);
+        assert_eq!(module.data[0].bytes, b"was");
     }
 
     #[test]
@@ -410,5 +526,15 @@ mod tests {
             parse_module(&bytes),
             Err(ParseError::SectionOutOfOrder { .. })
         ));
+    }
+
+    #[test]
+    fn rejects_unsupported_data_segment_mode() {
+        let mut bytes = vec![0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00];
+        bytes.extend([0x0b, 0x03, 0x01, 0x01, 0x00]);
+        assert_eq!(
+            parse_module(&bytes),
+            Err(ParseError::UnsupportedDataSegmentMode(1))
+        );
     }
 }
