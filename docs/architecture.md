@@ -20,7 +20,7 @@ wasm-validator ---- proves typed stack, control, signature, and independent inde
 validated Module + explicit HostRegistry + RuntimeLimits
    |
    v
-Instance ---- resolves supported imports; allocates owned state; attaches shared globals; applies segments; runs start
+Instance ---- resolves supported imports; attaches shared globals/tables; allocates owned memory; applies segments; runs start
    |
    v
 wasm-runtime ---- typed numeric interpreter / scoped host callbacks / trap checks
@@ -46,7 +46,7 @@ Memory(MemoryType)
 Global(GlobalType)
 ```
 
-`Module` exposes separate function/table/memory/global import counts and lookup helpers. Imported objects precede defined objects only inside their own WebAssembly index space. A memory or global import therefore never shifts a function index.
+`Module` exposes separate function/table/memory/global import counts and lookup helpers. Imported objects precede defined objects only inside their own WebAssembly index space. A memory, table, or global import therefore never shifts a function index.
 
 Tables use the current `funcref` subset. Global imports carry their value type and mutability. Defined global initializers accept the current MVP numeric constant-expression subset: `i32.const`, `i64.const`, `f32.const`, or `f64.const`, followed by `end`; the initializer type must exactly equal the declared global type. Float constants are retained as raw IEEE-754 bits in the parsed `Constant` enum.
 
@@ -104,7 +104,7 @@ Unreachable code follows WebAssembly-style stack polymorphism while still checki
 
 ## `wasm-runtime`
 
-Each `Instance` owns the validated module, precomputed control maps, optional owned `LinearMemory`, optional owned function table, a combined vector of global handles, resolved `HostRegistry`, and `RuntimeLimits`.
+Each `Instance` owns the validated module, a private instance identity, precomputed control maps, optional owned `LinearMemory`, an optional `TableHandle`, a combined vector of global handles, resolved `HostRegistry`, and `RuntimeLimits`.
 
 ### Numeric value model
 
@@ -148,21 +148,30 @@ Defined globals get private handles initialized from parsed constants. Imported 
 
 Instantiation requires both the numeric `ValueType` and mutability flag to equal the imported `GlobalType`. Missing bindings, type mismatches, and mutability mismatches are distinct errors.
 
-For mutable imports, the host and instance clone the same handle rather than copying its value. Therefore:
-
-- a host `GlobalHandle::set` performed between WebAssembly calls is observed by the next `global.get`;
-- WebAssembly `global.set` mutates the same cell returned by host `GlobalHandle::get`;
-- the handle itself rejects writes to immutable globals and wrong-type writes.
-
-`global.get` and `global.set` still query the combined module global type information for defense-in-depth index/type/mutability checks, so imported globals cannot shift defined-global mutation targets incorrectly.
+For mutable imports, the host and instance clone the same handle rather than copying its value. Therefore host writes are observed by later `global.get` instructions and WebAssembly `global.set` updates the same host-visible cell. The handle itself rejects writes to immutable globals and wrong-type writes.
 
 ### Tables, elements, and `call_indirect`
 
-The currently owned table representation is `Vec<Option<u32>>`. Active element segments are applied after whole-range bounds checks.
+Defined and imported tables now use the same `TableHandle` abstraction. A handle stores a shared vector of optional opaque `FunctionRef` values plus the table's optional maximum:
 
-`call_indirect` distinguishes out-of-bounds selectors, null entries, and dynamic type mismatches before dispatching through the same imported/defined function path as direct calls.
+```text
+Rc<RefCell<Vec<Option<FunctionRef>>>> + maximum + live-instance binding
+```
 
-Table imports are parsed and validated in the correct index space but remain rejected at instantiation until a shared table handle can preserve identity and mutation visibility.
+An imported table is supplied through `HostRegistry::register_table`. Instantiation checks WebAssembly table-limit matching: the supplied current length must satisfy the import minimum, and when the import declares a maximum the supplied handle must also declare a maximum no larger than that import maximum.
+
+`FunctionRef` does not expose a raw function index to the embedding API. Each reference carries a weak identity for the runtime instance that created it. Before `call_indirect` dispatches, the runtime verifies that the reference still belongs to the current live instance. This makes stale or foreign references fail as `ForeignTableFunctionReference` instead of accidentally invoking whatever function happens to reuse the same numeric index in another instance.
+
+The current store model deliberately binds one `TableHandle` to at most one live runtime instance. Reusing it after that instance is dropped is allowed, but stale function references from the old instance remain invalid. Full cross-instance/reference-store semantics are deferred rather than approximated.
+
+Active element initialization against an imported table is host-visible. To avoid leaking partial instantiation side effects, the runtime first preflights **all** active element ranges. Only after every range is valid are the segment writes applied to the shared handle. A later out-of-bounds segment therefore cannot leave earlier segment writes behind when instantiation fails.
+
+Host mutations to table slots are immediately visible to `call_indirect`. Indirect calls distinguish:
+
+- selector outside the table -> `TableElementOutOfBounds`;
+- in-bounds null slot -> `UninitializedTableElement`;
+- stale/foreign function reference -> `ForeignTableFunctionReference`;
+- current-instance reference whose actual function type differs from the call-site type -> `IndirectCallTypeMismatch`.
 
 ### Linear memory
 
@@ -172,10 +181,11 @@ Memory imports participate in validation and the memory index space, but instant
 
 ### Host binding and capability boundary
 
-`HostRegistry` currently holds two executable binding classes:
+`HostRegistry` currently holds three executable binding classes:
 
 1. host functions, with i32-only signatures and zero-or-one result;
-2. numeric `GlobalHandle` bindings, immutable or mutable, supporting all four current numeric `Value` variants.
+2. numeric `GlobalHandle` bindings, immutable or mutable, supporting all four current numeric `Value` variants;
+3. `TableHandle` bindings for the current single-table `funcref` subset.
 
 Host functions receive a `HostContext`, not the `Instance`. Memory access requires explicit `NONE`, `MEMORY_READ`, or `MEMORY_READ_WRITE` capabilities. Runtime arguments are type-checked before callbacks run.
 
@@ -189,9 +199,10 @@ After supported imports are resolved and state/segments are initialized, an opti
 
 ## Current non-goals
 
-- table imports until shared backing exists
 - memory imports until shared backing exists
-- thread-safe/shared-memory global handles
+- multiple live instances sharing one `TableHandle`
+- cross-instance function-reference dispatch
+- thread-safe/shared-memory global or table handles
 - non-i32 host function callbacks
 - multiple tables or memories
 - passive/declarative element modes
