@@ -521,12 +521,12 @@ fn require_label_values(
     Ok(())
 }
 
-fn control_at_depth<'a>(
-    controls: &'a [ControlFrame],
+fn control_at_depth(
+    controls: &[ControlFrame],
     depth: u32,
     function: usize,
     offset: usize,
-) -> Result<&'a ControlFrame, ValidationError> {
+) -> Result<&ControlFrame, ValidationError> {
     let index = controls.len().checked_sub(depth as usize + 1).ok_or(
         ValidationError::BranchDepthOutOfBounds {
             function,
