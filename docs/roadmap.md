@@ -72,7 +72,7 @@ The roadmap favors complete vertical slices over a broad but shallow decoder.
 - [x] independent function/table/memory/global index-space accounting
 - [x] immutable numeric global imports with explicit host binding
 - [x] shared backing for mutable global imports
-- [ ] shared backing for table imports
+- [x] shared backing for table imports with instance-bound function references
 - [ ] shared backing for memory imports
 - [ ] non-i32 host function import ABI
 - [x] block parameters and type-index block signatures with zero-or-one result
