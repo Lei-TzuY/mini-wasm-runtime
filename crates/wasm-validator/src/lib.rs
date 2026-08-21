@@ -568,14 +568,15 @@ fn label_arity(
     offset: usize,
 ) -> Result<usize, ValidationError> {
     let depth = depth as usize;
-    let index = controls
-        .len()
-        .checked_sub(depth + 1)
-        .ok_or(ValidationError::BranchDepthOutOfBounds {
-            function,
-            offset,
-            depth: depth as u32,
-        })?;
+    let index =
+        controls
+            .len()
+            .checked_sub(depth + 1)
+            .ok_or(ValidationError::BranchDepthOutOfBounds {
+                function,
+                offset,
+                depth: depth as u32,
+            })?;
     Ok(controls[index].label_arity)
 }
 
@@ -804,11 +805,7 @@ mod tests {
 
     #[test]
     fn rejects_result_if_without_else() {
-        let module = module_with_code(
-            1,
-            1,
-            vec![0x20, 0x00, 0x04, 0x7f, 0x41, 0x01, 0x0b, 0x0b],
-        );
+        let module = module_with_code(1, 1, vec![0x20, 0x00, 0x04, 0x7f, 0x41, 0x01, 0x0b, 0x0b]);
         assert!(matches!(
             validate(&module),
             Err(ValidationError::MissingElseForResult { .. })
