@@ -66,7 +66,9 @@ impl fmt::Display for RuntimeError {
                 f,
                 "control frame expects stack height {expected}, got {actual}"
             ),
-            Self::ControlInvariant(message) => write!(f, "validated control invariant failed: {message}"),
+            Self::ControlInvariant(message) => {
+                write!(f, "validated control invariant failed: {message}")
+            }
             Self::ResultArityMismatch { expected, actual } => {
                 write!(
                     f,
@@ -313,41 +315,24 @@ impl Instance {
                 }
                 0x0c => {
                     let branch_depth = read_u32_immediate(code, &mut pc)?;
-                    branch_to(
-                        &mut controls,
-                        &mut stack,
-                        branch_depth,
-                        &mut pc,
-                        code.len(),
-                    )?;
+                    branch_to(&mut controls, &mut stack, branch_depth, &mut pc, code.len())?;
                 }
                 0x0d => {
                     let branch_depth = read_u32_immediate(code, &mut pc)?;
                     let condition = stack.pop().ok_or(RuntimeError::StackUnderflow)?.as_i32();
                     if condition != 0 {
-                        branch_to(
-                            &mut controls,
-                            &mut stack,
-                            branch_depth,
-                            &mut pc,
-                            code.len(),
-                        )?;
+                        branch_to(&mut controls, &mut stack, branch_depth, &mut pc, code.len())?;
                     }
                 }
                 0x0f => {
-                    let branch_depth = controls
-                        .len()
-                        .checked_sub(1)
-                        .ok_or(RuntimeError::ControlInvariant(
-                            "return executed without function frame",
-                        ))? as u32;
-                    branch_to(
-                        &mut controls,
-                        &mut stack,
-                        branch_depth,
-                        &mut pc,
-                        code.len(),
-                    )?;
+                    let branch_depth =
+                        controls
+                            .len()
+                            .checked_sub(1)
+                            .ok_or(RuntimeError::ControlInvariant(
+                                "return executed without function frame",
+                            ))? as u32;
+                    branch_to(&mut controls, &mut stack, branch_depth, &mut pc, code.len())?;
                 }
                 0x10 => {
                     let callee = read_u32_immediate(code, &mut pc)?;
@@ -464,12 +449,13 @@ fn branch_to(
         .ok_or(RuntimeError::BranchDepthOutOfBounds(depth))?;
     let target = controls[target_index];
     let label_arity = target.label_arity();
-    let current_height = controls
-        .last()
-        .map(|frame| frame.stack_height)
-        .ok_or(RuntimeError::ControlInvariant(
-            "branch executed without active control frame",
-        ))?;
+    let current_height =
+        controls
+            .last()
+            .map(|frame| frame.stack_height)
+            .ok_or(RuntimeError::ControlInvariant(
+                "branch executed without active control frame",
+            ))?;
     if stack.len().saturating_sub(current_height) < label_arity {
         return Err(RuntimeError::StackUnderflow);
     }
