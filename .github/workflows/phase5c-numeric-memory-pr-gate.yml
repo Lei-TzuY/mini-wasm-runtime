@@ -23,21 +23,7 @@ jobs:
       - name: Apply staged implementation and validate
         shell: bash
         run: |
-          python3 - <<'PY'
-          from pathlib import Path
-
-          workflow = Path('.github/workflows/phase5c-numeric-memory.yml').read_text()
-          start_marker = "          python3 - <<'PY'\n"
-          end_marker = "\n          PY\n          cargo fmt --all\n"
-          start = workflow.index(start_marker) + len(start_marker)
-          end = workflow.index(end_marker, start)
-          lines = workflow[start:end].splitlines()
-          script = "\n".join(
-              line[10:] if line.startswith("          ") else line for line in lines
-          ) + "\n"
-          Path('/tmp/phase5c_numeric_memory.py').write_text(script)
-          PY
-          python3 /tmp/phase5c_numeric_memory.py
+          python3 scripts/phase5c_numeric_memory.py
           cargo fmt --all
           cargo fmt --all -- --check
           cargo clippy --workspace --all-targets -- -D warnings
@@ -48,8 +34,9 @@ jobs:
         run: |
           rm .github/workflows/phase5c-numeric-memory.yml
           rm .github/workflows/phase5c-numeric-memory-pr-gate.yml
+          rm scripts/phase5c_numeric_memory.py
           git config user.name "Lei-TzuY"
           git config user.email "52287354+Lei-TzuY@users.noreply.github.com"
-          git add -- crates/wasm-runtime/src/lib.rs crates/wasm-runtime/tests/phase5c_numeric_memory.rs crates/wasm-validator/src/lib.rs crates/wasm-validator/src/typed.rs .github/workflows/phase5c-numeric-memory.yml .github/workflows/phase5c-numeric-memory-pr-gate.yml
+          git add -- crates/wasm-runtime/src/lib.rs crates/wasm-runtime/tests/phase5c_numeric_memory.rs crates/wasm-validator/src/lib.rs crates/wasm-validator/src/typed.rs .github/workflows/phase5c-numeric-memory.yml .github/workflows/phase5c-numeric-memory-pr-gate.yml scripts/phase5c_numeric_memory.py
           git commit -m "feat: add typed numeric memory instructions"
           git push origin HEAD:feat/phase-5c-numeric-memory
