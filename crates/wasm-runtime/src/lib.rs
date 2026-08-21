@@ -177,7 +177,10 @@ impl HostRegistry {
             + 'static,
     {
         if results.len() > 1
-            || params.iter().chain(results.iter()).any(|ty| *ty != ValueType::I32)
+            || params
+                .iter()
+                .chain(results.iter())
+                .any(|ty| *ty != ValueType::I32)
         {
             return Err(HostRegistryError::UnsupportedSignature);
         }
@@ -229,27 +232,50 @@ pub enum RuntimeError {
     ExportNotFunction(String),
     FunctionOutOfBounds(u32),
     UnsupportedType(ValueType),
-    WrongArgumentCount { expected: usize, actual: usize },
+    WrongArgumentCount {
+        expected: usize,
+        actual: usize,
+    },
     LocalOutOfBounds(u32),
     StackUnderflow,
     UnsupportedOpcode(u8),
     UnsupportedBlockType(u8),
     BranchDepthOutOfBounds(u32),
-    ControlStackMismatch { expected: usize, actual: usize },
+    ControlStackMismatch {
+        expected: usize,
+        actual: usize,
+    },
     ControlInvariant(&'static str),
-    ResultArityMismatch { expected: usize, actual: usize },
+    ResultArityMismatch {
+        expected: usize,
+        actual: usize,
+    },
     MemoryUnavailable,
     MemoryIndexOutOfBounds(u32),
-    MemoryOutOfBounds { address: u64, width: usize },
-    MemoryAllocationFailed { pages: u32 },
-    MemoryLimitExceeded { minimum: u32, limit: u32 },
+    MemoryOutOfBounds {
+        address: u64,
+        width: usize,
+    },
+    MemoryAllocationFailed {
+        pages: u32,
+    },
+    MemoryLimitExceeded {
+        minimum: u32,
+        limit: u32,
+    },
     DataSegmentOutOfBounds {
         segment: usize,
         offset: u64,
         length: usize,
     },
-    UnresolvedImport { module: String, name: String },
-    HostSignatureMismatch { module: String, name: String },
+    UnresolvedImport {
+        module: String,
+        name: String,
+    },
+    HostSignatureMismatch {
+        module: String,
+        name: String,
+    },
     HostCallFailed {
         module: String,
         name: String,
@@ -262,8 +288,12 @@ pub enum RuntimeError {
         actual: usize,
     },
     FuelExhausted,
-    HostCallLimitExceeded { limit: u64 },
-    CallDepthExceeded { limit: usize },
+    HostCallLimitExceeded {
+        limit: u64,
+    },
+    CallDepthExceeded {
+        limit: usize,
+    },
 }
 
 impl fmt::Display for RuntimeError {
@@ -799,13 +829,12 @@ impl Instance {
             memory: memory.as_mut(),
             capabilities: host.capabilities,
         };
-        let result = (host.callback)(&mut context, args).map_err(|error| {
-            RuntimeError::HostCallFailed {
+        let result =
+            (host.callback)(&mut context, args).map_err(|error| RuntimeError::HostCallFailed {
                 module: import.module.clone(),
                 name: import.name.clone(),
                 error,
-            }
-        })?;
+            })?;
         let actual = usize::from(result.is_some());
         if actual != ty.results.len() {
             return Err(RuntimeError::HostResultArityMismatch {
@@ -964,12 +993,13 @@ impl Instance {
                     }
                 }
                 0x0f => {
-                    let branch_depth = controls
-                        .len()
-                        .checked_sub(1)
-                        .ok_or(RuntimeError::ControlInvariant(
-                            "return executed without function frame",
-                        ))? as u32;
+                    let branch_depth =
+                        controls
+                            .len()
+                            .checked_sub(1)
+                            .ok_or(RuntimeError::ControlInvariant(
+                                "return executed without function frame",
+                            ))? as u32;
                     branch_to(&mut controls, &mut stack, branch_depth, &mut pc, code.len())?;
                 }
                 0x10 => {
@@ -980,7 +1010,9 @@ impl Instance {
                         return Err(RuntimeError::StackUnderflow);
                     }
                     let call_args = stack.split_off(stack.len() - param_count);
-                    if let Some(result) = self.invoke_function(callee, &call_args, depth + 1, budget)? {
+                    if let Some(result) =
+                        self.invoke_function(callee, &call_args, depth + 1, budget)?
+                    {
                         stack.push(result);
                     }
                 }
@@ -1147,12 +1179,13 @@ fn branch_to(
         .ok_or(RuntimeError::BranchDepthOutOfBounds(depth))?;
     let target = controls[target_index];
     let label_arity = target.label_arity();
-    let current_height = controls
-        .last()
-        .map(|frame| frame.stack_height)
-        .ok_or(RuntimeError::ControlInvariant(
-            "branch executed without active control frame",
-        ))?;
+    let current_height =
+        controls
+            .last()
+            .map(|frame| frame.stack_height)
+            .ok_or(RuntimeError::ControlInvariant(
+                "branch executed without active control frame",
+            ))?;
     if stack.len().saturating_sub(current_height) < label_arity {
         return Err(RuntimeError::StackUnderflow);
     }
@@ -1345,8 +1378,7 @@ mod tests {
             &mut bytes,
             2,
             &[
-                0x01, 0x03, b'e', b'n', b'v', 0x06, b'd', b'o', b'u', b'b', b'l', b'e', 0x00,
-                0x00,
+                0x01, 0x03, b'e', b'n', b'v', 0x06, b'd', b'o', b'u', b'b', b'l', b'e', 0x00, 0x00,
             ],
         );
         push_section(&mut bytes, 3, &[0x01, 0x00]);
@@ -1360,7 +1392,10 @@ mod tests {
     }
 
     fn push_section(module: &mut Vec<u8>, id: u8, payload: &[u8]) {
-        assert!(payload.len() < 128, "test helper only encodes one-byte lengths");
+        assert!(
+            payload.len() < 128,
+            "test helper only encodes one-byte lengths"
+        );
         module.push(id);
         module.push(payload.len() as u8);
         module.extend(payload);
@@ -1704,8 +1739,8 @@ mod tests {
             1,
             1,
             &[
-                0x03, 0x40, 0x20, 0x00, 0x41, 0x01, 0x6b, 0x22, 0x00, 0x0d, 0x00, 0x0b, 0x20,
-                0x00, 0x0b,
+                0x03, 0x40, 0x20, 0x00, 0x41, 0x01, 0x6b, 0x22, 0x00, 0x0d, 0x00, 0x0b, 0x20, 0x00,
+                0x0b,
             ],
         );
         let mut vm = instance(&bytes);
