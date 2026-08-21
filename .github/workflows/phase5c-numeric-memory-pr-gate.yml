@@ -1,0 +1,55 @@
+name: Phase 5C numeric memory PR gate
+
+on:
+  pull_request:
+
+permissions:
+  contents: write
+
+jobs:
+  numeric-memory-gate:
+    if: github.head_ref == 'feat/phase-5c-numeric-memory'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: feat/phase-5c-numeric-memory
+          fetch-depth: 0
+      - name: Install Rust
+        shell: bash
+        run: |
+          rustup toolchain install stable --profile minimal --component rustfmt,clippy
+          rustup default stable
+      - name: Apply staged implementation and validate
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          workflow = Path('.github/workflows/phase5c-numeric-memory.yml').read_text()
+          start_marker = "          python3 - <<'PY'\n"
+          end_marker = "\n          PY\n          cargo fmt --all\n"
+          start = workflow.index(start_marker) + len(start_marker)
+          end = workflow.index(end_marker, start)
+          lines = workflow[start:end].splitlines()
+          script = "\n".join(
+              line[10:] if line.startswith("          ") else line for line in lines
+          ) + "\n"
+          Path('/tmp/phase5c_numeric_memory.py').write_text(script)
+          PY
+          python3 /tmp/phase5c_numeric_memory.py
+          cargo fmt --all
+          cargo fmt --all -- --check
+          cargo clippy --workspace --all-targets -- -D warnings
+          cargo test --workspace --all-targets
+          cargo doc --workspace --no-deps
+      - name: Commit validated product and remove staging gates
+        shell: bash
+        run: |
+          rm .github/workflows/phase5c-numeric-memory.yml
+          rm .github/workflows/phase5c-numeric-memory-pr-gate.yml
+          git config user.name "Lei-TzuY"
+          git config user.email "52287354+Lei-TzuY@users.noreply.github.com"
+          git add -- crates/wasm-runtime/src/lib.rs crates/wasm-runtime/tests/phase5c_numeric_memory.rs crates/wasm-validator/src/lib.rs crates/wasm-validator/src/typed.rs .github/workflows/phase5c-numeric-memory.yml .github/workflows/phase5c-numeric-memory-pr-gate.yml
+          git commit -m "feat: add typed numeric memory instructions"
+          git push origin HEAD:feat/phase-5c-numeric-memory
