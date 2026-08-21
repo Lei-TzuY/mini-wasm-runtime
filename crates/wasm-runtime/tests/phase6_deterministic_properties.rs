@@ -234,7 +234,10 @@ fn generated_signed_division_and_remainder_obey_quotient_remainder_identity() {
         checked += 1;
     }
 
-    assert!(checked >= 760, "too many generated division cases were skipped");
+    assert!(
+        checked >= 760,
+        "too many generated division cases were skipped"
+    );
 }
 
 #[test]
@@ -379,18 +382,12 @@ fn generated_numeric_memory_round_trips_preserve_values_and_float_bits() {
             "i64 memory round-trip failed at case {case}: value={i64_value}"
         );
         assert_eq!(
-            invoke_i32(
-                &mut f32_memory,
-                &[Value::F32(f32::from_bits(f32_bits))]
-            ) as u32,
+            invoke_i32(&mut f32_memory, &[Value::F32(f32::from_bits(f32_bits))]) as u32,
             f32_bits,
             "f32 memory bit round-trip failed at case {case}: bits={f32_bits:#010x}"
         );
         assert_eq!(
-            invoke_i64(
-                &mut f64_memory,
-                &[Value::F64(f64::from_bits(f64_bits))]
-            ) as u64,
+            invoke_i64(&mut f64_memory, &[Value::F64(f64::from_bits(f64_bits))]) as u64,
             f64_bits,
             "f64 memory bit round-trip failed at case {case}: bits={f64_bits:#018x}"
         );
