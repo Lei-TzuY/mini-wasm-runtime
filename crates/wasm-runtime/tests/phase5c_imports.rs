@@ -123,10 +123,7 @@ fn imported_table_is_visible_to_element_and_export_index_spaces() {
     assert_eq!(validate(&parsed), Ok(()));
     assert!(matches!(
         Instance::new(parsed),
-        Err(RuntimeError::UnsupportedObjectImport {
-            kind: ImportKind::Table,
-            ..
-        })
+        Err(RuntimeError::UnresolvedTableImport { .. })
     ));
 }
 

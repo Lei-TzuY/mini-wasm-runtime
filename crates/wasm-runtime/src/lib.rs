@@ -1,6 +1,11 @@
 //! Stack interpreter for the Phase-5B typed numeric WebAssembly subset.
 
-use std::{cell::RefCell, collections::HashMap, fmt, rc::Rc};
+use std::{
+    cell::RefCell,
+    collections::HashMap,
+    fmt,
+    rc::{Rc, Weak},
+};
 use wasm_parser::{
     decode_i32, decode_i64, decode_s33, decode_u32, Constant, ExportKind, FuncType, ImportDesc,
     ImportKind, Module, ParseError, ValueType,
@@ -140,6 +145,171 @@ impl GlobalHandle {
     }
 }
 
+#[derive(Clone)]
+pub struct FunctionRef {
+    owner: Weak<()>,
+    function_index: u32,
+}
+
+impl fmt::Debug for FunctionRef {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str("FunctionRef(..)")
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum TableHandleError {
+    InvalidLimits { minimum: u32, maximum: u32 },
+    AllocationFailed { elements: u32 },
+    OutOfBounds { index: u32, length: u32 },
+    ForeignFunctionReference { index: u32 },
+    AlreadyBound,
+}
+
+impl fmt::Display for TableHandleError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::InvalidLimits { minimum, maximum } => write!(
+                f,
+                "table minimum {minimum} exceeds declared maximum {maximum}"
+            ),
+            Self::AllocationFailed { elements } => {
+                write!(f, "failed to allocate table with {elements} elements")
+            }
+            Self::OutOfBounds { index, length } => {
+                write!(
+                    f,
+                    "table element index {index} is out of bounds for length {length}"
+                )
+            }
+            Self::ForeignFunctionReference { index } => write!(
+                f,
+                "table element {index} contains a function reference from another instance"
+            ),
+            Self::AlreadyBound => write!(f, "table is already bound to a live instance"),
+        }
+    }
+}
+
+impl std::error::Error for TableHandleError {}
+
+#[derive(Clone)]
+pub struct TableHandle {
+    slots: Rc<RefCell<Vec<Option<FunctionRef>>>>,
+    maximum: Option<u32>,
+    owner: Rc<RefCell<Option<Weak<()>>>>,
+}
+
+impl fmt::Debug for TableHandle {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("TableHandle")
+            .field("length", &self.len())
+            .field("maximum", &self.maximum)
+            .finish()
+    }
+}
+
+impl TableHandle {
+    pub fn new(minimum: u32, maximum: Option<u32>) -> Result<Self, TableHandleError> {
+        if let Some(maximum) = maximum {
+            if minimum > maximum {
+                return Err(TableHandleError::InvalidLimits { minimum, maximum });
+            }
+        }
+        let length = usize::try_from(minimum)
+            .map_err(|_| TableHandleError::AllocationFailed { elements: minimum })?;
+        let mut slots = Vec::new();
+        slots
+            .try_reserve_exact(length)
+            .map_err(|_| TableHandleError::AllocationFailed { elements: minimum })?;
+        slots.resize(length, None);
+        Ok(Self {
+            slots: Rc::new(RefCell::new(slots)),
+            maximum,
+            owner: Rc::new(RefCell::new(None)),
+        })
+    }
+
+    pub fn len(&self) -> u32 {
+        u32::try_from(self.slots.borrow().len())
+            .expect("table length originates from a u32 minimum")
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.slots.borrow().is_empty()
+    }
+
+    pub fn maximum(&self) -> Option<u32> {
+        self.maximum
+    }
+
+    pub fn get(&self, index: u32) -> Result<Option<FunctionRef>, TableHandleError> {
+        self.slots
+            .borrow()
+            .get(index as usize)
+            .cloned()
+            .ok_or_else(|| TableHandleError::OutOfBounds {
+                index,
+                length: self.len(),
+            })
+    }
+
+    pub fn set(&self, index: u32, function: Option<FunctionRef>) -> Result<(), TableHandleError> {
+        let length = self.len();
+        let mut slots = self.slots.borrow_mut();
+        let slot = slots
+            .get_mut(index as usize)
+            .ok_or(TableHandleError::OutOfBounds { index, length })?;
+        *slot = function;
+        Ok(())
+    }
+
+    fn bind(&self, owner: &Rc<()>) -> Result<(), TableHandleError> {
+        let mut binding = self.owner.borrow_mut();
+        if let Some(existing) = binding.as_ref().and_then(Weak::upgrade) {
+            if !Rc::ptr_eq(&existing, owner) {
+                return Err(TableHandleError::AlreadyBound);
+            }
+            return Ok(());
+        }
+        *binding = Some(Rc::downgrade(owner));
+        Ok(())
+    }
+
+    fn set_for_instance(
+        &self,
+        index: u32,
+        function_index: u32,
+        owner: &Rc<()>,
+    ) -> Result<(), TableHandleError> {
+        self.bind(owner)?;
+        self.set(
+            index,
+            Some(FunctionRef {
+                owner: Rc::downgrade(owner),
+                function_index,
+            }),
+        )
+    }
+
+    fn function_index_for_instance(
+        &self,
+        index: u32,
+        owner: &Rc<()>,
+    ) -> Result<Option<u32>, TableHandleError> {
+        let Some(function) = self.get(index)? else {
+            return Ok(None);
+        };
+        let Some(actual_owner) = function.owner.upgrade() else {
+            return Err(TableHandleError::ForeignFunctionReference { index });
+        };
+        if !Rc::ptr_eq(&actual_owner, owner) {
+            return Err(TableHandleError::ForeignFunctionReference { index });
+        }
+        Ok(Some(function.function_index))
+    }
+}
+
 pub struct HostContext<'a> {
     memory: Option<&'a mut LinearMemory>,
     capabilities: HostCapabilities,
@@ -194,6 +364,7 @@ struct HostFunction {
 pub enum HostRegistryError {
     DuplicateFunction { module: String, name: String },
     DuplicateGlobal { module: String, name: String },
+    DuplicateTable { module: String, name: String },
     UnsupportedSignature,
 }
 
@@ -204,10 +375,10 @@ impl fmt::Display for HostRegistryError {
                 write!(f, "host function {module}.{name} is already registered")
             }
             Self::DuplicateGlobal { module, name } => {
-                write!(
-                    f,
-                    "host immutable global {module}.{name} is already registered"
-                )
+                write!(f, "host global {module}.{name} is already registered")
+            }
+            Self::DuplicateTable { module, name } => {
+                write!(f, "host table {module}.{name} is already registered")
             }
             Self::UnsupportedSignature => write!(
                 f,
@@ -223,6 +394,7 @@ impl std::error::Error for HostRegistryError {}
 pub struct HostRegistry {
     functions: HashMap<(String, String), HostFunction>,
     globals: HashMap<(String, String), GlobalHandle>,
+    tables: HashMap<(String, String), TableHandle>,
 }
 
 impl fmt::Debug for HostRegistry {
@@ -230,6 +402,7 @@ impl fmt::Debug for HostRegistry {
         f.debug_struct("HostRegistry")
             .field("function_count", &self.functions.len())
             .field("global_count", &self.globals.len())
+            .field("table_count", &self.tables.len())
             .finish()
     }
 }
@@ -300,6 +473,22 @@ impl HostRegistry {
             return Err(HostRegistryError::DuplicateGlobal { module, name });
         }
         self.globals.insert(key, global);
+        Ok(())
+    }
+
+    pub fn register_table(
+        &mut self,
+        module: impl Into<String>,
+        name: impl Into<String>,
+        table: TableHandle,
+    ) -> Result<(), HostRegistryError> {
+        let module = module.into();
+        let name = name.into();
+        let key = (module.clone(), name.clone());
+        if self.tables.contains_key(&key) {
+            return Err(HostRegistryError::DuplicateTable { module, name });
+        }
+        self.tables.insert(key, table);
         Ok(())
     }
 }
@@ -402,6 +591,25 @@ pub enum RuntimeError {
     UnresolvedGlobalImport {
         module: String,
         name: String,
+    },
+    UnresolvedTableImport {
+        module: String,
+        name: String,
+    },
+    HostTableLimitsMismatch {
+        module: String,
+        name: String,
+        expected_minimum: u32,
+        expected_maximum: Option<u32>,
+        actual_minimum: u32,
+        actual_maximum: Option<u32>,
+    },
+    HostTableAlreadyBound {
+        module: String,
+        name: String,
+    },
+    ForeignTableFunctionReference {
+        element_index: u32,
     },
     HostGlobalTypeMismatch {
         module: String,
@@ -537,6 +745,28 @@ impl fmt::Display for RuntimeError {
             Self::UnresolvedGlobalImport { module, name } => {
                 write!(f, "unresolved host immutable global import {module}.{name}")
             }
+            Self::UnresolvedTableImport { module, name } => {
+                write!(f, "unresolved host table import {module}.{name}")
+            }
+            Self::HostTableLimitsMismatch {
+                module,
+                name,
+                expected_minimum,
+                expected_maximum,
+                actual_minimum,
+                actual_maximum,
+            } => write!(
+                f,
+                "host table {module}.{name} has limits min={actual_minimum} max={actual_maximum:?}, which do not satisfy imported min={expected_minimum} max={expected_maximum:?}"
+            ),
+            Self::HostTableAlreadyBound { module, name } => write!(
+                f,
+                "host table {module}.{name} is already bound to another live runtime instance"
+            ),
+            Self::ForeignTableFunctionReference { element_index } => write!(
+                f,
+                "table element {element_index} refers to a function owned by another runtime instance"
+            ),
             Self::HostGlobalTypeMismatch {
                 module,
                 name,
@@ -773,17 +1003,6 @@ impl LinearMemory {
     }
 }
 
-fn allocate_table(elements: u32) -> Result<Vec<Option<u32>>, RuntimeError> {
-    let len =
-        usize::try_from(elements).map_err(|_| RuntimeError::TableAllocationFailed { elements })?;
-    let mut table = Vec::new();
-    table
-        .try_reserve_exact(len)
-        .map_err(|_| RuntimeError::TableAllocationFailed { elements })?;
-    table.resize(len, None);
-    Ok(table)
-}
-
 fn pages_to_bytes(pages: u32) -> Option<usize> {
     let bytes = u64::from(pages).checked_mul(WASM_PAGE_SIZE as u64)?;
     usize::try_from(bytes).ok()
@@ -894,10 +1113,11 @@ impl ExecutionBudget {
 
 #[derive(Debug)]
 pub struct Instance {
+    identity: Rc<()>,
     module: Module,
     control_maps: Vec<ControlMap>,
     memory: Option<LinearMemory>,
-    table: Option<Vec<Option<u32>>>,
+    table: Option<TableHandle>,
     globals: Vec<GlobalHandle>,
     hosts: HostRegistry,
     limits: RuntimeLimits,
@@ -936,14 +1156,12 @@ impl Instance {
                 )
             })
             .transpose()?;
-        let table = module
-            .tables
-            .first()
-            .map(|table_type| allocate_table(table_type.limits.min))
-            .transpose()?;
+        let identity = Rc::new(());
+        let table = instantiate_table(&module, &hosts, &identity)?;
         let globals = instantiate_globals(&module, &hosts)?;
 
         let mut instance = Self {
+            identity,
             module,
             control_maps,
             memory,
@@ -1037,9 +1255,9 @@ impl Instance {
                 })?;
             let table = self
                 .table
-                .as_mut()
+                .as_ref()
                 .ok_or(RuntimeError::TableIndexOutOfBounds(0))?;
-            if end > table.len() as u64 {
+            if end > u64::from(table.len()) {
                 return Err(RuntimeError::ElementSegmentOutOfBounds {
                     segment: segment_index,
                     offset,
@@ -1047,7 +1265,16 @@ impl Instance {
                 });
             }
             for (slot, &function_index) in segment.function_indices.iter().enumerate() {
-                table[offset as usize + slot] = Some(function_index);
+                let index = u32::try_from(offset + slot as u64).map_err(|_| {
+                    RuntimeError::ElementSegmentOutOfBounds {
+                        segment: segment_index,
+                        offset,
+                        length: segment.function_indices.len(),
+                    }
+                })?;
+                table
+                    .set_for_instance(index, function_index, &self.identity)
+                    .map_err(|error| map_table_element_error(error, index))?;
             }
         }
         Ok(())
@@ -1318,8 +1545,9 @@ impl Instance {
                     let callee = self
                         .table
                         .as_ref()
-                        .and_then(|table| table.get(element_index as usize))
-                        .ok_or(RuntimeError::TableElementOutOfBounds(element_index))?
+                        .ok_or(RuntimeError::TableIndexOutOfBounds(table_index))?
+                        .function_index_for_instance(element_index, &self.identity)
+                        .map_err(|error| map_table_element_error(error, element_index))?
                         .ok_or(RuntimeError::UninitializedTableElement(element_index))?;
                     let expected_type = self
                         .module
@@ -1501,7 +1729,7 @@ impl Instance {
 fn reject_unsupported_object_imports(module: &Module) -> Result<(), RuntimeError> {
     for import in &module.imports {
         match import.desc {
-            ImportDesc::Function(_) | ImportDesc::Global(_) => {}
+            ImportDesc::Function(_) | ImportDesc::Global(_) | ImportDesc::Table(_) => {}
             _ => {
                 return Err(RuntimeError::UnsupportedObjectImport {
                     module: import.module.clone(),
@@ -1534,6 +1762,21 @@ fn validate_host_bindings(module: &Module, hosts: &HostRegistry) -> Result<(), R
                 name: import.name.clone(),
             });
         }
+    }
+
+    for import in &module.imports {
+        let ImportDesc::Table(table_type) = import.desc else {
+            continue;
+        };
+        let key = (import.module.clone(), import.name.clone());
+        let table = hosts
+            .tables
+            .get(&key)
+            .ok_or_else(|| RuntimeError::UnresolvedTableImport {
+                module: import.module.clone(),
+                name: import.name.clone(),
+            })?;
+        validate_table_limits(import, table_type.limits.min, table_type.limits.max, table)?;
     }
 
     for import in &module.imports {
@@ -1570,12 +1813,109 @@ fn validate_host_bindings(module: &Module, hosts: &HostRegistry) -> Result<(), R
     Ok(())
 }
 
+fn validate_table_limits(
+    import: &wasm_parser::Import,
+    expected_minimum: u32,
+    expected_maximum: Option<u32>,
+    table: &TableHandle,
+) -> Result<(), RuntimeError> {
+    let actual_minimum = table.len();
+    let actual_maximum = table.maximum();
+    let minimum_matches = actual_minimum >= expected_minimum;
+    let maximum_matches = match expected_maximum {
+        None => true,
+        Some(expected) => matches!(actual_maximum, Some(actual) if actual <= expected),
+    };
+    if minimum_matches && maximum_matches {
+        return Ok(());
+    }
+    Err(RuntimeError::HostTableLimitsMismatch {
+        module: import.module.clone(),
+        name: import.name.clone(),
+        expected_minimum,
+        expected_maximum,
+        actual_minimum,
+        actual_maximum,
+    })
+}
+
+fn instantiate_table(
+    module: &Module,
+    hosts: &HostRegistry,
+    identity: &Rc<()>,
+) -> Result<Option<TableHandle>, RuntimeError> {
+    for import in &module.imports {
+        let ImportDesc::Table(table_type) = import.desc else {
+            continue;
+        };
+        let key = (import.module.clone(), import.name.clone());
+        let table =
+            hosts
+                .tables
+                .get(&key)
+                .cloned()
+                .ok_or_else(|| RuntimeError::UnresolvedTableImport {
+                    module: import.module.clone(),
+                    name: import.name.clone(),
+                })?;
+        validate_table_limits(import, table_type.limits.min, table_type.limits.max, &table)?;
+        table.bind(identity).map_err(|error| match error {
+            TableHandleError::AlreadyBound => RuntimeError::HostTableAlreadyBound {
+                module: import.module.clone(),
+                name: import.name.clone(),
+            },
+            other => map_table_element_error(other, 0),
+        })?;
+        return Ok(Some(table));
+    }
+
+    let Some(table_type) = module.tables.first() else {
+        return Ok(None);
+    };
+    let table = TableHandle::new(table_type.limits.min, table_type.limits.max).map_err(
+        |error| match error {
+            TableHandleError::AllocationFailed { elements } => {
+                RuntimeError::TableAllocationFailed { elements }
+            }
+            TableHandleError::InvalidLimits { .. } => {
+                RuntimeError::ControlInvariant("validated defined table has inconsistent limits")
+            }
+            other => map_table_element_error(other, 0),
+        },
+    )?;
+    table.bind(identity).map_err(|_| {
+        RuntimeError::ControlInvariant("fresh defined table is unexpectedly already bound")
+    })?;
+    Ok(Some(table))
+}
+
+fn map_table_element_error(error: TableHandleError, index: u32) -> RuntimeError {
+    match error {
+        TableHandleError::OutOfBounds { .. } => RuntimeError::TableElementOutOfBounds(index),
+        TableHandleError::ForeignFunctionReference { .. } => {
+            RuntimeError::ForeignTableFunctionReference {
+                element_index: index,
+            }
+        }
+        TableHandleError::AlreadyBound => {
+            RuntimeError::ControlInvariant("table binding changed while instance is live")
+        }
+        TableHandleError::AllocationFailed { elements } => {
+            RuntimeError::TableAllocationFailed { elements }
+        }
+        TableHandleError::InvalidLimits { .. } => {
+            RuntimeError::ControlInvariant("table handle has inconsistent limits")
+        }
+    }
+}
+
 fn instantiate_globals(
     module: &Module,
     hosts: &HostRegistry,
 ) -> Result<Vec<GlobalHandle>, RuntimeError> {
     let mut globals = Vec::with_capacity(module.global_count());
     for import in &module.imports {
+        // Preserve imported globals in WebAssembly global-index order.
         let ImportDesc::Global(global_type) = import.desc else {
             continue;
         };
