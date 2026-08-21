@@ -68,10 +68,15 @@ The roadmap favors complete vertical slices over a broad but shallow decoder.
 
 ### Phase 5C — broader module forms + conformance
 
+- [x] parser descriptors for function/table/memory/global imports
+- [x] independent function/table/memory/global index-space accounting
+- [x] immutable numeric global imports with explicit host binding
+- [ ] shared backing for mutable global imports
+- [ ] shared backing for table imports
+- [ ] shared backing for memory imports
+- [ ] non-i32 host function import ABI
+- [x] block parameters and type-index block signatures with zero-or-one result
 - [ ] broader data/element modes
-- [ ] table/memory/global imports
-- [ ] non-i32 host import ABI
-- [ ] block parameters and type-index block signatures
 - [ ] multi-value results
 - [ ] broader numeric operators, reinterpret, and trapping conversions
 - [ ] i64/f32/f64 memory instruction families
