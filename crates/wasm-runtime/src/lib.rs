@@ -2245,14 +2245,8 @@ impl Instance {
                 0x6a..=0x78 => numeric::binary_integer(&mut stack, opcode)?,
                 0x79..=0x7b => numeric::unary_integer(&mut stack, opcode)?,
                 0x7c..=0x8a => numeric::binary_integer(&mut stack, opcode)?,
-                0x92 => numeric::binary_f32(&mut stack, |a, b| a + b)?,
-                0x93 => numeric::binary_f32(&mut stack, |a, b| a - b)?,
-                0x94 => numeric::binary_f32(&mut stack, |a, b| a * b)?,
-                0x95 => numeric::binary_f32(&mut stack, |a, b| a / b)?,
-                0xa0 => numeric::binary_f64(&mut stack, |a, b| a + b)?,
-                0xa1 => numeric::binary_f64(&mut stack, |a, b| a - b)?,
-                0xa2 => numeric::binary_f64(&mut stack, |a, b| a * b)?,
-                0xa3 => numeric::binary_f64(&mut stack, |a, b| a / b)?,
+                0x8b..=0x91 | 0x99..=0x9f => numeric::unary_float(&mut stack, opcode)?,
+                0x92..=0x98 | 0xa0..=0xa6 => numeric::binary_float(&mut stack, opcode)?,
                 0xa7 | 0xac | 0xad | 0xb6 | 0xbb => numeric::convert(&mut stack, opcode)?,
                 other => return Err(RuntimeError::UnsupportedOpcode(other)),
             }
@@ -2778,16 +2772,7 @@ fn build_control_map(module: &Module, code: &[u8]) -> Result<ControlMap, Runtime
             0x44 => {
                 let _ = read_fixed_u64(code, &mut pc)?;
             }
-            0x0f
-            | 0x45..=0x66
-            | 0x67..=0x8a
-            | 0x92..=0x95
-            | 0xa0..=0xa3
-            | 0xa7
-            | 0xac
-            | 0xad
-            | 0xb6
-            | 0xbb => {}
+            0x0f | 0x45..=0x66 | 0x67..=0x8a | 0x8b..=0xa6 | 0xa7 | 0xac | 0xad | 0xb6 | 0xbb => {}
             other => return Err(RuntimeError::UnsupportedOpcode(other)),
         }
     }

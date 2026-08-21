@@ -338,10 +338,30 @@ pub(super) fn validate_code(
             0x7c..=0x8a => {
                 binary_same(&mut stack, &controls, ValueType::I64, function, offset)?;
             }
-            0x92..=0x95 => {
+            0x8b..=0x91 => {
+                unary(
+                    &mut stack,
+                    &controls,
+                    ValueType::F32,
+                    ValueType::F32,
+                    function,
+                    offset,
+                )?;
+            }
+            0x92..=0x98 => {
                 binary_same(&mut stack, &controls, ValueType::F32, function, offset)?;
             }
-            0xa0..=0xa3 => {
+            0x99..=0x9f => {
+                unary(
+                    &mut stack,
+                    &controls,
+                    ValueType::F64,
+                    ValueType::F64,
+                    function,
+                    offset,
+                )?;
+            }
+            0xa0..=0xa6 => {
                 binary_same(&mut stack, &controls, ValueType::F64, function, offset)?;
             }
             0xa7 => {
