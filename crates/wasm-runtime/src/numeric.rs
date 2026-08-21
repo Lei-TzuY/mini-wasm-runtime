@@ -627,6 +627,10 @@ pub(super) fn convert(stack: &mut Vec<Value>, opcode: u8) -> Result<(), RuntimeE
             };
             Value::F64(f64::from(value))
         }
+        0xbc => Value::I32(f32_from_stack(stack)?.to_bits() as i32),
+        0xbd => Value::I64(f64_from_stack(stack)?.to_bits() as i64),
+        0xbe => Value::F32(f32::from_bits(i32_from_stack(stack)? as u32)),
+        0xbf => Value::F64(f64::from_bits(i64_from_stack(stack)? as u64)),
         _ => return Err(RuntimeError::UnsupportedOpcode(opcode)),
     };
     stack.push(value);
