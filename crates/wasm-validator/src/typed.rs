@@ -6,7 +6,7 @@ struct ControlFrame {
     kind: ControlKind,
     height: usize,
     param_types: Vec<ValueType>,
-    end_type: Option<ValueType>,
+    end_types: Vec<ValueType>,
     label_types: Vec<ValueType>,
     unreachable: bool,
     seen_else: bool,
@@ -15,7 +15,7 @@ struct ControlFrame {
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct BlockSignature {
     params: Vec<ValueType>,
-    result: Option<ValueType>,
+    results: Vec<ValueType>,
 }
 
 pub(super) fn validate_code(
@@ -30,13 +30,12 @@ pub(super) fn validate_code(
         return Err(ValidationError::MissingFunctionEnd { function });
     }
 
-    let function_result = function_results.first().copied();
     let mut stack = Vec::<ValueType>::new();
     let mut controls = vec![ControlFrame {
         kind: ControlKind::Function,
         height: 0,
         param_types: Vec::new(),
-        end_type: function_result,
+        end_types: function_results.to_vec(),
         label_types: function_results.to_vec(),
         unreachable: false,
         seen_else: false,
@@ -61,13 +60,13 @@ pub(super) fn validate_code(
                 let label_types = if kind == ControlKind::Loop {
                     signature.params.clone()
                 } else {
-                    signature.result.into_iter().collect()
+                    signature.results.clone()
                 };
                 controls.push(ControlFrame {
                     kind,
                     height,
                     param_types: signature.params,
-                    end_type: signature.result,
+                    end_types: signature.results,
                     label_types,
                     unreachable: false,
                     seen_else: false,
@@ -78,12 +77,12 @@ pub(super) fn validate_code(
                 pop_expect(&mut stack, &controls, ValueType::I32, function, offset)?;
                 let height =
                     enter_control(&mut stack, &controls, &signature.params, function, offset)?;
-                let label_types = signature.result.into_iter().collect();
+                let label_types = signature.results.clone();
                 controls.push(ControlFrame {
                     kind: ControlKind::If,
                     height,
                     param_types: signature.params,
-                    end_type: signature.result,
+                    end_types: signature.results,
                     label_types,
                     unreachable: false,
                     seen_else: false,
@@ -95,7 +94,8 @@ pub(super) fn validate_code(
                     .last()
                     .cloned()
                     .ok_or(ValidationError::UnexpectedEnd { function, offset })?;
-                if frame.kind == ControlKind::If && frame.end_type.is_some() && !frame.seen_else {
+                if frame.kind == ControlKind::If && !frame.end_types.is_empty() && !frame.seen_else
+                {
                     return Err(ValidationError::MissingElseForResult { function, offset });
                 }
                 finish_frame(&mut stack, &frame, function, offset)?;
@@ -106,9 +106,7 @@ pub(super) fn validate_code(
                     }
                 } else {
                     stack.truncate(frame.height);
-                    if let Some(ty) = frame.end_type {
-                        stack.push(ty);
-                    }
+                    stack.extend(frame.end_types.iter().copied());
                 }
             }
             0x0c => {
@@ -159,13 +157,6 @@ pub(super) fn validate_code(
                         type_index,
                     });
                 };
-                if ty.results.len() > 1 {
-                    return Err(ValidationError::UnsupportedIndirectResultArity {
-                        function,
-                        offset,
-                        results: ty.results.len(),
-                    });
-                }
                 pop_expect(&mut stack, &controls, ValueType::I32, function, offset)?;
                 apply_call_signature(&mut stack, &controls, ty, function, offset)?;
             }
@@ -536,9 +527,7 @@ fn apply_call_signature(
     for &param in ty.params.iter().rev() {
         pop_expect(stack, controls, param, function, offset)?;
     }
-    if let Some(&result) = ty.results.first() {
-        stack.push(result);
-    }
+    stack.extend(ty.results.iter().copied());
     Ok(())
 }
 
@@ -741,7 +730,7 @@ fn finish_frame(
         stack.truncate(frame.height);
         return Ok(());
     }
-    let expected = frame.height + usize::from(frame.end_type.is_some());
+    let expected = frame.height + frame.end_types.len();
     if stack.len() != expected {
         return Err(ValidationError::StackHeightMismatch {
             function,
@@ -750,8 +739,7 @@ fn finish_frame(
             actual: stack.len(),
         });
     }
-    if let Some(expected_type) = frame.end_type {
-        let actual = stack[frame.height];
+    for (&actual, &expected_type) in stack[frame.height..].iter().zip(&frame.end_types) {
         if actual != expected_type {
             return Err(ValidationError::TypeMismatch {
                 function,
@@ -779,7 +767,7 @@ fn read_block_signature(
             *pc += 1;
             return Ok(BlockSignature {
                 params: Vec::new(),
-                result: None,
+                results: Vec::new(),
             });
         }
         0x7f => Some(ValueType::I32),
@@ -792,7 +780,7 @@ fn read_block_signature(
         *pc += 1;
         return Ok(BlockSignature {
             params: Vec::new(),
-            result: Some(result),
+            results: vec![result],
         });
     }
 
@@ -815,17 +803,9 @@ fn read_block_signature(
             type_index,
         },
     )?;
-    if ty.results.len() > 1 {
-        return Err(ValidationError::UnsupportedBlockResultArity {
-            function,
-            offset,
-            type_index,
-            results: ty.results.len(),
-        });
-    }
     Ok(BlockSignature {
         params: ty.params.clone(),
-        result: ty.results.first().copied(),
+        results: ty.results.clone(),
     })
 }
 

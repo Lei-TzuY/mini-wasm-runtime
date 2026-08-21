@@ -1,7 +1,7 @@
 //! Typed validation for the executable WebAssembly subset.
 //!
 //! Phase 5B validates every reachable operand as an explicit MVP numeric type.
-//! Function imports and defined code may use i32/i64/f32/f64 with at most one result.
+//! Defined code may use i32/i64/f32/f64 multi-value results; the host import ABI remains at most one result.
 
 use std::{collections::HashSet, fmt};
 use wasm_parser::{decode_u32, DataMode, ExportKind, FuncType, ImportDesc, Module, ValueType};
@@ -531,12 +531,6 @@ pub fn validate(module: &Module) -> Result<(), ValidationError> {
     for (defined, &type_index) in module.function_type_indices.iter().enumerate() {
         let function = module.function_import_count() + defined;
         let function_type = &module.types[type_index as usize];
-        if function_type.results.len() > 1 {
-            return Err(ValidationError::UnsupportedResultArity {
-                function,
-                results: function_type.results.len(),
-            });
-        }
         let mut local_types = function_type.params.clone();
         for &(count, value_type) in &module.code[defined].locals {
             let new_len = local_types
@@ -1039,16 +1033,11 @@ mod tests {
     }
 
     #[test]
-    fn rejects_multi_value_results() {
+    fn accepts_defined_multi_value_results() {
         let mut module = valid_module();
         module.types[0].results.push(ValueType::I32);
-        assert_eq!(
-            validate(&module),
-            Err(ValidationError::UnsupportedResultArity {
-                function: 0,
-                results: 2,
-            })
-        );
+        module.code[0].code = vec![0x20, 0x00, 0x20, 0x00, 0x0b];
+        assert_eq!(validate(&module), Ok(()));
     }
 
     #[test]

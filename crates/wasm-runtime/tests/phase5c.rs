@@ -189,22 +189,16 @@ fn missing_block_type_index_is_rejected_before_execution() {
 }
 
 #[test]
-fn multi_result_block_signature_remains_fail_closed() {
+fn multi_result_block_signature_executes_in_order() {
     let module = build_module(
-        &[ty(&[], &[]), ty(&[], &[I32, I32])],
+        &[ty(&[], &[I32, I32]), ty(&[], &[I32, I32])],
         0,
-        &[0x02, 0x01, 0x0b],
+        &[0x02, 0x01, 0x41, 0x07, 0x41, 0x09, 0x0b],
     );
-    let error =
-        Instance::new(parse_module(&module).unwrap()).expect_err("multi-result block must fail");
-    assert!(matches!(
-        error,
-        RuntimeError::Validation(ValidationError::UnsupportedBlockResultArity {
-            type_index: 1,
-            results: 2,
-            ..
-        })
-    ));
+    assert_eq!(
+        instance(&module).invoke_export_values("run", &[]).unwrap(),
+        vec![Value::I32(7), Value::I32(9)]
+    );
 }
 
 #[test]

@@ -727,6 +727,9 @@ pub enum RuntimeError {
         expected: usize,
         actual: usize,
     },
+    MultiValueResultRequiresValuesApi {
+        results: usize,
+    },
     MemoryUnavailable,
     MemoryIndexOutOfBounds(u32),
     MemoryOutOfBounds {
@@ -902,6 +905,10 @@ impl fmt::Display for RuntimeError {
             Self::ResultArityMismatch { expected, actual } => write!(
                 f,
                 "expected {expected} result values, stack contains {actual}"
+            ),
+            Self::MultiValueResultRequiresValuesApi { results } => write!(
+                f,
+                "export returns {results} values; use invoke_export_values for multi-value results"
             ),
             Self::MemoryUnavailable => write!(f, "module has no linear memory"),
             Self::MemoryIndexOutOfBounds(index) => write!(f, "memory index {index} is out of bounds"),
@@ -1391,7 +1398,7 @@ enum ControlKind {
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct BlockSignature {
     params: Vec<ValueType>,
-    result: Option<ValueType>,
+    results: Vec<ValueType>,
 }
 
 #[derive(Debug, Clone)]
@@ -1435,7 +1442,7 @@ struct ExecControlFrame {
     end_pc: usize,
     stack_height: usize,
     param_types: Vec<ValueType>,
-    result_type: Option<ValueType>,
+    result_types: Vec<ValueType>,
 }
 
 impl ExecControlFrame {
@@ -1443,7 +1450,7 @@ impl ExecControlFrame {
         if self.kind == ControlKind::Loop {
             self.param_types.clone()
         } else {
-            self.result_type.into_iter().collect()
+            self.result_types.clone()
         }
     }
 }
@@ -1552,10 +1559,10 @@ impl Instance {
         instance.initialize_element_segments()?;
         if let Some(start) = instance.module.start {
             let mut budget = ExecutionBudget::new(instance.limits);
-            let result = instance.invoke_function(start, &[], 0, &mut budget)?;
-            if result.is_some() {
+            let results = instance.invoke_function(start, &[], 0, &mut budget)?;
+            if !results.is_empty() {
                 return Err(RuntimeError::ControlInvariant(
-                    "validated start function returned a value",
+                    "validated start function returned values",
                 ));
             }
         }
@@ -1567,20 +1574,39 @@ impl Instance {
         name: &str,
         args: &[Value],
     ) -> Result<Option<Value>, RuntimeError> {
-        let function_index = {
-            let export = self
-                .module
-                .exports
-                .iter()
-                .find(|export| export.name == name)
-                .ok_or_else(|| RuntimeError::ExportNotFound(name.to_owned()))?;
-            if export.kind != ExportKind::Function {
-                return Err(RuntimeError::ExportNotFunction(name.to_owned()));
-            }
-            export.index
-        };
+        let function_index = self.exported_function_index(name)?;
+        let result_count = self.function_type(function_index)?.results.len();
+        if result_count > 1 {
+            return Err(RuntimeError::MultiValueResultRequiresValuesApi {
+                results: result_count,
+            });
+        }
+        let mut budget = ExecutionBudget::new(self.limits);
+        let mut results = self.invoke_function(function_index, args, 0, &mut budget)?;
+        Ok(results.pop())
+    }
+
+    pub fn invoke_export_values(
+        &mut self,
+        name: &str,
+        args: &[Value],
+    ) -> Result<Vec<Value>, RuntimeError> {
+        let function_index = self.exported_function_index(name)?;
         let mut budget = ExecutionBudget::new(self.limits);
         self.invoke_function(function_index, args, 0, &mut budget)
+    }
+
+    fn exported_function_index(&self, name: &str) -> Result<u32, RuntimeError> {
+        let export = self
+            .module
+            .exports
+            .iter()
+            .find(|export| export.name == name)
+            .ok_or_else(|| RuntimeError::ExportNotFound(name.to_owned()))?;
+        if export.kind != ExportKind::Function {
+            return Err(RuntimeError::ExportNotFunction(name.to_owned()));
+        }
+        Ok(export.index)
     }
 
     pub fn memory(&self) -> Option<&LinearMemory> {
@@ -1758,7 +1784,7 @@ impl Instance {
         import_index: usize,
         args: &[Value],
         budget: &mut ExecutionBudget,
-    ) -> Result<Option<Value>, RuntimeError> {
+    ) -> Result<Vec<Value>, RuntimeError> {
         budget.consume_host_call(self.limits.max_host_calls)?;
         let import = self
             .module
@@ -1816,7 +1842,7 @@ impl Instance {
                 });
             }
         }
-        Ok(result)
+        Ok(result.into_iter().collect())
     }
 
     fn invoke_function(
@@ -1825,7 +1851,7 @@ impl Instance {
         args: &[Value],
         depth: usize,
         budget: &mut ExecutionBudget,
-    ) -> Result<Option<Value>, RuntimeError> {
+    ) -> Result<Vec<Value>, RuntimeError> {
         let function = function_index as usize;
         let imported = self.module.function_import_count();
         if function < imported {
@@ -1862,7 +1888,7 @@ impl Instance {
         let mut stack = Vec::<Value>::new();
         let mut pc = 0usize;
         let code = &body.code;
-        let result_type = ty.results.first().copied();
+        let result_types = ty.results.clone();
         let function_end = code
             .len()
             .checked_sub(1)
@@ -1873,7 +1899,7 @@ impl Instance {
             end_pc: function_end,
             stack_height: 0,
             param_types: Vec::new(),
-            result_type,
+            result_types: result_types.clone(),
         }];
 
         while pc < code.len() {
@@ -1899,7 +1925,7 @@ impl Instance {
                         end_pc: info.end_pc,
                         stack_height,
                         param_types: signature.params,
-                        result_type: signature.result,
+                        result_types: signature.results,
                     });
                 }
                 0x04 => {
@@ -1914,7 +1940,7 @@ impl Instance {
                         end_pc: info.end_pc,
                         stack_height,
                         param_types: signature.params,
-                        result_type: signature.result,
+                        result_types: signature.results,
                     };
                     if condition != 0 {
                         controls.push(frame);
@@ -1987,11 +2013,8 @@ impl Instance {
                         return Err(RuntimeError::StackUnderflow);
                     }
                     let call_args = stack.split_off(stack.len() - param_count);
-                    if let Some(result) =
-                        self.invoke_function(callee, &call_args, depth + 1, budget)?
-                    {
-                        stack.push(result);
-                    }
+                    let results = self.invoke_function(callee, &call_args, depth + 1, budget)?;
+                    stack.extend(results);
                 }
                 0x11 => {
                     let expected_type_index = read_u32_immediate(code, &mut pc)?;
@@ -2027,11 +2050,8 @@ impl Instance {
                         return Err(RuntimeError::StackUnderflow);
                     }
                     let call_args = stack.split_off(stack.len() - param_count);
-                    if let Some(result) =
-                        self.invoke_function(callee, &call_args, depth + 1, budget)?
-                    {
-                        stack.push(result);
-                    }
+                    let results = self.invoke_function(callee, &call_args, depth + 1, budget)?;
+                    stack.extend(results);
                 }
                 0x20 => {
                     let index = read_u32_immediate(code, &mut pc)?;
@@ -2266,17 +2286,15 @@ impl Instance {
             }
         }
 
-        let result_arity = usize::from(result_type.is_some());
+        let result_arity = result_types.len();
         if stack.len() != result_arity {
             return Err(RuntimeError::ResultArityMismatch {
                 expected: result_arity,
                 actual: stack.len(),
             });
         }
-        if let (Some(expected), Some(value)) = (result_type, stack.last().copied()) {
-            numeric::expect_type(value, expected)?;
-        }
-        Ok(stack.pop())
+        validate_values(&result_types, &stack)?;
+        Ok(stack)
     }
 }
 
@@ -2648,17 +2666,14 @@ fn exit_control_frame(
     let frame = controls.pop().ok_or(RuntimeError::ControlInvariant(
         "attempted to leave missing control frame",
     ))?;
-    let expected = frame.stack_height + usize::from(frame.result_type.is_some());
+    let expected = frame.stack_height + frame.result_types.len();
     if stack.len() != expected {
         return Err(RuntimeError::ControlStackMismatch {
             expected,
             actual: stack.len(),
         });
     }
-    if let Some(expected_type) = frame.result_type {
-        let value = *stack.last().ok_or(RuntimeError::StackUnderflow)?;
-        numeric::expect_type(value, expected_type)?;
-    }
+    validate_values(&frame.result_types, &stack[frame.stack_height..])?;
     Ok(())
 }
 
@@ -2821,7 +2836,7 @@ fn read_block_signature(
             *pc += 1;
             return Ok(BlockSignature {
                 params: Vec::new(),
-                result: None,
+                results: Vec::new(),
             });
         }
         0x7f => Some(ValueType::I32),
@@ -2834,7 +2849,7 @@ fn read_block_signature(
         *pc += 1;
         return Ok(BlockSignature {
             params: Vec::new(),
-            result: Some(result),
+            results: vec![result],
         });
     }
 
@@ -2849,15 +2864,9 @@ fn read_block_signature(
         .types
         .get(type_index as usize)
         .ok_or(RuntimeError::BlockTypeIndexOutOfBounds(type_index))?;
-    if ty.results.len() > 1 {
-        return Err(RuntimeError::UnsupportedBlockResultArity {
-            type_index,
-            results: ty.results.len(),
-        });
-    }
     Ok(BlockSignature {
         params: ty.params.clone(),
-        result: ty.results.first().copied(),
+        results: ty.results.clone(),
     })
 }
 

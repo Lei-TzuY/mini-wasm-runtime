@@ -138,14 +138,30 @@ fn execute(path: &Path, export: &str, args: &[Value]) -> Result<(), Box<dyn Erro
     let bytes = fs::read(path)?;
     let module = parse_module(&bytes)?;
     let mut instance = Instance::new(module)?;
-    match instance.invoke_export(export, args)? {
-        Some(Value::I32(value)) => println!("{value}"),
-        Some(Value::I64(value)) => println!("{value}"),
-        Some(Value::F32(value)) => println!("{value}"),
-        Some(Value::F64(value)) => println!("{value}"),
-        None => println!("()"),
+    let results = instance.invoke_export_values(export, args)?;
+    match results.as_slice() {
+        [] => println!("()"),
+        [value] => println!("{}", format_value(*value)),
+        values => println!(
+            "({})",
+            values
+                .iter()
+                .copied()
+                .map(format_value)
+                .collect::<Vec<_>>()
+                .join(", ")
+        ),
     }
     Ok(())
+}
+
+fn format_value(value: Value) -> String {
+    match value {
+        Value::I32(value) => value.to_string(),
+        Value::I64(value) => value.to_string(),
+        Value::F32(value) => value.to_string(),
+        Value::F64(value) => value.to_string(),
+    }
 }
 
 fn usage() {
