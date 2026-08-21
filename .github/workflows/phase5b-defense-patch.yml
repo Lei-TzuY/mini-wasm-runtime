@@ -1,0 +1,47 @@
+name: Phase 5B defense patch
+
+on:
+  push:
+    branches:
+      - feat/phase-5b-numeric-types
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - name: Harden typed runtime boundaries
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          def once(text, old, new, label):
+              n = text.count(old)
+              if n != 1:
+                  raise SystemExit(f"{label}: expected one match, got {n}")
+              return text.replace(old, new, 1)
+
+          p = Path('crates/wasm-runtime/src/lib.rs')
+          s = p.read_text()
+          old = '''        if args.len() != ty.params.len() {\n            return Err(RuntimeError::WrongArgumentCount {\n                expected: ty.params.len(),\n                actual: args.len(),\n            });\n        }\n\n        let key = (import.module.clone(), import.name.clone());\n'''
+          new = '''        validate_values(&ty.params, args)?;\n\n        let key = (import.module.clone(), import.name.clone());\n'''
+          s = once(s, old, new, 'typed host arguments')
+          old = '''                    let element_index =\n                        stack.pop().ok_or(RuntimeError::StackUnderflow)?.as_i32() as u32;\n'''
+          new = '''                    let element_index = numeric::i32_from_stack(&mut stack)? as u32;\n'''
+          s = once(s, old, new, 'indirect table index')
+          old = '''                    let value = stack.pop().ok_or(RuntimeError::StackUnderflow)?.as_i32();\n                    let address = numeric::i32_from_stack(&mut stack)?;\n'''
+          new = '''                    let value = numeric::i32_from_stack(&mut stack)?;\n                    let address = numeric::i32_from_stack(&mut stack)?;\n'''
+          s = once(s, old, new, 'typed memory store')
+          p.write_text(s)
+          PY
+          cargo fmt --all
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add crates/wasm-runtime/src/lib.rs
+          git commit -m "fix(runtime): enforce numeric types at dynamic boundaries"
+          git push origin HEAD:feat/phase-5b-numeric-types
