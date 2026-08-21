@@ -1,10 +1,11 @@
-//! Stack interpreter for the Phase-2 WebAssembly subset.
+//! Stack interpreter for the Phase-3 WebAssembly subset.
 
 use std::fmt;
 use wasm_parser::{decode_i32, decode_u32, ExportKind, Module, ParseError, ValueType};
-use wasm_validator::{validate, ValidationError};
+use wasm_validator::{validate, ValidationError, MAX_MEMORY_PAGES};
 
 const MAX_CALL_DEPTH: usize = 1024;
+pub const WASM_PAGE_SIZE: usize = 65_536;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Value {
@@ -36,6 +37,15 @@ pub enum RuntimeError {
     ControlStackMismatch { expected: usize, actual: usize },
     ControlInvariant(&'static str),
     ResultArityMismatch { expected: usize, actual: usize },
+    MemoryUnavailable,
+    MemoryIndexOutOfBounds(u32),
+    MemoryOutOfBounds { address: u64, width: usize },
+    MemoryAllocationFailed { pages: u32 },
+    DataSegmentOutOfBounds {
+        segment: usize,
+        offset: u64,
+        length: usize,
+    },
     CallDepthExceeded,
 }
 
@@ -75,6 +85,25 @@ impl fmt::Display for RuntimeError {
                     "expected {expected} result values, stack contains {actual}"
                 )
             }
+            Self::MemoryUnavailable => write!(f, "module has no linear memory"),
+            Self::MemoryIndexOutOfBounds(index) => {
+                write!(f, "memory index {index} is out of bounds")
+            }
+            Self::MemoryOutOfBounds { address, width } => write!(
+                f,
+                "linear-memory access at byte {address} with width {width} is out of bounds"
+            ),
+            Self::MemoryAllocationFailed { pages } => {
+                write!(f, "failed to allocate linear memory with {pages} pages")
+            }
+            Self::DataSegmentOutOfBounds {
+                segment,
+                offset,
+                length,
+            } => write!(
+                f,
+                "data segment {segment} at byte {offset} with length {length} does not fit initial memory"
+            ),
             Self::CallDepthExceeded => write!(f, "maximum call depth exceeded"),
         }
     }
@@ -92,6 +121,152 @@ impl From<ParseError> for RuntimeError {
     fn from(value: ParseError) -> Self {
         Self::Decode(value)
     }
+}
+
+#[derive(Debug, Clone)]
+pub struct LinearMemory {
+    bytes: Vec<u8>,
+    max_pages: Option<u32>,
+}
+
+impl LinearMemory {
+    fn new(min_pages: u32, max_pages: Option<u32>) -> Result<Self, RuntimeError> {
+        let byte_len = pages_to_bytes(min_pages)
+            .ok_or(RuntimeError::MemoryAllocationFailed { pages: min_pages })?;
+        let mut bytes = Vec::new();
+        bytes
+            .try_reserve_exact(byte_len)
+            .map_err(|_| RuntimeError::MemoryAllocationFailed { pages: min_pages })?;
+        bytes.resize(byte_len, 0);
+        Ok(Self { bytes, max_pages })
+    }
+
+    pub fn size_pages(&self) -> u32 {
+        u32::try_from(self.bytes.len() / WASM_PAGE_SIZE)
+            .expect("validated memory length always fits the WebAssembly page limit")
+    }
+
+    pub fn bytes(&self) -> &[u8] {
+        &self.bytes
+    }
+
+    fn grow(&mut self, delta_pages: u32) -> i32 {
+        let old_pages = self.size_pages();
+        let Some(new_pages) = old_pages.checked_add(delta_pages) else {
+            return -1;
+        };
+        if new_pages > MAX_MEMORY_PAGES {
+            return -1;
+        }
+        if self.max_pages.is_some_and(|max| new_pages > max) {
+            return -1;
+        }
+        let Some(new_len) = pages_to_bytes(new_pages) else {
+            return -1;
+        };
+        if new_len > self.bytes.len() {
+            let additional = new_len - self.bytes.len();
+            if self.bytes.try_reserve_exact(additional).is_err() {
+                return -1;
+            }
+            self.bytes.resize(new_len, 0);
+        }
+        old_pages as i32
+    }
+
+    fn checked_range(
+        &self,
+        address: i32,
+        displacement: u32,
+        width: usize,
+    ) -> Result<std::ops::Range<usize>, RuntimeError> {
+        let effective = u64::from(address as u32) + u64::from(displacement);
+        let end = effective
+            .checked_add(width as u64)
+            .ok_or(RuntimeError::MemoryOutOfBounds {
+                address: effective,
+                width,
+            })?;
+        if end > self.bytes.len() as u64 {
+            return Err(RuntimeError::MemoryOutOfBounds {
+                address: effective,
+                width,
+            });
+        }
+        Ok(effective as usize..end as usize)
+    }
+
+    fn load_i32(&self, address: i32, displacement: u32) -> Result<i32, RuntimeError> {
+        let range = self.checked_range(address, displacement, 4)?;
+        let bytes: [u8; 4] = self.bytes[range]
+            .try_into()
+            .expect("checked four-byte range");
+        Ok(i32::from_le_bytes(bytes))
+    }
+
+    fn load_i8_s(&self, address: i32, displacement: u32) -> Result<i32, RuntimeError> {
+        let range = self.checked_range(address, displacement, 1)?;
+        Ok(i32::from(self.bytes[range.start] as i8))
+    }
+
+    fn load_i8_u(&self, address: i32, displacement: u32) -> Result<i32, RuntimeError> {
+        let range = self.checked_range(address, displacement, 1)?;
+        Ok(i32::from(self.bytes[range.start]))
+    }
+
+    fn load_i16_s(&self, address: i32, displacement: u32) -> Result<i32, RuntimeError> {
+        let range = self.checked_range(address, displacement, 2)?;
+        let bytes: [u8; 2] = self.bytes[range]
+            .try_into()
+            .expect("checked two-byte range");
+        Ok(i32::from(i16::from_le_bytes(bytes)))
+    }
+
+    fn load_i16_u(&self, address: i32, displacement: u32) -> Result<i32, RuntimeError> {
+        let range = self.checked_range(address, displacement, 2)?;
+        let bytes: [u8; 2] = self.bytes[range]
+            .try_into()
+            .expect("checked two-byte range");
+        Ok(i32::from(u16::from_le_bytes(bytes)))
+    }
+
+    fn store_i32(
+        &mut self,
+        address: i32,
+        displacement: u32,
+        value: i32,
+    ) -> Result<(), RuntimeError> {
+        let range = self.checked_range(address, displacement, 4)?;
+        self.bytes[range].copy_from_slice(&value.to_le_bytes());
+        Ok(())
+    }
+
+    fn store_i8(
+        &mut self,
+        address: i32,
+        displacement: u32,
+        value: i32,
+    ) -> Result<(), RuntimeError> {
+        let range = self.checked_range(address, displacement, 1)?;
+        self.bytes[range.start] = value as u8;
+        Ok(())
+    }
+
+    fn store_i16(
+        &mut self,
+        address: i32,
+        displacement: u32,
+        value: i32,
+    ) -> Result<(), RuntimeError> {
+        let range = self.checked_range(address, displacement, 2)?;
+        self.bytes[range].copy_from_slice(&(value as u16).to_le_bytes());
+        Ok(())
+    }
+}
+
+fn pages_to_bytes(pages: u32) -> Option<usize> {
+    let bytes = u64::from(pages).checked_mul(WASM_PAGE_SIZE as u64)?;
+    usize::try_from(bytes).ok()
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -159,6 +334,7 @@ impl ExecControlFrame {
 pub struct Instance {
     module: Module,
     control_maps: Vec<ControlMap>,
+    memory: Option<LinearMemory>,
 }
 
 impl Instance {
@@ -169,27 +345,83 @@ impl Instance {
             .iter()
             .map(|body| build_control_map(&body.code))
             .collect::<Result<Vec<_>, _>>()?;
-        Ok(Self {
+        let memory = module
+            .memories
+            .first()
+            .map(|memory_type| {
+                LinearMemory::new(memory_type.limits.min, memory_type.limits.max)
+            })
+            .transpose()?;
+
+        let mut instance = Self {
             module,
             control_maps,
-        })
+            memory,
+        };
+        instance.initialize_data_segments()?;
+        Ok(instance)
     }
 
-    pub fn invoke_export(&self, name: &str, args: &[Value]) -> Result<Option<Value>, RuntimeError> {
-        let export = self
-            .module
-            .exports
-            .iter()
-            .find(|export| export.name == name)
-            .ok_or_else(|| RuntimeError::ExportNotFound(name.to_owned()))?;
-        if export.kind != ExportKind::Function {
-            return Err(RuntimeError::ExportNotFunction(name.to_owned()));
+    pub fn invoke_export(
+        &mut self,
+        name: &str,
+        args: &[Value],
+    ) -> Result<Option<Value>, RuntimeError> {
+        let function_index = {
+            let export = self
+                .module
+                .exports
+                .iter()
+                .find(|export| export.name == name)
+                .ok_or_else(|| RuntimeError::ExportNotFound(name.to_owned()))?;
+            if export.kind != ExportKind::Function {
+                return Err(RuntimeError::ExportNotFunction(name.to_owned()));
+            }
+            export.index
+        };
+        self.invoke_function(function_index, args, 0)
+    }
+
+    pub fn memory(&self) -> Option<&LinearMemory> {
+        self.memory.as_ref()
+    }
+
+    fn initialize_data_segments(&mut self) -> Result<(), RuntimeError> {
+        for (segment_index, segment) in self.module.data.iter().enumerate() {
+            let offset = u64::from(segment.offset as u32);
+            let end = offset
+                .checked_add(segment.bytes.len() as u64)
+                .ok_or(RuntimeError::DataSegmentOutOfBounds {
+                    segment: segment_index,
+                    offset,
+                    length: segment.bytes.len(),
+                })?;
+            let memory = self
+                .memory
+                .as_mut()
+                .ok_or(RuntimeError::MemoryUnavailable)?;
+            if end > memory.bytes.len() as u64 {
+                return Err(RuntimeError::DataSegmentOutOfBounds {
+                    segment: segment_index,
+                    offset,
+                    length: segment.bytes.len(),
+                });
+            }
+            memory.bytes[offset as usize..end as usize].copy_from_slice(&segment.bytes);
         }
-        self.invoke_function(export.index, args, 0)
+        Ok(())
+    }
+
+    fn memory_ref(&self) -> Result<&LinearMemory, RuntimeError> {
+        self.memory.as_ref().ok_or(RuntimeError::MemoryUnavailable)
+    }
+
+    fn memory_mut(&mut self) -> Result<&mut LinearMemory, RuntimeError> {
+        self.memory.as_mut().ok_or(RuntimeError::MemoryUnavailable)
     }
 
     fn invoke_function(
-        &self,
+        &mut self,
         function_index: u32,
         args: &[Value],
         depth: usize,
@@ -205,7 +437,7 @@ impl Instance {
             .get(function)
             .ok_or(RuntimeError::FunctionOutOfBounds(function_index))?
             as usize;
-        let ty = &self.module.types[type_index];
+        let ty = self.module.types[type_index].clone();
         ensure_i32_types(&ty.params)?;
         ensure_i32_types(&ty.results)?;
 
@@ -216,8 +448,8 @@ impl Instance {
             });
         }
 
-        let body = &self.module.code[function];
-        let control_map = &self.control_maps[function];
+        let body = self.module.code[function].clone();
+        let control_map = self.control_maps[function].clone();
         let mut locals = args.to_vec();
         for &(count, local_type) in &body.locals {
             if local_type != ValueType::I32 {
@@ -325,13 +557,12 @@ impl Instance {
                     }
                 }
                 0x0f => {
-                    let branch_depth =
-                        controls
-                            .len()
-                            .checked_sub(1)
-                            .ok_or(RuntimeError::ControlInvariant(
-                                "return executed without function frame",
-                            ))? as u32;
+                    let branch_depth = controls
+                        .len()
+                        .checked_sub(1)
+                        .ok_or(RuntimeError::ControlInvariant(
+                            "return executed without function frame",
+                        ))? as u32;
                     branch_to(&mut controls, &mut stack, branch_depth, &mut pc, code.len())?;
                 }
                 0x10 => {
@@ -374,6 +605,42 @@ impl Instance {
                         .ok_or(RuntimeError::LocalOutOfBounds(index))?;
                     *local = value;
                 }
+                0x28 | 0x2c..=0x2f => {
+                    let (_, displacement) = read_memarg(code, &mut pc)?;
+                    let address = stack.pop().ok_or(RuntimeError::StackUnderflow)?.as_i32();
+                    let value = match opcode {
+                        0x28 => self.memory_ref()?.load_i32(address, displacement)?,
+                        0x2c => self.memory_ref()?.load_i8_s(address, displacement)?,
+                        0x2d => self.memory_ref()?.load_i8_u(address, displacement)?,
+                        0x2e => self.memory_ref()?.load_i16_s(address, displacement)?,
+                        0x2f => self.memory_ref()?.load_i16_u(address, displacement)?,
+                        _ => unreachable!(),
+                    };
+                    stack.push(Value::I32(value));
+                }
+                0x36 | 0x3a | 0x3b => {
+                    let (_, displacement) = read_memarg(code, &mut pc)?;
+                    let value = stack.pop().ok_or(RuntimeError::StackUnderflow)?.as_i32();
+                    let address = stack.pop().ok_or(RuntimeError::StackUnderflow)?.as_i32();
+                    match opcode {
+                        0x36 => self.memory_mut()?.store_i32(address, displacement, value)?,
+                        0x3a => self.memory_mut()?.store_i8(address, displacement, value)?,
+                        0x3b => self.memory_mut()?.store_i16(address, displacement, value)?,
+                        _ => unreachable!(),
+                    }
+                }
+                0x3f => {
+                    let memory_index = read_u32_immediate(code, &mut pc)?;
+                    ensure_runtime_memory_index(self, memory_index)?;
+                    stack.push(Value::I32(self.memory_ref()?.size_pages() as i32));
+                }
+                0x40 => {
+                    let memory_index = read_u32_immediate(code, &mut pc)?;
+                    ensure_runtime_memory_index(self, memory_index)?;
+                    let delta = stack.pop().ok_or(RuntimeError::StackUnderflow)?.as_i32() as u32;
+                    let previous = self.memory_mut()?.grow(delta);
+                    stack.push(Value::I32(previous));
+                }
                 0x41 => {
                     let (value, used) = decode_i32(&code[pc..])?;
                     pc += used;
@@ -393,6 +660,14 @@ impl Instance {
             });
         }
         Ok(stack.pop())
+    }
+}
+
+fn ensure_runtime_memory_index(instance: &Instance, index: u32) -> Result<(), RuntimeError> {
+    if index != 0 || instance.memory.is_none() {
+        Err(RuntimeError::MemoryIndexOutOfBounds(index))
+    } else {
+        Ok(())
     }
 }
 
@@ -449,13 +724,12 @@ fn branch_to(
         .ok_or(RuntimeError::BranchDepthOutOfBounds(depth))?;
     let target = controls[target_index];
     let label_arity = target.label_arity();
-    let current_height =
-        controls
-            .last()
-            .map(|frame| frame.stack_height)
-            .ok_or(RuntimeError::ControlInvariant(
-                "branch executed without active control frame",
-            ))?;
+    let current_height = controls
+        .last()
+        .map(|frame| frame.stack_height)
+        .ok_or(RuntimeError::ControlInvariant(
+            "branch executed without active control frame",
+        ))?;
     if stack.len().saturating_sub(current_height) < label_arity {
         return Err(RuntimeError::StackUnderflow);
     }
@@ -533,8 +807,11 @@ fn build_control_map(code: &[u8]) -> Result<ControlMap, RuntimeError> {
                     ));
                 }
             }
-            0x0c | 0x0d | 0x10 | 0x20..=0x22 => {
+            0x0c | 0x0d | 0x10 | 0x20..=0x22 | 0x3f | 0x40 => {
                 let _ = read_u32_immediate(code, &mut pc)?;
+            }
+            0x28 | 0x2c..=0x2f | 0x36 | 0x3a | 0x3b => {
+                let _ = read_memarg(code, &mut pc)?;
             }
             0x41 => {
                 let (_, used) = decode_i32(&code[pc..])?;
@@ -565,6 +842,12 @@ fn read_block_arity(code: &[u8], pc: &mut usize) -> Result<usize, RuntimeError> 
     }
 }
 
+fn read_memarg(code: &[u8], pc: &mut usize) -> Result<(u32, u32), RuntimeError> {
+    let alignment = read_u32_immediate(code, pc)?;
+    let displacement = read_u32_immediate(code, pc)?;
+    Ok((alignment, displacement))
+}
+
 fn read_u32_immediate(code: &[u8], pc: &mut usize) -> Result<u32, RuntimeError> {
     let (value, used) = decode_u32(&code[*pc..])?;
     *pc += used;
@@ -584,6 +867,26 @@ mod tests {
     use wasm_parser::parse_module;
 
     fn module_with_body(params: u8, results: u8, body: &[u8]) -> Vec<u8> {
+        build_module(params, results, body, None, None)
+    }
+
+    fn module_with_memory(
+        params: u8,
+        results: u8,
+        body: &[u8],
+        max_pages: Option<u8>,
+        data: Option<(u8, &[u8])>,
+    ) -> Vec<u8> {
+        build_module(params, results, body, Some((1, max_pages)), data)
+    }
+
+    fn build_module(
+        params: u8,
+        results: u8,
+        body: &[u8],
+        memory: Option<(u8, Option<u8>)>,
+        data: Option<(u8, &[u8])>,
+    ) -> Vec<u8> {
         let type_payload = [
             0x01, 0x60, params, // one function type + parameter count
         ];
@@ -596,13 +899,34 @@ mod tests {
         code_payload.extend(body);
 
         let mut bytes = vec![0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00];
-        bytes.extend([0x01, type_section.len() as u8]);
-        bytes.extend(type_section);
-        bytes.extend([0x03, 0x02, 0x01, 0x00]);
-        bytes.extend([0x07, 0x07, 0x01, 0x03, b'r', b'u', b'n', 0x00, 0x00]);
-        bytes.extend([0x0a, code_payload.len() as u8]);
-        bytes.extend(code_payload);
+        push_section(&mut bytes, 1, &type_section);
+        push_section(&mut bytes, 3, &[0x01, 0x00]);
+        if let Some((min, max)) = memory {
+            let payload = match max {
+                Some(max) => vec![0x01, 0x01, min, max],
+                None => vec![0x01, 0x00, min],
+            };
+            push_section(&mut bytes, 5, &payload);
+        }
+        push_section(
+            &mut bytes,
+            7,
+            &[0x01, 0x03, b'r', b'u', b'n', 0x00, 0x00],
+        );
+        push_section(&mut bytes, 10, &code_payload);
+        if let Some((offset, payload)) = data {
+            let mut data_section = vec![0x01, 0x00, 0x41, offset, 0x0b, payload.len() as u8];
+            data_section.extend(payload);
+            push_section(&mut bytes, 11, &data_section);
+        }
         bytes
+    }
+
+    fn push_section(module: &mut Vec<u8>, id: u8, payload: &[u8]) {
+        assert!(payload.len() < 128, "test helper only encodes one-byte lengths");
+        module.push(id);
+        module.push(payload.len() as u8);
+        module.extend(payload);
     }
 
     fn instance(bytes: &[u8]) -> Instance {
@@ -613,7 +937,8 @@ mod tests {
     #[test]
     fn executes_i32_add() {
         let bytes = module_with_body(2, 1, &[0x20, 0x00, 0x20, 0x01, 0x6a, 0x0b]);
-        let result = instance(&bytes)
+        let mut vm = instance(&bytes);
+        let result = vm
             .invoke_export("run", &[Value::I32(20), Value::I32(22)])
             .expect("execution succeeds");
         assert_eq!(result, Some(Value::I32(42)));
@@ -622,10 +947,129 @@ mod tests {
     #[test]
     fn integer_arithmetic_wraps_like_wasm() {
         let bytes = module_with_body(1, 1, &[0x20, 0x00, 0x41, 0x01, 0x6a, 0x0b]);
-        let result = instance(&bytes)
+        let mut vm = instance(&bytes);
+        let result = vm
             .invoke_export("run", &[Value::I32(i32::MAX)])
             .expect("execution succeeds");
         assert_eq!(result, Some(Value::I32(i32::MIN)));
+    }
+
+    #[test]
+    fn stores_and_loads_i32_little_endian() {
+        let bytes = module_with_memory(
+            2,
+            1,
+            &[
+                0x20, 0x00, // address
+                0x20, 0x01, // value
+                0x36, 0x02, 0x00, // i32.store align=4 offset=0
+                0x20, 0x00, // address
+                0x28, 0x02, 0x00, // i32.load
+                0x0b,
+            ],
+            Some(2),
+            None,
+        );
+        let mut vm = instance(&bytes);
+        assert_eq!(
+            vm.invoke_export("run", &[Value::I32(8), Value::I32(0x1234_5678)])
+                .unwrap(),
+            Some(Value::I32(0x1234_5678))
+        );
+        assert_eq!(&vm.memory().unwrap().bytes()[8..12], &[0x78, 0x56, 0x34, 0x12]);
+    }
+
+    #[test]
+    fn narrow_loads_sign_and_zero_extend() {
+        let signed = module_with_memory(
+            2,
+            1,
+            &[
+                0x20, 0x00, 0x20, 0x01, 0x3a, 0x00, 0x00, // store8
+                0x20, 0x00, 0x2c, 0x00, 0x00, // load8_s
+                0x0b,
+            ],
+            None,
+            None,
+        );
+        let mut vm = instance(&signed);
+        assert_eq!(
+            vm.invoke_export("run", &[Value::I32(0), Value::I32(0xff)])
+                .unwrap(),
+            Some(Value::I32(-1))
+        );
+
+        let unsigned = module_with_memory(
+            2,
+            1,
+            &[
+                0x20, 0x00, 0x20, 0x01, 0x3a, 0x00, 0x00, // store8
+                0x20, 0x00, 0x2d, 0x00, 0x00, // load8_u
+                0x0b,
+            ],
+            None,
+            None,
+        );
+        let mut vm = instance(&unsigned);
+        assert_eq!(
+            vm.invoke_export("run", &[Value::I32(0), Value::I32(0xff)])
+                .unwrap(),
+            Some(Value::I32(255))
+        );
+    }
+
+    #[test]
+    fn data_segment_initializes_memory() {
+        let bytes = module_with_memory(0, 0, &[0x0b], Some(2), Some((4, b"wasm")));
+        let vm = instance(&bytes);
+        assert_eq!(&vm.memory().unwrap().bytes()[4..8], b"wasm");
+    }
+
+    #[test]
+    fn memory_grow_returns_previous_size_and_minus_one_on_limit() {
+        let bytes = module_with_memory(
+            1,
+            1,
+            &[0x20, 0x00, 0x40, 0x00, 0x0b],
+            Some(2),
+            None,
+        );
+        let mut vm = instance(&bytes);
+        assert_eq!(
+            vm.invoke_export("run", &[Value::I32(1)]).unwrap(),
+            Some(Value::I32(1))
+        );
+        assert_eq!(vm.memory().unwrap().size_pages(), 2);
+        assert_eq!(
+            vm.invoke_export("run", &[Value::I32(1)]).unwrap(),
+            Some(Value::I32(-1))
+        );
+        assert_eq!(vm.memory().unwrap().size_pages(), 2);
+    }
+
+    #[test]
+    fn memory_access_out_of_bounds_traps() {
+        let bytes = module_with_memory(
+            1,
+            1,
+            &[0x20, 0x00, 0x28, 0x02, 0x00, 0x0b],
+            None,
+            None,
+        );
+        let mut vm = instance(&bytes);
+        let error = vm
+            .invoke_export("run", &[Value::I32((WASM_PAGE_SIZE - 1) as i32)])
+            .expect_err("four-byte load must cross memory boundary");
+        assert!(matches!(error, RuntimeError::MemoryOutOfBounds { .. }));
+    }
+
+    #[test]
+    fn data_segment_out_of_bounds_fails_instantiation() {
+        let bytes = module_with_memory(0, 0, &[0x0b], None, Some((4, b"wasm")));
+        let mut module = parse_module(&bytes).expect("parse test module");
+        module.data[0].offset = (WASM_PAGE_SIZE - 2) as i32;
+        let error = Instance::new(module).expect_err("segment must fit initial memory");
+        assert!(matches!(error, RuntimeError::DataSegmentOutOfBounds { .. }));
     }
 
     #[test]
@@ -643,7 +1087,7 @@ mod tests {
                 0x0b, // end function
             ],
         );
-        let vm = instance(&bytes);
+        let mut vm = instance(&bytes);
         assert_eq!(
             vm.invoke_export("run", &[Value::I32(1)]).unwrap(),
             Some(Value::I32(11))
@@ -668,10 +1112,8 @@ mod tests {
                 0x0b, // end function
             ],
         );
-        assert_eq!(
-            instance(&bytes).invoke_export("run", &[]).unwrap(),
-            Some(Value::I32(42))
-        );
+        let mut vm = instance(&bytes);
+        assert_eq!(vm.invoke_export("run", &[]).unwrap(), Some(Value::I32(42)));
     }
 
     #[test]
@@ -690,10 +1132,8 @@ mod tests {
                 0x0b, // end function
             ],
         );
-        assert_eq!(
-            instance(&bytes).invoke_export("run", &[]).unwrap(),
-            Some(Value::I32(42))
-        );
+        let mut vm = instance(&bytes);
+        assert_eq!(vm.invoke_export("run", &[]).unwrap(), Some(Value::I32(42)));
     }
 
     #[test]
@@ -713,10 +1153,9 @@ mod tests {
                 0x0b, // end function
             ],
         );
+        let mut vm = instance(&bytes);
         assert_eq!(
-            instance(&bytes)
-                .invoke_export("run", &[Value::I32(3)])
-                .unwrap(),
+            vm.invoke_export("run", &[Value::I32(3)]).unwrap(),
             Some(Value::I32(0))
         );
     }
@@ -735,10 +1174,8 @@ mod tests {
                 0x0b, // end function
             ],
         );
-        assert_eq!(
-            instance(&bytes).invoke_export("run", &[]).unwrap(),
-            Some(Value::I32(42))
-        );
+        let mut vm = instance(&bytes);
+        assert_eq!(vm.invoke_export("run", &[]).unwrap(), Some(Value::I32(42)));
     }
 
     #[test]
