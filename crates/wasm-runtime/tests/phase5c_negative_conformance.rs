@@ -125,9 +125,7 @@ fn out_of_bounds_start_function_is_rejected_before_execution() {
         .expect_err("missing start target must fail closed");
     assert!(matches!(
         error,
-        RuntimeError::Validation(ValidationError::StartFunctionOutOfBounds {
-            function_index: 1,
-        })
+        RuntimeError::Validation(ValidationError::StartFunctionOutOfBounds { function_index: 1 })
     ));
 }
 
