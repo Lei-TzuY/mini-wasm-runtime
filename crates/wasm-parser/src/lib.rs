@@ -219,10 +219,7 @@ fn parse_type_section(cursor: &mut Cursor<'_>, module: &mut Module) -> Result<()
     Ok(())
 }
 
-fn parse_function_section(
-    cursor: &mut Cursor<'_>,
-    module: &mut Module,
-) -> Result<(), ParseError> {
+fn parse_function_section(cursor: &mut Cursor<'_>, module: &mut Module) -> Result<(), ParseError> {
     let count = cursor.read_u32()?;
     module.function_type_indices.reserve(count as usize);
     for _ in 0..count {
@@ -315,7 +312,10 @@ impl<'a> Cursor<'a> {
     }
 
     fn read_u8(&mut self) -> Result<u8, ParseError> {
-        let byte = *self.bytes.get(self.offset).ok_or(ParseError::UnexpectedEof)?;
+        let byte = *self
+            .bytes
+            .get(self.offset)
+            .ok_or(ParseError::UnexpectedEof)?;
         self.offset += 1;
         Ok(byte)
     }
