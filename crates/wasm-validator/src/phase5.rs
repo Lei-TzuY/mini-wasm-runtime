@@ -61,10 +61,6 @@ pub(super) fn validate_phase5(module: &Module) -> Result<(), ValidationError> {
     Ok(())
 }
 
-pub(super) fn validate_table_export(index: u32) -> bool {
-    index == 0
-}
-
 pub(super) fn validate_global_export(module: &Module, index: u32) -> bool {
     (index as usize) < module.globals.len()
 }
@@ -108,13 +104,13 @@ pub(super) fn global_set(
     Ok(())
 }
 
-pub(super) fn indirect_type<'a>(
-    module: &'a Module,
+pub(super) fn indirect_type(
+    module: &Module,
     function: usize,
     offset: usize,
     type_index: u32,
     table_index: u32,
-) -> Result<&'a FuncType, ValidationError> {
+) -> Result<&FuncType, ValidationError> {
     if table_index as usize >= module.tables.len() {
         return Err(ValidationError::TableIndexOutOfBounds {
             function,
