@@ -23,6 +23,7 @@ jobs:
       - name: Apply core conversion implementation and validate
         shell: bash
         run: |
+          python3 scripts/phase5c_core_conversions_fix1.py
           python3 scripts/phase5c_core_conversions.py
           cargo fmt --all
           cargo fmt --all -- --check
@@ -34,8 +35,9 @@ jobs:
         run: |
           rm .github/workflows/phase5c-core-conversions-pr-gate.yml
           rm scripts/phase5c_core_conversions.py
+          rm scripts/phase5c_core_conversions_fix1.py
           git config user.name "Lei-TzuY"
           git config user.email "52287354+Lei-TzuY@users.noreply.github.com"
-          git add -- crates/wasm-runtime/src/lib.rs crates/wasm-runtime/src/numeric.rs crates/wasm-runtime/tests/phase5c_core_conversions.rs crates/wasm-validator/src/typed.rs .github/workflows/phase5c-core-conversions-pr-gate.yml scripts/phase5c_core_conversions.py
+          git add -- crates/wasm-runtime/src/lib.rs crates/wasm-runtime/src/numeric.rs crates/wasm-runtime/tests/phase5c_core_conversions.rs crates/wasm-validator/src/typed.rs .github/workflows/phase5c-core-conversions-pr-gate.yml scripts/phase5c_core_conversions.py scripts/phase5c_core_conversions_fix1.py
           git commit -m "feat: complete core numeric conversions"
           git push origin HEAD:feat/phase-5c-core-conversions
