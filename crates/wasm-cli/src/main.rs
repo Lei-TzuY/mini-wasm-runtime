@@ -48,18 +48,30 @@ fn inspect(path: &Path) -> Result<(), Box<dyn Error>> {
     println!("module: {}", path.display());
     println!("types: {}", module.types.len());
     println!("functions: {}", module.function_type_indices.len());
+    println!("memories: {}", module.memories.len());
+    for (index, memory) in module.memories.iter().enumerate() {
+        println!(
+            "  memory #{index}: min={} max={}",
+            memory.limits.min,
+            memory
+                .limits
+                .max
+                .map_or_else(|| "unbounded".to_owned(), |max| max.to_string())
+        );
+    }
     println!("exports: {}", module.exports.len());
     for export in &module.exports {
         println!("  {}: {:?} #{}", export.name, export.kind, export.index);
     }
     println!("code bodies: {}", module.code.len());
+    println!("data segments: {}", module.data.len());
     Ok(())
 }
 
 fn execute(path: &Path, export: &str, args: &[Value]) -> Result<(), Box<dyn Error>> {
     let bytes = fs::read(path)?;
     let module = parse_module(&bytes)?;
-    let instance = Instance::new(module)?;
+    let mut instance = Instance::new(module)?;
     match instance.invoke_export(export, args)? {
         Some(Value::I32(value)) => println!("{value}"),
         None => println!("()"),
