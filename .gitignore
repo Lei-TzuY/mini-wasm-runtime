@@ -1,0 +1,6 @@
+/target
+**/*.wasm
+!.github/fixtures/*.wasm
+.DS_Store
+.idea/
+.vscode/

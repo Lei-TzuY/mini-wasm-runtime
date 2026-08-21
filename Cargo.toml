@@ -1,0 +1,17 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/wasm-parser",
+    "crates/wasm-validator",
+    "crates/wasm-runtime",
+    "crates/wasm-cli",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+rust-version = "1.81"
+
+[workspace.lints.rust]
+unsafe_code = "forbid"

@@ -1,0 +1,18 @@
+[package]
+name = "wasm-cli"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[[bin]]
+name = "mini-wasm"
+path = "src/main.rs"
+
+[dependencies]
+wasm-parser = { path = "../wasm-parser" }
+wasm-runtime = { path = "../wasm-runtime" }
+wasm-validator = { path = "../wasm-validator" }
+
+[lints]
+workspace = true
