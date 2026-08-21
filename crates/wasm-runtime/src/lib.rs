@@ -704,6 +704,8 @@ pub enum RuntimeError {
         actual: ValueType,
     },
     UnsupportedOpcode(u8),
+    IntegerDivisionByZero,
+    IntegerOverflow,
     UnsupportedBlockType(u8),
     BlockTypeIndexOutOfBounds(u32),
     UnsupportedBlockResultArity {
@@ -865,6 +867,8 @@ impl fmt::Display for RuntimeError {
                 write!(f, "runtime expected {expected:?}, got {actual:?}")
             }
             Self::UnsupportedOpcode(opcode) => write!(f, "unsupported opcode 0x{opcode:02x}"),
+            Self::IntegerDivisionByZero => write!(f, "integer division by zero"),
+            Self::IntegerOverflow => write!(f, "integer signed division overflow"),
             Self::UnsupportedBlockType(block_type) => {
                 write!(f, "unsupported block type 0x{block_type:02x}")
             }
@@ -2237,12 +2241,10 @@ impl Instance {
                 0x50..=0x5a => numeric::compare_i64(&mut stack, opcode)?,
                 0x5b..=0x60 => numeric::compare_f32(&mut stack, opcode)?,
                 0x61..=0x66 => numeric::compare_f64(&mut stack, opcode)?,
-                0x6a => numeric::binary_i32(&mut stack, i32::wrapping_add)?,
-                0x6b => numeric::binary_i32(&mut stack, i32::wrapping_sub)?,
-                0x6c => numeric::binary_i32(&mut stack, i32::wrapping_mul)?,
-                0x7c => numeric::binary_i64(&mut stack, i64::wrapping_add)?,
-                0x7d => numeric::binary_i64(&mut stack, i64::wrapping_sub)?,
-                0x7e => numeric::binary_i64(&mut stack, i64::wrapping_mul)?,
+                0x67..=0x69 => numeric::unary_integer(&mut stack, opcode)?,
+                0x6a..=0x78 => numeric::binary_integer(&mut stack, opcode)?,
+                0x79..=0x7b => numeric::unary_integer(&mut stack, opcode)?,
+                0x7c..=0x8a => numeric::binary_integer(&mut stack, opcode)?,
                 0x92 => numeric::binary_f32(&mut stack, |a, b| a + b)?,
                 0x93 => numeric::binary_f32(&mut stack, |a, b| a - b)?,
                 0x94 => numeric::binary_f32(&mut stack, |a, b| a * b)?,
@@ -2778,8 +2780,7 @@ fn build_control_map(module: &Module, code: &[u8]) -> Result<ControlMap, Runtime
             }
             0x0f
             | 0x45..=0x66
-            | 0x6a..=0x6c
-            | 0x7c..=0x7e
+            | 0x67..=0x8a
             | 0x92..=0x95
             | 0xa0..=0xa3
             | 0xa7
