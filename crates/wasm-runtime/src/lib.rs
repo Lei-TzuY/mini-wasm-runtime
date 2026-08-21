@@ -296,7 +296,7 @@ impl Instance {
                             "else encountered outside active if",
                         ));
                     }
-                    exit_control_frame(&mut controls, &mut stack)?;
+                    exit_control_frame(&mut controls, &stack)?;
                     pc = frame.end_pc + 1;
                 }
                 0x0b => {
@@ -308,7 +308,7 @@ impl Instance {
                             "end offset does not match active control frame",
                         ));
                     }
-                    exit_control_frame(&mut controls, &mut stack)?;
+                    exit_control_frame(&mut controls, &stack)?;
                     if frame.kind == ControlKind::Function {
                         break;
                     }
