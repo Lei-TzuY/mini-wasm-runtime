@@ -27,9 +27,7 @@ fn run() -> Result<(), Box<dyn Error>> {
         "run" => {
             let path = args.next().ok_or("missing .wasm path")?;
             let export = args.next().ok_or("missing exported function name")?;
-            let values = args
-                .map(|arg| arg.parse::<i32>().map(Value::I32))
-                .collect::<Result<Vec<_>, _>>()?;
+            let values = args.map(|arg| parse_value(&arg)).collect::<Result<Vec<_>, _>>()?;
             execute(Path::new(&path), &export, &values)
         }
         "help" | "--help" | "-h" => {
@@ -38,6 +36,20 @@ fn run() -> Result<(), Box<dyn Error>> {
         }
         other => Err(format!("unknown command {other:?}").into()),
     }
+}
+
+fn parse_value(input: &str) -> Result<Value, Box<dyn Error>> {
+    if let Some(value) = input.strip_prefix("i64:") {
+        return Ok(Value::I64(value.parse()?));
+    }
+    if let Some(value) = input.strip_prefix("f32:") {
+        return Ok(Value::F32(value.parse()?));
+    }
+    if let Some(value) = input.strip_prefix("f64:") {
+        return Ok(Value::F64(value.parse()?));
+    }
+    let value = input.strip_prefix("i32:").unwrap_or(input);
+    Ok(Value::I32(value.parse()?))
 }
 
 fn inspect(path: &Path) -> Result<(), Box<dyn Error>> {
@@ -84,7 +96,7 @@ fn inspect(path: &Path) -> Result<(), Box<dyn Error>> {
     println!("globals: {}", module.globals.len());
     for (index, global) in module.globals.iter().enumerate() {
         println!(
-            "  global #{index}: {:?} mutable={} init={}",
+            "  global #{index}: {:?} mutable={} init={:?}",
             global.ty.value_type, global.ty.mutable, global.init
         );
     }
@@ -110,6 +122,9 @@ fn execute(path: &Path, export: &str, args: &[Value]) -> Result<(), Box<dyn Erro
     let mut instance = Instance::new(module)?;
     match instance.invoke_export(export, args)? {
         Some(Value::I32(value)) => println!("{value}"),
+        Some(Value::I64(value)) => println!("{value}"),
+        Some(Value::F32(value)) => println!("{value}"),
+        Some(Value::F64(value)) => println!("{value}"),
         None => println!("()"),
     }
     Ok(())
@@ -117,6 +132,6 @@ fn execute(path: &Path, export: &str, args: &[Value]) -> Result<(), Box<dyn Erro
 
 fn usage() {
     println!(
-        "mini-wasm\n\n  mini-wasm inspect <module.wasm>\n  mini-wasm run <module.wasm> <export> [i32 args ...]"
+        "mini-wasm\n\n  mini-wasm inspect <module.wasm>\n  mini-wasm run <module.wasm> <export> [values ...]\n\nValues default to i32. Prefix other numeric types explicitly: i64:42 f32:1.5 f64:2.5"
     );
 }
