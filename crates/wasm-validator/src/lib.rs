@@ -166,6 +166,17 @@ pub enum ValidationError {
         offset: usize,
         opcode: u8,
     },
+    BlockTypeIndexOutOfBounds {
+        function: usize,
+        offset: usize,
+        type_index: u32,
+    },
+    UnsupportedBlockResultArity {
+        function: usize,
+        offset: usize,
+        type_index: u32,
+        results: usize,
+    },
     UnsupportedBlockType {
         function: usize,
         offset: usize,
@@ -395,6 +406,23 @@ impl fmt::Display for ValidationError {
             } => write!(
                 f,
                 "function {function} uses unsupported opcode 0x{opcode:02x} at byte {offset}"
+            ),
+            Self::BlockTypeIndexOutOfBounds {
+                function,
+                offset,
+                type_index,
+            } => write!(
+                f,
+                "function {function} block at byte {offset} refers to missing type {type_index}"
+            ),
+            Self::UnsupportedBlockResultArity {
+                function,
+                offset,
+                type_index,
+                results,
+            } => write!(
+                f,
+                "function {function} block at byte {offset} uses type {type_index} with {results} results; at most one is supported"
             ),
             Self::UnsupportedBlockType {
                 function,

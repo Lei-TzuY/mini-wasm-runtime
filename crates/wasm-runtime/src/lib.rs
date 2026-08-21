@@ -2,8 +2,8 @@
 
 use std::{collections::HashMap, fmt};
 use wasm_parser::{
-    decode_i32, decode_i64, decode_u32, Constant, ExportKind, FuncType, Module, ParseError,
-    ValueType,
+    decode_i32, decode_i64, decode_s33, decode_u32, Constant, ExportKind, FuncType, Module,
+    ParseError, ValueType,
 };
 
 mod numeric;
@@ -237,6 +237,11 @@ pub enum RuntimeError {
     },
     UnsupportedOpcode(u8),
     UnsupportedBlockType(u8),
+    BlockTypeIndexOutOfBounds(u32),
+    UnsupportedBlockResultArity {
+        type_index: u32,
+        results: usize,
+    },
     BranchDepthOutOfBounds(u32),
     ControlStackMismatch {
         expected: usize,
@@ -331,6 +336,13 @@ impl fmt::Display for RuntimeError {
             Self::UnsupportedBlockType(block_type) => {
                 write!(f, "unsupported block type 0x{block_type:02x}")
             }
+            Self::BlockTypeIndexOutOfBounds(type_index) => {
+                write!(f, "block signature refers to missing type {type_index}")
+            }
+            Self::UnsupportedBlockResultArity { type_index, results } => write!(
+                f,
+                "block signature type {type_index} has {results} results; at most one is supported"
+            ),
             Self::BranchDepthOutOfBounds(depth) => {
                 write!(f, "branch label depth {depth} is out of bounds")
             }
@@ -631,13 +643,19 @@ enum ControlKind {
     If,
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct BlockSignature {
+    params: Vec<ValueType>,
+    result: Option<ValueType>,
+}
+
+#[derive(Debug, Clone)]
 struct ControlInfo {
     kind: ControlKind,
     body_pc: usize,
     else_pc: Option<usize>,
     end_pc: usize,
-    result_type: Option<ValueType>,
+    signature: BlockSignature,
 }
 
 #[derive(Debug, Clone)]
@@ -649,37 +667,38 @@ impl ControlMap {
     fn info(&self, opener: usize) -> Result<ControlInfo, RuntimeError> {
         self.openers
             .get(opener)
-            .and_then(|info| *info)
+            .and_then(Clone::clone)
             .ok_or(RuntimeError::ControlInvariant(
                 "structured-control opener has no boundary metadata",
             ))
     }
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 struct PendingControl {
     opener: usize,
     kind: ControlKind,
     body_pc: usize,
     else_pc: Option<usize>,
-    result_type: Option<ValueType>,
+    signature: BlockSignature,
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 struct ExecControlFrame {
     kind: ControlKind,
     body_pc: usize,
     end_pc: usize,
     stack_height: usize,
+    param_types: Vec<ValueType>,
     result_type: Option<ValueType>,
 }
 
 impl ExecControlFrame {
-    fn label_type(self) -> Option<ValueType> {
+    fn label_types(&self) -> Vec<ValueType> {
         if self.kind == ControlKind::Loop {
-            None
+            self.param_types.clone()
         } else {
-            self.result_type
+            self.result_type.into_iter().collect()
         }
     }
 }
@@ -749,7 +768,7 @@ impl Instance {
         let control_maps = module
             .code
             .iter()
-            .map(|body| build_control_map(&body.code))
+            .map(|body| build_control_map(&module, &body.code))
             .collect::<Result<Vec<_>, _>>()?;
         let memory = module
             .memories
@@ -1006,6 +1025,7 @@ impl Instance {
             body_pc: 0,
             end_pc: function_end,
             stack_height: 0,
+            param_types: Vec::new(),
             result_type,
         }];
 
@@ -1017,33 +1037,37 @@ impl Instance {
 
             match opcode {
                 0x02 | 0x03 => {
-                    let result_type = read_block_type(code, &mut pc)?;
+                    let signature = read_block_signature(&self.module, code, &mut pc)?;
                     let info = control_map.info(offset)?;
                     let kind = if opcode == 0x02 {
                         ControlKind::Block
                     } else {
                         ControlKind::Loop
                     };
-                    ensure_control_info(info, kind, result_type)?;
+                    ensure_control_info(&info, kind, &signature)?;
+                    let stack_height = control_entry_height(&stack, &signature.params)?;
                     controls.push(ExecControlFrame {
                         kind,
                         body_pc: info.body_pc,
                         end_pc: info.end_pc,
-                        stack_height: stack.len(),
-                        result_type,
+                        stack_height,
+                        param_types: signature.params,
+                        result_type: signature.result,
                     });
                 }
                 0x04 => {
-                    let result_type = read_block_type(code, &mut pc)?;
+                    let signature = read_block_signature(&self.module, code, &mut pc)?;
                     let condition = numeric::i32_from_stack(&mut stack)?;
                     let info = control_map.info(offset)?;
-                    ensure_control_info(info, ControlKind::If, result_type)?;
+                    ensure_control_info(&info, ControlKind::If, &signature)?;
+                    let stack_height = control_entry_height(&stack, &signature.params)?;
                     let frame = ExecControlFrame {
                         kind: ControlKind::If,
                         body_pc: info.body_pc,
                         end_pc: info.end_pc,
-                        stack_height: stack.len(),
-                        result_type,
+                        stack_height,
+                        param_types: signature.params,
+                        result_type: signature.result,
                     };
                     if condition != 0 {
                         controls.push(frame);
@@ -1051,13 +1075,17 @@ impl Instance {
                         controls.push(frame);
                         pc = else_pc + 1;
                     } else {
+                        stack.truncate(frame.stack_height);
                         pc = info.end_pc + 1;
                     }
                 }
                 0x05 => {
-                    let frame = *controls.last().ok_or(RuntimeError::ControlInvariant(
-                        "else encountered without active control frame",
-                    ))?;
+                    let frame = controls
+                        .last()
+                        .cloned()
+                        .ok_or(RuntimeError::ControlInvariant(
+                            "else encountered without active control frame",
+                        ))?;
                     if frame.kind != ControlKind::If {
                         return Err(RuntimeError::ControlInvariant(
                             "else encountered outside active if",
@@ -1067,9 +1095,12 @@ impl Instance {
                     pc = frame.end_pc + 1;
                 }
                 0x0b => {
-                    let frame = *controls.last().ok_or(RuntimeError::ControlInvariant(
-                        "end encountered without active control frame",
-                    ))?;
+                    let frame = controls
+                        .last()
+                        .cloned()
+                        .ok_or(RuntimeError::ControlInvariant(
+                            "end encountered without active control frame",
+                        ))?;
                     if frame.end_pc != offset {
                         return Err(RuntimeError::ControlInvariant(
                             "end offset does not match active control frame",
@@ -1353,12 +1384,21 @@ fn value_from_constant(value: Constant) -> Value {
     }
 }
 
+fn control_entry_height(stack: &[Value], params: &[ValueType]) -> Result<usize, RuntimeError> {
+    if stack.len() < params.len() {
+        return Err(RuntimeError::StackUnderflow);
+    }
+    let height = stack.len() - params.len();
+    validate_values(params, &stack[height..])?;
+    Ok(height)
+}
+
 fn ensure_control_info(
-    info: ControlInfo,
+    info: &ControlInfo,
     kind: ControlKind,
-    result_type: Option<ValueType>,
+    signature: &BlockSignature,
 ) -> Result<(), RuntimeError> {
-    if info.kind != kind || info.result_type != result_type {
+    if info.kind != kind || &info.signature != signature {
         return Err(RuntimeError::ControlInvariant(
             "control metadata disagrees with instruction stream",
         ));
@@ -1399,9 +1439,9 @@ fn branch_to(
         .len()
         .checked_sub(depth_usize + 1)
         .ok_or(RuntimeError::BranchDepthOutOfBounds(depth))?;
-    let target = controls[target_index];
-    let label_type = target.label_type();
-    let label_arity = usize::from(label_type.is_some());
+    let target = controls[target_index].clone();
+    let label_types = target.label_types();
+    let label_arity = label_types.len();
     let current_height =
         controls
             .last()
@@ -1414,9 +1454,7 @@ fn branch_to(
     }
 
     let label_values = stack[stack.len() - label_arity..].to_vec();
-    if let (Some(expected), Some(value)) = (label_type, label_values.first().copied()) {
-        numeric::expect_type(value, expected)?;
-    }
+    validate_values(&label_types, &label_values)?;
     stack.truncate(target.stack_height);
     stack.extend(label_values);
 
@@ -1437,7 +1475,7 @@ fn branch_to(
     Ok(())
 }
 
-fn build_control_map(code: &[u8]) -> Result<ControlMap, RuntimeError> {
+fn build_control_map(module: &Module, code: &[u8]) -> Result<ControlMap, RuntimeError> {
     let mut openers = vec![None; code.len()];
     let mut pending = Vec::<PendingControl>::new();
     let mut pc = 0usize;
@@ -1448,7 +1486,7 @@ fn build_control_map(code: &[u8]) -> Result<ControlMap, RuntimeError> {
         pc += 1;
         match opcode {
             0x02..=0x04 => {
-                let result_type = read_block_type(code, &mut pc)?;
+                let signature = read_block_signature(module, code, &mut pc)?;
                 let kind = match opcode {
                     0x02 => ControlKind::Block,
                     0x03 => ControlKind::Loop,
@@ -1460,7 +1498,7 @@ fn build_control_map(code: &[u8]) -> Result<ControlMap, RuntimeError> {
                     kind,
                     body_pc: pc,
                     else_pc: None,
-                    result_type,
+                    signature,
                 });
             }
             0x05 => {
@@ -1481,7 +1519,7 @@ fn build_control_map(code: &[u8]) -> Result<ControlMap, RuntimeError> {
                         body_pc: frame.body_pc,
                         else_pc: frame.else_pc,
                         end_pc: offset,
-                        result_type: frame.result_type,
+                        signature: frame.signature,
                     });
                 } else if pc != code.len() {
                     return Err(RuntimeError::ControlInvariant(
@@ -1536,19 +1574,57 @@ fn build_control_map(code: &[u8]) -> Result<ControlMap, RuntimeError> {
     Ok(ControlMap { openers })
 }
 
-fn read_block_type(code: &[u8], pc: &mut usize) -> Result<Option<ValueType>, RuntimeError> {
-    let block_type = *code
+fn read_block_signature(
+    module: &Module,
+    code: &[u8],
+    pc: &mut usize,
+) -> Result<BlockSignature, RuntimeError> {
+    let first = *code
         .get(*pc)
         .ok_or(RuntimeError::ControlInvariant("missing block type"))?;
-    *pc += 1;
-    match block_type {
-        0x40 => Ok(None),
-        0x7f => Ok(Some(ValueType::I32)),
-        0x7e => Ok(Some(ValueType::I64)),
-        0x7d => Ok(Some(ValueType::F32)),
-        0x7c => Ok(Some(ValueType::F64)),
-        other => Err(RuntimeError::UnsupportedBlockType(other)),
+    let immediate = match first {
+        0x40 => {
+            *pc += 1;
+            return Ok(BlockSignature {
+                params: Vec::new(),
+                result: None,
+            });
+        }
+        0x7f => Some(ValueType::I32),
+        0x7e => Some(ValueType::I64),
+        0x7d => Some(ValueType::F32),
+        0x7c => Some(ValueType::F64),
+        _ => None,
+    };
+    if let Some(result) = immediate {
+        *pc += 1;
+        return Ok(BlockSignature {
+            params: Vec::new(),
+            result: Some(result),
+        });
     }
+
+    let (raw, used) = decode_s33(&code[*pc..])?;
+    *pc += used;
+    if raw < 0 {
+        return Err(RuntimeError::UnsupportedBlockType(first));
+    }
+    let type_index = u32::try_from(raw)
+        .map_err(|_| RuntimeError::ControlInvariant("block type index exceeds u32"))?;
+    let ty = module
+        .types
+        .get(type_index as usize)
+        .ok_or(RuntimeError::BlockTypeIndexOutOfBounds(type_index))?;
+    if ty.results.len() > 1 {
+        return Err(RuntimeError::UnsupportedBlockResultArity {
+            type_index,
+            results: ty.results.len(),
+        });
+    }
+    Ok(BlockSignature {
+        params: ty.params.clone(),
+        result: ty.results.first().copied(),
+    })
 }
 
 fn read_memarg(code: &[u8], pc: &mut usize) -> Result<(u32, u32), RuntimeError> {

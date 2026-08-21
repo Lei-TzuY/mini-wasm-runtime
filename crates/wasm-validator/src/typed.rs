@@ -1,14 +1,21 @@
 use super::{function_type, ControlKind, ValidationError};
-use wasm_parser::{decode_i32, decode_i64, FuncType, Module, ValueType};
+use wasm_parser::{decode_i32, decode_i64, decode_s33, FuncType, Module, ValueType};
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 struct ControlFrame {
     kind: ControlKind,
     height: usize,
+    param_types: Vec<ValueType>,
     end_type: Option<ValueType>,
-    label_type: Option<ValueType>,
+    label_types: Vec<ValueType>,
     unreachable: bool,
     seen_else: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct BlockSignature {
+    params: Vec<ValueType>,
+    result: Option<ValueType>,
 }
 
 pub(super) fn validate_code(
@@ -28,8 +35,9 @@ pub(super) fn validate_code(
     let mut controls = vec![ControlFrame {
         kind: ControlKind::Function,
         height: 0,
+        param_types: Vec::new(),
         end_type: function_result,
-        label_type: function_result,
+        label_types: function_results.to_vec(),
         unreachable: false,
         seen_else: false,
     }];
@@ -42,41 +50,50 @@ pub(super) fn validate_code(
 
         match opcode {
             0x02 | 0x03 => {
-                let end_type = read_block_type(code, &mut pc, function, offset)?;
+                let signature = read_block_signature(module, code, &mut pc, function, offset)?;
                 let kind = if opcode == 0x02 {
                     ControlKind::Block
                 } else {
                     ControlKind::Loop
                 };
+                let height =
+                    enter_control(&mut stack, &controls, &signature.params, function, offset)?;
+                let label_types = if kind == ControlKind::Loop {
+                    signature.params.clone()
+                } else {
+                    signature.result.into_iter().collect()
+                };
                 controls.push(ControlFrame {
                     kind,
-                    height: stack.len(),
-                    end_type,
-                    label_type: if kind == ControlKind::Loop {
-                        None
-                    } else {
-                        end_type
-                    },
+                    height,
+                    param_types: signature.params,
+                    end_type: signature.result,
+                    label_types,
                     unreachable: false,
                     seen_else: false,
                 });
             }
             0x04 => {
-                let end_type = read_block_type(code, &mut pc, function, offset)?;
+                let signature = read_block_signature(module, code, &mut pc, function, offset)?;
                 pop_expect(&mut stack, &controls, ValueType::I32, function, offset)?;
+                let height =
+                    enter_control(&mut stack, &controls, &signature.params, function, offset)?;
+                let label_types = signature.result.into_iter().collect();
                 controls.push(ControlFrame {
                     kind: ControlKind::If,
-                    height: stack.len(),
-                    end_type,
-                    label_type: end_type,
+                    height,
+                    param_types: signature.params,
+                    end_type: signature.result,
+                    label_types,
                     unreachable: false,
                     seen_else: false,
                 });
             }
             0x05 => transition_to_else(&mut stack, &mut controls, function, offset)?,
             0x0b => {
-                let frame = *controls
+                let frame = controls
                     .last()
+                    .cloned()
                     .ok_or(ValidationError::UnexpectedEnd { function, offset })?;
                 if frame.kind == ControlKind::If && frame.end_type.is_some() && !frame.seen_else {
                     return Err(ValidationError::MissingElseForResult { function, offset });
@@ -96,16 +113,16 @@ pub(super) fn validate_code(
             }
             0x0c => {
                 let depth = read_u32(code, &mut pc, function, offset)?;
-                require_label_value(&stack, &controls, depth, function, offset)?;
+                require_label_values(&stack, &controls, depth, function, offset)?;
                 mark_unreachable(&mut stack, &mut controls);
             }
             0x0d => {
                 let depth = read_u32(code, &mut pc, function, offset)?;
                 pop_expect(&mut stack, &controls, ValueType::I32, function, offset)?;
-                require_label_value(&stack, &controls, depth, function, offset)?;
+                require_label_values(&stack, &controls, depth, function, offset)?;
             }
             0x0f => {
-                require_label_value(
+                require_label_values(
                     &stack,
                     &controls,
                     (controls.len() - 1) as u32,
@@ -458,26 +475,58 @@ fn peek_expect(
     Ok(())
 }
 
-fn require_label_value(
+fn enter_control(
+    stack: &mut Vec<ValueType>,
+    controls: &[ControlFrame],
+    params: &[ValueType],
+    function: usize,
+    offset: usize,
+) -> Result<usize, ValidationError> {
+    for &param in params.iter().rev() {
+        pop_expect(stack, controls, param, function, offset)?;
+    }
+    let height = stack.len();
+    stack.extend(params.iter().copied());
+    Ok(height)
+}
+
+fn require_label_values(
     stack: &[ValueType],
     controls: &[ControlFrame],
     depth: u32,
     function: usize,
     offset: usize,
 ) -> Result<(), ValidationError> {
-    let frame = control_at_depth(controls, depth, function, offset)?;
-    if let Some(ty) = frame.label_type {
-        peek_expect(stack, controls, ty, function, offset)?;
+    let target = control_at_depth(controls, depth, function, offset)?;
+    let current = controls
+        .last()
+        .ok_or(ValidationError::OperandStackUnderflow { function, offset })?;
+    if current.unreachable && stack.len() == current.height {
+        return Ok(());
+    }
+    if stack.len().saturating_sub(current.height) < target.label_types.len() {
+        return Err(ValidationError::OperandStackUnderflow { function, offset });
+    }
+    let start = stack.len() - target.label_types.len();
+    for (&actual, &expected) in stack[start..].iter().zip(&target.label_types) {
+        if actual != expected {
+            return Err(ValidationError::TypeMismatch {
+                function,
+                offset,
+                expected,
+                actual,
+            });
+        }
     }
     Ok(())
 }
 
-fn control_at_depth(
-    controls: &[ControlFrame],
+fn control_at_depth<'a>(
+    controls: &'a [ControlFrame],
     depth: u32,
     function: usize,
     offset: usize,
-) -> Result<ControlFrame, ValidationError> {
+) -> Result<&'a ControlFrame, ValidationError> {
     let index = controls.len().checked_sub(depth as usize + 1).ok_or(
         ValidationError::BranchDepthOutOfBounds {
             function,
@@ -485,7 +534,7 @@ fn control_at_depth(
             depth,
         },
     )?;
-    Ok(controls[index])
+    Ok(&controls[index])
 }
 
 fn mark_unreachable(stack: &mut Vec<ValueType>, controls: &mut [ControlFrame]) {
@@ -501,8 +550,9 @@ fn transition_to_else(
     function: usize,
     offset: usize,
 ) -> Result<(), ValidationError> {
-    let frame = *controls
+    let frame = controls
         .last()
+        .cloned()
         .ok_or(ValidationError::UnexpectedElse { function, offset })?;
     if frame.kind != ControlKind::If {
         return Err(ValidationError::UnexpectedElse { function, offset });
@@ -512,6 +562,7 @@ fn transition_to_else(
     }
     finish_frame(stack, &frame, function, offset)?;
     stack.truncate(frame.height);
+    stack.extend(frame.param_types.iter().copied());
     let current = controls
         .last_mut()
         .ok_or(ValidationError::UnexpectedElse { function, offset })?;
@@ -553,28 +604,69 @@ fn finish_frame(
     Ok(())
 }
 
-fn read_block_type(
+fn read_block_signature(
+    module: &Module,
     code: &[u8],
     pc: &mut usize,
     function: usize,
     offset: usize,
-) -> Result<Option<ValueType>, ValidationError> {
-    let block_type = *code
+) -> Result<BlockSignature, ValidationError> {
+    let first = *code
         .get(*pc)
         .ok_or(ValidationError::MalformedImmediate { function, offset })?;
-    *pc += 1;
-    match block_type {
-        0x40 => Ok(None),
-        0x7f => Ok(Some(ValueType::I32)),
-        0x7e => Ok(Some(ValueType::I64)),
-        0x7d => Ok(Some(ValueType::F32)),
-        0x7c => Ok(Some(ValueType::F64)),
-        _ => Err(ValidationError::UnsupportedBlockType {
+    let immediate = match first {
+        0x40 => {
+            *pc += 1;
+            return Ok(BlockSignature {
+                params: Vec::new(),
+                result: None,
+            });
+        }
+        0x7f => Some(ValueType::I32),
+        0x7e => Some(ValueType::I64),
+        0x7d => Some(ValueType::F32),
+        0x7c => Some(ValueType::F64),
+        _ => None,
+    };
+    if let Some(result) = immediate {
+        *pc += 1;
+        return Ok(BlockSignature {
+            params: Vec::new(),
+            result: Some(result),
+        });
+    }
+
+    let (raw, used) = decode_s33(&code[*pc..])
+        .map_err(|_| ValidationError::MalformedImmediate { function, offset })?;
+    *pc += used;
+    if raw < 0 {
+        return Err(ValidationError::UnsupportedBlockType {
             function,
             offset,
-            block_type,
-        }),
+            block_type: first,
+        });
     }
+    let type_index =
+        u32::try_from(raw).map_err(|_| ValidationError::MalformedImmediate { function, offset })?;
+    let ty = module.types.get(type_index as usize).ok_or(
+        ValidationError::BlockTypeIndexOutOfBounds {
+            function,
+            offset,
+            type_index,
+        },
+    )?;
+    if ty.results.len() > 1 {
+        return Err(ValidationError::UnsupportedBlockResultArity {
+            function,
+            offset,
+            type_index,
+            results: ty.results.len(),
+        });
+    }
+    Ok(BlockSignature {
+        params: ty.params.clone(),
+        result: ty.results.first().copied(),
+    })
 }
 
 fn read_local(

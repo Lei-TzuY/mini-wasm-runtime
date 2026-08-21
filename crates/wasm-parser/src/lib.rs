@@ -289,6 +289,39 @@ pub fn decode_i64(input: &[u8]) -> Result<(i64, usize), ParseError> {
     Err(ParseError::InvalidLeb128)
 }
 
+/// Decode a signed 33-bit LEB128 value used by WebAssembly block types.
+///
+/// The signed-33 domain can represent every u32 type index plus the negative
+/// single-byte value-type encodings reserved by the binary format.
+pub fn decode_s33(input: &[u8]) -> Result<(i64, usize), ParseError> {
+    let mut result = 0i64;
+    let mut shift = 0u32;
+    for index in 0..5 {
+        let byte = *input.get(index).ok_or(ParseError::UnexpectedEof)?;
+        let payload = i64::from(byte & 0x7f);
+        result |= payload << shift;
+        shift += 7;
+        if byte & 0x80 == 0 {
+            if index == 4 {
+                let unused = byte & 0x60;
+                if unused != 0x00 && unused != 0x60 {
+                    return Err(ParseError::Leb128Overflow);
+                }
+            }
+            if byte & 0x40 != 0 && shift < 64 {
+                result |= (!0i64) << shift;
+            }
+            const MIN_S33: i64 = -(1i64 << 32);
+            const MAX_S33: i64 = (1i64 << 32) - 1;
+            if !(MIN_S33..=MAX_S33).contains(&result) {
+                return Err(ParseError::Leb128Overflow);
+            }
+            return Ok((result, index + 1));
+        }
+    }
+    Err(ParseError::InvalidLeb128)
+}
+
 pub fn parse_module(bytes: &[u8]) -> Result<Module, ParseError> {
     let mut cursor = Cursor::new(bytes);
     let magic = cursor.read_array4()?;
