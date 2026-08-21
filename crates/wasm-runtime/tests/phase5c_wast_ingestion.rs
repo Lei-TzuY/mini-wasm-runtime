@@ -342,7 +342,10 @@ fn systematic_wast_ingestion_executes_supported_subset_and_reports_filters() {
 #[test]
 fn pinned_upstream_manifest_executes_with_exact_accounting() {
     let entries = parse_manifest(UPSTREAM_MANIFEST);
-    assert!(!entries.is_empty(), "pinned upstream manifest must not be empty");
+    assert!(
+        !entries.is_empty(),
+        "pinned upstream manifest must not be empty"
+    );
 
     for entry in entries {
         let report = run_fixture(manifest_fixture(entry.fixture));
@@ -357,9 +360,11 @@ fn pinned_upstream_manifest_executes_with_exact_accounting() {
             entry.source
         );
         assert_eq!(
-            report.skipped.len(), entry.expected_filtered,
+            report.skipped.len(),
+            entry.expected_filtered,
             "upstream source {} filtered-directive accounting drifted: {:?}",
-            entry.source, report.skipped
+            entry.source,
+            report.skipped
         );
     }
 }
