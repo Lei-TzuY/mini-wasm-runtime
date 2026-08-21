@@ -226,7 +226,7 @@ impl Instance {
             locals.extend(std::iter::repeat(Value::I32(0)).take(count as usize));
         }
 
-        let mut stack = Vec::new();
+        let mut stack = Vec::<Value>::new();
         let mut pc = 0usize;
         let code = &body.code;
         let result_arity = ty.results.len();
