@@ -8,6 +8,7 @@ use wast::{QuoteWat, Wast, WastArg, WastDirective, WastExecute, WastRet, Wat};
 const CONTRACT_FIXTURE: &str = include_str!("fixtures/phase5c_ingestion_contract.wast");
 const UPSTREAM_MANIFEST: &str = include_str!("fixtures/phase5c_upstream_manifest.tsv");
 const UPSTREAM_BLOCK_SUBSET: &str = include_str!("fixtures/phase5c_upstream_block_subset.wast");
+const UPSTREAM_BR_SUBSET: &str = include_str!("fixtures/phase5c_upstream_br_subset.wast");
 const UPSTREAM_CONVERSIONS_SUBSET: &str =
     include_str!("fixtures/phase5c_upstream_conversions_subset.wast");
 const UPSTREAM_F32_CMP_SUBSET: &str = include_str!("fixtures/phase5c_upstream_f32_cmp_subset.wast");
@@ -333,6 +334,7 @@ fn parse_manifest(source: &str) -> Vec<ManifestEntry<'_>> {
 fn manifest_fixture(name: &str) -> &'static str {
     match name {
         "phase5c_upstream_block_subset.wast" => UPSTREAM_BLOCK_SUBSET,
+        "phase5c_upstream_br_subset.wast" => UPSTREAM_BR_SUBSET,
         "phase5c_upstream_conversions_subset.wast" => UPSTREAM_CONVERSIONS_SUBSET,
         "phase5c_upstream_f32_cmp_subset.wast" => UPSTREAM_F32_CMP_SUBSET,
         "phase5c_upstream_f32_subset.wast" => UPSTREAM_F32_SUBSET,
