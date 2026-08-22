@@ -91,6 +91,7 @@ The roadmap favors complete vertical slices over a broad but shallow decoder.
 - [x] pinned `i32.wast` arithmetic/trap manifest tranche with duplicate/provenance guards
 - [x] pinned `memory.wast` narrow load/store manifest tranche with exact accounting
 - [x] pinned `block.wast` structured-control/parameter manifest tranche with exact accounting
+- [x] pinned `loop.wast` parameter/label manifest tranche with exact accounting
 - [ ] expand pinned upstream WAST manifest coverage across the remaining supported numeric/control/memory surface
 - [x] initial negative-conformance corpus for the supported surface
 - [ ] continue adversarial corpus expansion as new surfaces land
