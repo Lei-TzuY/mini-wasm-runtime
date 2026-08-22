@@ -1,6 +1,9 @@
 use wasm_parser::parse_module;
-use wasm_runtime::{Instance as MiniInstance, Value};
-use wasmtime::{Engine, Instance as ReferenceInstance, Module as ReferenceModule, Store};
+use wasm_runtime::{Instance as MiniInstance, RuntimeError, Value};
+use wasmtime::{
+    Engine, Instance as ReferenceInstance, Module as ReferenceModule, Store,
+    Trap as ReferenceTrap,
+};
 
 #[derive(Debug, Clone, Copy)]
 enum ResultKind {
@@ -9,10 +12,18 @@ enum ResultKind {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum TrapClass {
+    MemoryOutOfBounds,
+    IntegerOverflow,
+    IntegerDivisionByZero,
+    BadConversionToInteger,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Outcome {
     I32(i32),
     I64(i64),
-    Trap,
+    Trap(TrapClass),
 }
 
 struct Case {
@@ -22,12 +33,35 @@ struct Case {
     expected: Outcome,
 }
 
+fn normalize_mini_error(error: RuntimeError) -> TrapClass {
+    match error {
+        RuntimeError::MemoryOutOfBounds { .. } => TrapClass::MemoryOutOfBounds,
+        RuntimeError::IntegerOverflow => TrapClass::IntegerOverflow,
+        RuntimeError::IntegerDivisionByZero => TrapClass::IntegerDivisionByZero,
+        RuntimeError::InvalidConversionToInteger => TrapClass::BadConversionToInteger,
+        other => panic!("unmapped mini-runtime differential error: {other:?}"),
+    }
+}
+
+fn normalize_reference_error(error: &wasmtime::Error) -> TrapClass {
+    let trap = error
+        .downcast_ref::<ReferenceTrap>()
+        .unwrap_or_else(|| panic!("Wasmtime execution error was not a trap: {error:?}"));
+    match *trap {
+        ReferenceTrap::MemoryOutOfBounds => TrapClass::MemoryOutOfBounds,
+        ReferenceTrap::IntegerOverflow => TrapClass::IntegerOverflow,
+        ReferenceTrap::IntegerDivisionByZero => TrapClass::IntegerDivisionByZero,
+        ReferenceTrap::BadConversionToInteger => TrapClass::BadConversionToInteger,
+        other => panic!("unmapped Wasmtime differential trap: {other:?}"),
+    }
+}
+
 fn run_mini(bytes: &[u8], kind: ResultKind) -> Outcome {
     let module = parse_module(bytes).expect("differential fixture must parse in mini runtime");
     let mut instance =
         MiniInstance::new(module).expect("differential fixture must validate/instantiate");
     match instance.invoke_export_values("run", &[]) {
-        Err(_) => Outcome::Trap,
+        Err(error) => Outcome::Trap(normalize_mini_error(error)),
         Ok(values) => match (kind, values.as_slice()) {
             (ResultKind::I32, [Value::I32(value)]) => Outcome::I32(*value),
             (ResultKind::I64, [Value::I64(value)]) => Outcome::I64(*value),
@@ -47,17 +81,19 @@ fn run_reference(engine: &Engine, bytes: &[u8], kind: ResultKind) -> Outcome {
             let run = instance
                 .get_typed_func::<(), i32>(&mut store, "run")
                 .expect("run export must have [] -> [i32] signature");
-            run.call(&mut store, ())
-                .map(Outcome::I32)
-                .unwrap_or(Outcome::Trap)
+            match run.call(&mut store, ()) {
+                Ok(value) => Outcome::I32(value),
+                Err(error) => Outcome::Trap(normalize_reference_error(&error)),
+            }
         }
         ResultKind::I64 => {
             let run = instance
                 .get_typed_func::<(), i64>(&mut store, "run")
                 .expect("run export must have [] -> [i64] signature");
-            run.call(&mut store, ())
-                .map(Outcome::I64)
-                .unwrap_or(Outcome::Trap)
+            match run.call(&mut store, ()) {
+                Ok(value) => Outcome::I64(value),
+                Err(error) => Outcome::Trap(normalize_reference_error(&error)),
+            }
         }
     }
 }
@@ -184,7 +220,17 @@ fn supported_semantics_match_wasmtime_reference() {
                     i32.const 0
                     i32.div_s))"#,
             kind: ResultKind::I32,
-            expected: Outcome::Trap,
+            expected: Outcome::Trap(TrapClass::IntegerDivisionByZero),
+        },
+        Case {
+            name: "signed integer division overflow traps",
+            wat: r#"(module
+                (func (export "run") (result i32)
+                    i32.const -2147483648
+                    i32.const -1
+                    i32.div_s))"#,
+            kind: ResultKind::I32,
+            expected: Outcome::Trap(TrapClass::IntegerOverflow),
         },
         Case {
             name: "memory out of bounds traps",
@@ -194,7 +240,7 @@ fn supported_semantics_match_wasmtime_reference() {
                     i32.const 65536
                     i32.load))"#,
             kind: ResultKind::I32,
-            expected: Outcome::Trap,
+            expected: Outcome::Trap(TrapClass::MemoryOutOfBounds),
         },
         Case {
             name: "invalid float conversion traps",
@@ -203,7 +249,7 @@ fn supported_semantics_match_wasmtime_reference() {
                     f32.const nan
                     i32.trunc_f32_s))"#,
             kind: ResultKind::I32,
-            expected: Outcome::Trap,
+            expected: Outcome::Trap(TrapClass::BadConversionToInteger),
         },
     ];
 
@@ -224,5 +270,75 @@ fn supported_semantics_match_wasmtime_reference() {
             case.name
         );
         assert_eq!(mini, reference, "differential mismatch for {}", case.name);
+    }
+}
+
+struct XorShift64 {
+    state: u64,
+}
+
+impl XorShift64 {
+    fn new(seed: u64) -> Self {
+        assert_ne!(seed, 0);
+        Self { state: seed }
+    }
+
+    fn next_u64(&mut self) -> u64 {
+        let mut value = self.state;
+        value ^= value << 13;
+        value ^= value >> 7;
+        value ^= value << 17;
+        self.state = value;
+        value
+    }
+
+    fn next_i32(&mut self) -> i32 {
+        self.next_u64() as u32 as i32
+    }
+}
+
+#[test]
+fn generated_i32_modules_match_wasmtime_reference() {
+    const SEED: u64 = 0xbb67_ae85_84ca_a73b;
+    let mut rng = XorShift64::new(SEED);
+    let engine = Engine::default();
+
+    for case in 0..96 {
+        let lhs = rng.next_i32();
+        let rhs = rng.next_i32();
+        let (operator, expected) = match rng.next_u64() % 6 {
+            0 => ("i32.add", lhs.wrapping_add(rhs)),
+            1 => ("i32.sub", lhs.wrapping_sub(rhs)),
+            2 => ("i32.mul", lhs.wrapping_mul(rhs)),
+            3 => ("i32.and", lhs & rhs),
+            4 => ("i32.or", lhs | rhs),
+            _ => ("i32.xor", lhs ^ rhs),
+        };
+        let wat = format!(
+            "(module (func (export \"run\") (result i32) \
+             i32.const {lhs} i32.const {rhs} {operator}))"
+        );
+        let bytes = wat::parse_str(&wat).unwrap_or_else(|error| {
+            panic!("generated WAT failed at seed={SEED:#018x} case={case}: {error}")
+        });
+        let mini = run_mini(&bytes, ResultKind::I32);
+        let reference = run_reference(&engine, &bytes, ResultKind::I32);
+        let expected = Outcome::I32(expected);
+
+        assert_eq!(
+            mini, expected,
+            "mini generated mismatch at seed={SEED:#018x} case={case}: \
+             lhs={lhs}, rhs={rhs}, operator={operator}"
+        );
+        assert_eq!(
+            reference, expected,
+            "Wasmtime generated mismatch at seed={SEED:#018x} case={case}: \
+             lhs={lhs}, rhs={rhs}, operator={operator}"
+        );
+        assert_eq!(
+            mini, reference,
+            "generated differential mismatch at seed={SEED:#018x} case={case}: \
+             lhs={lhs}, rhs={rhs}, operator={operator}"
+        );
     }
 }
