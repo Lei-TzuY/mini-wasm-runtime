@@ -3,3 +3,4 @@ fc209c5ed8afc4dfeb9252024d217da3376c7a6f	test/core/func.wast	phase5c_upstream_fu
 fc209c5ed8afc4dfeb9252024d217da3376c7a6f	test/core/i32.wast	phase5c_upstream_i32_subset.wast	1	7	0
 fc209c5ed8afc4dfeb9252024d217da3376c7a6f	test/core/memory.wast	phase5c_upstream_memory_subset.wast	1	8	0
 fc209c5ed8afc4dfeb9252024d217da3376c7a6f	test/core/block.wast	phase5c_upstream_block_subset.wast	1	10	0
+fc209c5ed8afc4dfeb9252024d217da3376c7a6f	test/core/loop.wast	phase5c_upstream_loop_subset.wast	1	8	0
