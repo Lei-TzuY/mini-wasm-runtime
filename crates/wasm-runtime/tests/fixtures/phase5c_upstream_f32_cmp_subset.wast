@@ -1,0 +1,31 @@
+;; Curated supported subset from WebAssembly/spec
+;; commit fc209c5ed8afc4dfeb9252024d217da3376c7a6f
+;; source test/core/f32_cmp.wast
+
+(module
+  (func (export "eq") (param f32 f32) (result i32)
+    (f32.eq (local.get 0) (local.get 1)))
+  (func (export "ne") (param f32 f32) (result i32)
+    (f32.ne (local.get 0) (local.get 1)))
+  (func (export "lt") (param f32 f32) (result i32)
+    (f32.lt (local.get 0) (local.get 1)))
+  (func (export "le") (param f32 f32) (result i32)
+    (f32.le (local.get 0) (local.get 1)))
+  (func (export "gt") (param f32 f32) (result i32)
+    (f32.gt (local.get 0) (local.get 1)))
+  (func (export "ge") (param f32 f32) (result i32)
+    (f32.ge (local.get 0) (local.get 1)))
+)
+
+(assert_return (invoke "eq" (f32.const -0x0p+0) (f32.const 0x0p+0)) (i32.const 1))
+(assert_return (invoke "eq" (f32.const nan) (f32.const 0x1p+0)) (i32.const 0))
+(assert_return (invoke "ne" (f32.const -0x0p+0) (f32.const 0x0p+0)) (i32.const 0))
+(assert_return (invoke "ne" (f32.const nan) (f32.const nan)) (i32.const 1))
+(assert_return (invoke "lt" (f32.const -0x1p+0) (f32.const 0x0p+0)) (i32.const 1))
+(assert_return (invoke "lt" (f32.const nan) (f32.const 0x0p+0)) (i32.const 0))
+(assert_return (invoke "le" (f32.const 0x0p+0) (f32.const -0x0p+0)) (i32.const 1))
+(assert_return (invoke "le" (f32.const inf) (f32.const inf)) (i32.const 1))
+(assert_return (invoke "gt" (f32.const 0x1p+0) (f32.const -0x1p+0)) (i32.const 1))
+(assert_return (invoke "gt" (f32.const nan) (f32.const 0x0p+0)) (i32.const 0))
+(assert_return (invoke "ge" (f32.const -0x0p+0) (f32.const 0x0p+0)) (i32.const 1))
+(assert_return (invoke "ge" (f32.const -inf) (f32.const -inf)) (i32.const 1))
