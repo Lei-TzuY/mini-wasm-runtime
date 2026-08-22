@@ -82,9 +82,7 @@ fn indirect_module() -> Vec<u8> {
         &mut bytes,
         1,
         &[
-            0x02,
-            0x60, 0x01, I32, 0x01, I32,
-            0x60, 0x02, I32, I32, 0x01, I32,
+            0x02, 0x60, 0x01, I32, 0x01, I32, 0x60, 0x02, I32, I32, 0x01, I32,
         ],
     );
     push_section(&mut bytes, 3, &[0x02, 0x00, 0x01]);
@@ -106,22 +104,19 @@ fn parsed(bytes: Vec<u8>) -> Module {
     parse_module(&bytes).expect("corpus seed must parse before validation mutation")
 }
 
-fn expect_validation(module: &Module, predicate: impl FnOnce(&ValidationError) -> bool, name: &str) {
-    let error = validate(module).unwrap_err_or_else(|| panic!("{name}: malformed module validated"));
-    assert!(predicate(&error), "{name}: unexpected validation error: {error:?}");
-}
-
-trait ResultExt<T, E> {
-    fn unwrap_err_or_else(self, f: impl FnOnce() -> E) -> E;
-}
-
-impl<T, E> ResultExt<T, E> for Result<T, E> {
-    fn unwrap_err_or_else(self, f: impl FnOnce() -> E) -> E {
-        match self {
-            Ok(_) => f(),
-            Err(error) => error,
-        }
-    }
+fn expect_validation(
+    module: &Module,
+    predicate: impl FnOnce(&ValidationError) -> bool,
+    name: &str,
+) {
+    let error = match validate(module) {
+        Ok(()) => panic!("{name}: malformed module validated"),
+        Err(error) => error,
+    };
+    assert!(
+        predicate(&error),
+        "{name}: unexpected validation error: {error:?}"
+    );
 }
 
 #[test]
@@ -132,7 +127,15 @@ fn malformed_modules_fail_in_validation_with_specific_classes() {
     function_code_mismatch.code.clear();
     expect_validation(
         &function_code_mismatch,
-        |error| matches!(error, ValidationError::FunctionCodeLengthMismatch { functions: 1, bodies: 0 }),
+        |error| {
+            matches!(
+                error,
+                ValidationError::FunctionCodeLengthMismatch {
+                    functions: 1,
+                    bodies: 0
+                }
+            )
+        },
         "function/code length mismatch",
     );
 
@@ -140,7 +143,15 @@ fn malformed_modules_fail_in_validation_with_specific_classes() {
     type_index_oob.function_type_indices[0] = 99;
     expect_validation(
         &type_index_oob,
-        |error| matches!(error, ValidationError::TypeIndexOutOfBounds { function: 0, type_index: 99 }),
+        |error| {
+            matches!(
+                error,
+                ValidationError::TypeIndexOutOfBounds {
+                    function: 0,
+                    type_index: 99
+                }
+            )
+        },
         "function type index out of bounds",
     );
 
@@ -160,21 +171,39 @@ fn malformed_modules_fail_in_validation_with_specific_classes() {
     function_export_oob.exports[0].index = 99;
     expect_validation(
         &function_export_oob,
-        |error| matches!(error, ValidationError::FunctionExportOutOfBounds { function_index: 99, .. }),
+        |error| {
+            matches!(
+                error,
+                ValidationError::FunctionExportOutOfBounds {
+                    function_index: 99,
+                    ..
+                }
+            )
+        },
         "function export out of bounds",
     );
 
     let local_oob = parsed(function_module(&[], &[I32], &[0x20, 0x00], None));
     expect_validation(
         &local_oob,
-        |error| matches!(error, ValidationError::LocalIndexOutOfBounds { local_index: 0, .. }),
+        |error| {
+            matches!(
+                error,
+                ValidationError::LocalIndexOutOfBounds { local_index: 0, .. }
+            )
+        },
         "local index out of bounds",
     );
 
     let call_oob = parsed(function_module(&[], &[], &[0x10, 0x01], None));
     expect_validation(
         &call_oob,
-        |error| matches!(error, ValidationError::CallTargetOutOfBounds { target: 1, .. }),
+        |error| {
+            matches!(
+                error,
+                ValidationError::CallTargetOutOfBounds { target: 1, .. }
+            )
+        },
         "call target out of bounds",
     );
 
@@ -186,7 +215,12 @@ fn malformed_modules_fail_in_validation_with_specific_classes() {
     ));
     expect_validation(
         &memory_without_memory,
-        |error| matches!(error, ValidationError::MemoryInstructionWithoutMemory { .. }),
+        |error| {
+            matches!(
+                error,
+                ValidationError::MemoryInstructionWithoutMemory { .. }
+            )
+        },
         "memory instruction without memory",
     );
 
@@ -198,14 +232,28 @@ fn malformed_modules_fail_in_validation_with_specific_classes() {
     ));
     expect_validation(
         &invalid_alignment,
-        |error| matches!(error, ValidationError::InvalidMemoryAlignment { alignment: 3, maximum: 2, .. }),
+        |error| {
+            matches!(
+                error,
+                ValidationError::InvalidMemoryAlignment {
+                    alignment: 3,
+                    maximum: 2,
+                    ..
+                }
+            )
+        },
         "invalid memory alignment",
     );
 
     let branch_oob = parsed(function_module(&[], &[], &[0x0c, 0x01], None));
     expect_validation(
         &branch_oob,
-        |error| matches!(error, ValidationError::BranchDepthOutOfBounds { depth: 1, .. }),
+        |error| {
+            matches!(
+                error,
+                ValidationError::BranchDepthOutOfBounds { depth: 1, .. }
+            )
+        },
         "branch depth out of bounds",
     );
 
@@ -231,7 +279,15 @@ fn malformed_modules_fail_in_validation_with_specific_classes() {
     let immutable_global_set = parsed(immutable_global_module());
     expect_validation(
         &immutable_global_set,
-        |error| matches!(error, ValidationError::ImmutableGlobalSet { global_index: 0, .. }),
+        |error| {
+            matches!(
+                error,
+                ValidationError::ImmutableGlobalSet {
+                    global_index: 0,
+                    ..
+                }
+            )
+        },
         "immutable global set",
     );
 
@@ -239,7 +295,12 @@ fn malformed_modules_fail_in_validation_with_specific_classes() {
     invalid_start.start = Some(0);
     expect_validation(
         &invalid_start,
-        |error| matches!(error, ValidationError::InvalidStartSignature { function_index: 0 }),
+        |error| {
+            matches!(
+                error,
+                ValidationError::InvalidStartSignature { function_index: 0 }
+            )
+        },
         "invalid start signature",
     );
 
@@ -258,7 +319,16 @@ fn malformed_modules_fail_in_validation_with_specific_classes() {
     ));
     expect_validation(
         &type_mismatch,
-        |error| matches!(error, ValidationError::TypeMismatch { expected, actual, .. } if *expected == wasm_parser::ValueType::I32 && *actual == wasm_parser::ValueType::F32),
+        |error| {
+            matches!(
+                error,
+                ValidationError::TypeMismatch {
+                    expected: wasm_parser::ValueType::I32,
+                    actual: wasm_parser::ValueType::F32,
+                    ..
+                }
+            )
+        },
         "typed operand mismatch",
     );
 
@@ -266,7 +336,16 @@ fn malformed_modules_fail_in_validation_with_specific_classes() {
     invalid_memory_limits.memories[0].limits.max = Some(0);
     expect_validation(
         &invalid_memory_limits,
-        |error| matches!(error, ValidationError::InvalidMemoryLimits { memory: 0, min: 1, max: 0 }),
+        |error| {
+            matches!(
+                error,
+                ValidationError::InvalidMemoryLimits {
+                    memory: 0,
+                    min: 1,
+                    max: 0
+                }
+            )
+        },
         "invalid memory limits",
     );
 }
@@ -294,15 +373,20 @@ fn runtime_traps_only_after_parse_validation_and_instantiation_succeed() {
         Some(1),
     ));
     validate(&memory_store).expect("memory OOB fixture must be statically valid");
-    let mut memory_instance = Instance::new(memory_store).expect("memory OOB fixture must instantiate");
+    let mut memory_instance =
+        Instance::new(memory_store).expect("memory OOB fixture must instantiate");
     let error = memory_instance
         .invoke_export("run", &[Value::I32(65_535), Value::I32(7)])
         .expect_err("four-byte store at byte 65535 must trap");
-    assert!(matches!(error, RuntimeError::MemoryOutOfBounds { width: 4, .. }));
+    assert!(matches!(
+        error,
+        RuntimeError::MemoryOutOfBounds { width: 4, .. }
+    ));
 
     let conversion = parsed(function_module(&[F32], &[I32], &[0x20, 0x00, 0xa8], None));
     validate(&conversion).expect("conversion fixture must be statically valid");
-    let mut conversion_instance = Instance::new(conversion).expect("conversion fixture must instantiate");
+    let mut conversion_instance =
+        Instance::new(conversion).expect("conversion fixture must instantiate");
     let error = conversion_instance
         .invoke_export("run", &[Value::F32(f32::NAN)])
         .expect_err("NaN truncation must trap dynamically");
