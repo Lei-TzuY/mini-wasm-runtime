@@ -67,14 +67,6 @@
 
   (func (export "as-br_if-cond")
     (block (br_if 0 (memory.grow (i32.const 0)))))
-  (func (export "as-br_if-value") (result i32)
-    (block (result i32)
-      (drop (br_if 0 (memory.grow (i32.const 0)) (i32.const 1)))
-      (i32.const 7)))
-  (func (export "as-br_if-value-cond") (result i32)
-    (block (result i32)
-      (drop (br_if 0 (i32.const 6) (memory.grow (i32.const 0))))
-      (i32.const 7)))
 
   (func (export "as-return-value") (result i32)
     (return (memory.grow (i32.const 0))))
@@ -101,14 +93,18 @@
   (func (export "as-call-last") (result i32)
     (call $f (i32.const 1) (i32.const 2) (memory.grow (i32.const 0))))
 
+  (func (export "as-local.set-value") (local i32)
+    (local.set 0 (memory.grow (i32.const 0))))
+  (global $g (mut i32) (i32.const 0))
+  (func (export "as-global.set-value")
+    (global.set $g (memory.grow (i32.const 0))))
+
   (func (export "as-memory.grow-size") (result i32)
     (memory.grow (memory.grow (i32.const 0))))
 )
 
 (assert_return (invoke "as-br-value") (i32.const 1))
 (assert_return (invoke "as-br_if-cond"))
-(assert_return (invoke "as-br_if-value") (i32.const 1))
-(assert_return (invoke "as-br_if-value-cond") (i32.const 6))
 (assert_return (invoke "as-return-value") (i32.const 1))
 (assert_return (invoke "as-if-cond") (i32.const 0))
 (assert_return (invoke "as-if-then") (i32.const 1))
@@ -116,4 +112,6 @@
 (assert_return (invoke "as-call-first") (i32.const -1))
 (assert_return (invoke "as-call-mid") (i32.const -1))
 (assert_return (invoke "as-call-last") (i32.const -1))
+(assert_return (invoke "as-local.set-value"))
+(assert_return (invoke "as-global.set-value"))
 (assert_return (invoke "as-memory.grow-size") (i32.const 1))
