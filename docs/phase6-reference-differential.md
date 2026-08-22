@@ -1,9 +1,11 @@
 # Phase 6 reference differential tranche
 
-The repository now has an isolated reference-engine test workspace under `differential/`. It compiles small supported WebAssembly modules from WAT once, executes the exact same bytes in the mini runtime and Wasmtime, normalizes observable results, and compares both engines against explicit expected outcomes.
+The repository has an isolated reference-engine test workspace under `differential/`. It compiles supported WebAssembly modules from WAT, executes the exact same bytes in the mini runtime and Wasmtime, normalizes observable outcomes, and compares both engines against explicit expectations.
 
-The first corpus covers integer wrapping and rotation, `nop`/`drop`/untyped `select`, indexed and default `br_table`, f32/f64 bit-level edge behavior, typed memory round trips, `memory.grow`, integer divide-by-zero, memory out-of-bounds, and invalid float-to-integer conversion.
+The fixed corpus covers integer wrapping and rotation, `nop`/`drop`/untyped `select`, indexed/default `br_table`, f32/f64 bit-level edge behavior, typed memory round trips, `memory.grow`, and representative execution traps.
 
-Successful i32/i64 results are bit-exact. Runtime trap cases require both engines to trap after the mini parser/validator/instantiator has already accepted the module, preventing validation rejection from being miscounted as equivalent execution behavior.
+The differential harness now compares four exact normalized trap classes shared by both engines: memory out-of-bounds, signed integer division overflow, integer division by zero, and invalid float-to-integer conversion. Unmapped mini-runtime errors or Wasmtime traps fail closed rather than collapsing into generic trap equivalence.
 
-Wasmtime and WAT are deliberately confined to the nested workspace and dedicated Ubuntu CI job; no product dependency, workspace member, or Rust 1.81 MSRV change is introduced. Exact cross-engine trap taxonomy, generated differential modules, and larger stateful/multi-value corpora remain follow-up work.
+A deterministic generated tranche emits 96 i32 modules from a committed seed across wrapping add/sub/mul and bitwise and/or/xor. Every case includes the seed and case index in diagnostics, and each compiled module is executed unchanged by both engines.
+
+Wasmtime and WAT remain confined to the nested workspace and dedicated Ubuntu CI job; no product dependency, workspace member, or Rust 1.81 MSRV change is introduced. Table/indirect-call trap normalization, generated structured/stateful modules, larger multi-value corpora, and minimized differential regressions remain follow-up work.
