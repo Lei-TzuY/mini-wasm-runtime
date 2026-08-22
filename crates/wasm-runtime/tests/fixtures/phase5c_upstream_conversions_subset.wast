@@ -17,6 +17,14 @@
     (i64.trunc_f64_s (local.get $x)))
   (func (export "i64.trunc_f64_u") (param $x f64) (result i64)
     (i64.trunc_f64_u (local.get $x)))
+  (func (export "f32.reinterpret_i32") (param $x i32) (result f32)
+    (f32.reinterpret_i32 (local.get $x)))
+  (func (export "f64.reinterpret_i64") (param $x i64) (result f64)
+    (f64.reinterpret_i64 (local.get $x)))
+  (func (export "i32.reinterpret_f32") (param $x f32) (result i32)
+    (i32.reinterpret_f32 (local.get $x)))
+  (func (export "i64.reinterpret_f64") (param $x f64) (result i64)
+    (i64.reinterpret_f64 (local.get $x)))
 )
 
 (assert_return (invoke "i64.extend_i32_s" (i32.const 0)) (i64.const 0))
@@ -61,3 +69,19 @@
 (assert_return (invoke "i64.trunc_f64_u" (f64.const -0x1.fffffffffffffp-1)) (i64.const 0))
 (assert_trap (invoke "i64.trunc_f64_u" (f64.const 18446744073709551616.0)) "integer overflow")
 (assert_trap (invoke "i64.trunc_f64_u" (f64.const -1.0)) "integer overflow")
+
+(assert_return (invoke "f32.reinterpret_i32" (i32.const 0x80000000)) (f32.const -0.0))
+(assert_return (invoke "f32.reinterpret_i32" (i32.const 1)) (f32.const 0x1p-149))
+(assert_return (invoke "f32.reinterpret_i32" (i32.const 0x7fa00000)) (f32.const nan:0x200000))
+
+(assert_return (invoke "f64.reinterpret_i64" (i64.const 0x8000000000000000)) (f64.const -0.0))
+(assert_return (invoke "f64.reinterpret_i64" (i64.const 1)) (f64.const 0x0.0000000000001p-1022))
+(assert_return (invoke "f64.reinterpret_i64" (i64.const 0x7ff4000000000000)) (f64.const nan:0x4000000000000))
+
+(assert_return (invoke "i32.reinterpret_f32" (f32.const -0.0)) (i32.const 0x80000000))
+(assert_return (invoke "i32.reinterpret_f32" (f32.const -nan:0x7fffff)) (i32.const -1))
+(assert_return (invoke "i32.reinterpret_f32" (f32.const nan:0x200000)) (i32.const 0x7fa00000))
+
+(assert_return (invoke "i64.reinterpret_f64" (f64.const -0.0)) (i64.const 0x8000000000000000))
+(assert_return (invoke "i64.reinterpret_f64" (f64.const -nan:0xfffffffffffff)) (i64.const -1))
+(assert_return (invoke "i64.reinterpret_f64" (f64.const nan:0x4000000000000)) (i64.const 0x7ff4000000000000))
