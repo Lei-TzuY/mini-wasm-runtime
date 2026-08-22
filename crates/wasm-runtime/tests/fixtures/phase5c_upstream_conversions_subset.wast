@@ -17,6 +17,22 @@
     (i64.trunc_f64_s (local.get $x)))
   (func (export "i64.trunc_f64_u") (param $x f64) (result i64)
     (i64.trunc_f64_u (local.get $x)))
+  (func (export "f32.convert_i32_s") (param $x i32) (result f32)
+    (f32.convert_i32_s (local.get $x)))
+  (func (export "f32.convert_i64_s") (param $x i64) (result f32)
+    (f32.convert_i64_s (local.get $x)))
+  (func (export "f64.convert_i32_s") (param $x i32) (result f64)
+    (f64.convert_i32_s (local.get $x)))
+  (func (export "f64.convert_i64_s") (param $x i64) (result f64)
+    (f64.convert_i64_s (local.get $x)))
+  (func (export "f32.convert_i32_u") (param $x i32) (result f32)
+    (f32.convert_i32_u (local.get $x)))
+  (func (export "f32.convert_i64_u") (param $x i64) (result f32)
+    (f32.convert_i64_u (local.get $x)))
+  (func (export "f64.convert_i32_u") (param $x i32) (result f64)
+    (f64.convert_i32_u (local.get $x)))
+  (func (export "f64.convert_i64_u") (param $x i64) (result f64)
+    (f64.convert_i64_u (local.get $x)))
   (func (export "f32.reinterpret_i32") (param $x i32) (result f32)
     (f32.reinterpret_i32 (local.get $x)))
   (func (export "f64.reinterpret_i64") (param $x i64) (result f64)
@@ -69,6 +85,30 @@
 (assert_return (invoke "i64.trunc_f64_u" (f64.const -0x1.fffffffffffffp-1)) (i64.const 0))
 (assert_trap (invoke "i64.trunc_f64_u" (f64.const 18446744073709551616.0)) "integer overflow")
 (assert_trap (invoke "i64.trunc_f64_u" (f64.const -1.0)) "integer overflow")
+
+(assert_return (invoke "f32.convert_i32_s" (i32.const 16777217)) (f32.const 16777216.0))
+(assert_return (invoke "f32.convert_i32_s" (i32.const -16777219)) (f32.const -16777220.0))
+
+(assert_return (invoke "f32.convert_i64_s" (i64.const -9223372036854775808)) (f32.const -9223372036854775808))
+(assert_return (invoke "f32.convert_i64_s" (i64.const 16777219)) (f32.const 16777220.0))
+
+(assert_return (invoke "f64.convert_i32_s" (i32.const -2147483648)) (f64.const -2147483648))
+(assert_return (invoke "f64.convert_i32_s" (i32.const 987654321)) (f64.const 987654321))
+
+(assert_return (invoke "f64.convert_i64_s" (i64.const -9223372036854775808)) (f64.const -9223372036854775808))
+(assert_return (invoke "f64.convert_i64_s" (i64.const 9007199254740995)) (f64.const 9007199254740996))
+
+(assert_return (invoke "f32.convert_i32_u" (i32.const 0xffffffff)) (f32.const 4294967296.0))
+(assert_return (invoke "f32.convert_i32_u" (i32.const 16777219)) (f32.const 16777220.0))
+
+(assert_return (invoke "f32.convert_i64_u" (i64.const 0xffffffffffffffff)) (f32.const 18446744073709551616.0))
+(assert_return (invoke "f32.convert_i64_u" (i64.const 16777217)) (f32.const 16777216.0))
+
+(assert_return (invoke "f64.convert_i32_u" (i32.const -2147483648)) (f64.const 2147483648))
+(assert_return (invoke "f64.convert_i32_u" (i32.const 0xffffffff)) (f64.const 4294967295.0))
+
+(assert_return (invoke "f64.convert_i64_u" (i64.const 0xffffffffffffffff)) (f64.const 18446744073709551616.0))
+(assert_return (invoke "f64.convert_i64_u" (i64.const 9007199254740995)) (f64.const 9007199254740996))
 
 (assert_return (invoke "f32.reinterpret_i32" (i32.const 0x80000000)) (f32.const -0.0))
 (assert_return (invoke "f32.reinterpret_i32" (i32.const 1)) (f32.const 0x1p-149))
