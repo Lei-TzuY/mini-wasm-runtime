@@ -106,7 +106,8 @@ The roadmap favors complete vertical slices over a broad but shallow decoder.
 
 ## Phase 6 — engineering hardening
 
-- [ ] parser fuzzing
+- [x] initial cargo-fuzz parser and parse-to-validation targets with bounded nightly CI smoke
+- [ ] long-running coverage-guided campaigns, corpus minimization, and sanitizer/coverage automation
 - [x] initial deterministic property-based / metamorphic corpus
 - [ ] shrinking and broader structured generated-property domains
 - [x] deterministic parser/validator mutation robustness corpus
