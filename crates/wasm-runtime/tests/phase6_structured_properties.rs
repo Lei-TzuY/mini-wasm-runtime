@@ -209,11 +209,7 @@ fn function_module(params: &[u8], instructions: &[u8], memory_pages: Option<u32>
         push_section(&mut module, 5, &memory);
     }
 
-    push_section(
-        &mut module,
-        7,
-        &[0x01, 0x03, b'r', b'u', b'n', 0x00, 0x00],
-    );
+    push_section(&mut module, 7, &[0x01, 0x03, b'r', b'u', b'n', 0x00, 0x00]);
 
     let mut body = vec![0x00];
     body.extend_from_slice(instructions);
@@ -286,11 +282,7 @@ fn deterministic_shrinker_reduces_a_structured_counterexample() {
     let minimized = minimize_failure(original, |expr| expr.contains_op(Op::Mul));
     assert_eq!(
         minimized,
-        Expr::Binary(
-            Op::Mul,
-            Box::new(Expr::Leaf(0)),
-            Box::new(Expr::Leaf(0))
-        )
+        Expr::Binary(Op::Mul, Box::new(Expr::Leaf(0)), Box::new(Expr::Leaf(0)))
     );
 }
 
@@ -367,7 +359,8 @@ fn generated_memory_boundaries_distinguish_round_trips_from_oob_traps() {
     const PAGE_BYTES: u64 = 65_536;
     let offsets = [0_u32, 1, 7, 64, 1_024];
     let fixed_addresses = [0_u32, 1, 65_531, 65_532, 65_533, 65_535, u32::MAX];
-    let mut rng = XorShift64::new(SEED ^ 0xa409_3822_299f_31d0);
+    let mut address_rng = XorShift64::new(SEED ^ 0xa409_3822_299f_31d0);
+    let mut value_rng = XorShift64::new(SEED ^ 0x082e_fa98_ec4e_6c89);
 
     for offset in offsets {
         let bytes = memory_round_trip_module(offset);
@@ -376,25 +369,21 @@ fn generated_memory_boundaries_distinguish_round_trips_from_oob_traps() {
             .into_iter()
             .chain((0..48).map(|index| {
                 if index % 2 == 0 {
-                    (rng.next_u64() % 65_533) as u32
+                    (address_rng.next_u64() % 65_533) as u32
                 } else {
-                    65_520 + (rng.next_u64() % 32) as u32
+                    65_520 + (address_rng.next_u64() % 32) as u32
                 }
             }))
             .enumerate()
         {
-            let value = rng.next_i32();
+            let value = value_rng.next_i32();
             let module = parse_module(&bytes).expect("generated memory fixture must parse");
             let mut instance =
                 Instance::new(module).expect("generated memory fixture must instantiate");
-            let observed = instance.invoke_export(
-                "run",
-                &[Value::I32(address as i32), Value::I32(value)],
-            );
+            let observed =
+                instance.invoke_export("run", &[Value::I32(address as i32), Value::I32(value)]);
             let effective = u64::from(address) + u64::from(offset);
-            let in_bounds = effective
-                .checked_add(4)
-                .is_some_and(|end| end <= PAGE_BYTES);
+            let in_bounds = effective <= PAGE_BYTES - 4;
 
             if in_bounds {
                 assert_eq!(
