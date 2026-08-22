@@ -109,7 +109,8 @@ The roadmap favors complete vertical slices over a broad but shallow decoder.
 - [x] initial cargo-fuzz parser and parse-to-validation targets with bounded nightly CI smoke
 - [ ] long-running coverage-guided campaigns, corpus minimization, and sanitizer/coverage automation
 - [x] initial deterministic property-based / metamorphic corpus
-- [ ] shrinking and broader structured generated-property domains
+- [x] deterministic shrinking and initial structured generated-property domains
+- [ ] broaden structured generators to multi-value, tables, imports, and richer stateful memory sequences
 - [x] deterministic parser/validator mutation robustness corpus
 - [x] initial Wasmtime differential execution corpus in an isolated test workspace
 - [ ] broaden differential generation and normalize exact trap classes
