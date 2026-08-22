@@ -113,7 +113,8 @@ The roadmap favors complete vertical slices over a broad but shallow decoder.
 - [ ] broaden structured generators to multi-value, tables, imports, and richer stateful memory sequences
 - [x] deterministic parser/validator mutation robustness corpus
 - [x] initial Wasmtime differential execution corpus in an isolated test workspace
-- [ ] broaden differential generation and normalize exact trap classes
+- [x] deterministic differential module generation and initial exact trap-class normalization
+- [ ] broaden differential coverage to table/indirect-call traps, structured state, and minimized regressions
 - [x] initial deterministic interpreter benchmark workloads and smoke harness
 - [ ] establish controlled-host baselines and a performance regression policy
 - [x] initial malformed-binary parser corpus
