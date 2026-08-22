@@ -1,8 +1,7 @@
 use wasm_parser::parse_module;
 use wasm_runtime::{Instance as MiniInstance, RuntimeError, Value};
 use wasmtime::{
-    Engine, Instance as ReferenceInstance, Module as ReferenceModule, Store,
-    Trap as ReferenceTrap,
+    Engine, Instance as ReferenceInstance, Module as ReferenceModule, Store, Trap as ReferenceTrap,
 };
 
 #[derive(Debug, Clone, Copy)]
