@@ -2,45 +2,64 @@
 
 A small WebAssembly runtime built from first principles in Rust.
 
-The project intentionally does **not** embed Wasmtime/Wasmer or another WebAssembly engine. The parser, validator, interpreter, numeric value model, linear memory, tables, globals, and host boundary live in this repository so the interesting invariants stay visible and testable.
+The project intentionally does **not** embed Wasmtime, Wasmer, or another WebAssembly engine. The parser, validator, interpreter, numeric core, linear memory, tables, globals, and host boundary are implemented in this repository so their invariants remain visible and testable.
 
-## Current milestone: Phase 5C
+## Current status
 
-Phase 5C is broadening module forms and conformance without weakening the fail-closed boundary established in earlier phases:
+The current consolidation baseline combines the completed Phase 1–5 implementation with the first Phase 6 hardening slices. It is an experimental interpreter/runtime-engineering project, not a production sandbox.
 
-- WebAssembly binary header plus u32/i32/i64 and signed-33 blocktype LEB128 decoding
-- type, import, function, table, memory, global, export, start, element, code, and active data sections
-- explicit function/table/memory/global import descriptors with independent WebAssembly index spaces
-- `i32`, `i64`, `f32`, and `f64` defined-function parameters, locals, zero-or-one results, globals, and block results
-- a single typed operand-stack validator; the legacy arity-only validator has been removed
-- structured `block`, `loop`, and `if` signatures from immediate value types or type indices, including block parameters and correctly typed loop labels
-- typed direct calls and `call_indirect`, including non-i32 defined-function signatures
-- mutable/immutable defined numeric globals with `global.get` / `global.set`
-- executable immutable and mutable numeric global imports resolved through shared `GlobalHandle` backing
-- executable imported and defined `funcref` tables through shared `TableHandle` backing
-- active table-0 element segments with all-segment preflight before host-visible mutation
-- opaque instance-bound `FunctionRef` values so stale or foreign table references fail closed
-- numeric constants, integer/floating comparisons, i32/i64 arithmetic, f32/f64 arithmetic, and selected non-trapping conversions
-- one 32-bit linear memory with 64 KiB pages and the checked i32 load/store family
-- typed host functions with capability-scoped `HostContext`; imported host functions remain intentionally i32-only
+Major implemented surfaces include:
+
+- WebAssembly binary parsing for the supported MVP-oriented module surface
+- independent function/table/memory/global index spaces
+- typed operand/control-stack validation with unreachable-stack polymorphism
+- `block`, `loop`, `if`, `br`, `br_if`, `return`, direct calls, and `call_indirect`
+- ordered multi-value results for defined Wasm functions and structured control
+- i32/i64/f32/f64 values, arithmetic, comparisons, integer bit operations, conversions, reinterpretation, and saturating conversions
+- typed i32/i64/f32/f64 memory loads/stores
+- one 32-bit linear memory with bounds checks, data segments, `memory.size`, and `memory.grow`
+- defined and imported numeric globals
+- defined and imported `funcref` tables with instance-bound function references
+- defined and imported memory with shared host-visible backing
+- active/passive/declarative legacy segment forms supported by the current parser/runtime boundary
+- typed host functions with explicit capability-scoped memory access
 - configurable call-depth, memory-page, instruction-fuel, and host-call limits
-- CLI inspect/run commands and multi-platform CI plus Rust 1.81 MSRV validation
+- CLI inspect/run support with typed arguments and ordered multi-value output
 
-### Executable instruction subset
+Host callbacks support i32/i64/f32/f64 parameter types and zero-or-one result. Multi-result execution is currently supported for defined Wasm functions, while the host callback ABI deliberately remains zero-or-one result.
 
-Control/state: `block`, `loop`, `if`, `else`, `br`, `br_if`, `return`, `end`, `call`, `call_indirect`, `local.get`, `local.set`, `local.tee`, `global.get`, `global.set`.
+## Conformance and hardening
 
-Numeric constants/comparisons: `i32.const`, `i64.const`, `f32.const`, `f64.const`; i32/i64 `eqz`, `eq`, `ne`, signed/unsigned `lt`, `gt`, `le`, `ge`; f32/f64 `eq`, `ne`, `lt`, `gt`, `le`, `ge`.
+The repository includes more than feature tests. The current baseline also contains:
 
-Arithmetic/conversions: i32/i64 `add`, `sub`, `mul`; f32/f64 `add`, `sub`, `mul`, `div`; `i32.wrap_i64`, `i64.extend_i32_s`, `i64.extend_i32_u`, `f32.demote_f64`, `f64.promote_f32`.
+- cross-layer negative-conformance tests for parser, validator, instantiation, and runtime failures
+- malformed-binary parser corpus
+- untrusted-count parser allocation hardening
+- deterministic property/metamorphic tests
+- deterministic parser/validator mutation robustness tests
+- executable runtime security invariants plus a documented threat model
+- pinned upstream WebAssembly spec provenance
+- WAST ingestion infrastructure with exact executed/filtered accounting
 
-Memory: `i32.load`, `i32.load8_s`, `i32.load8_u`, `i32.load16_s`, `i32.load16_u`, `i32.store`, `i32.store8`, `i32.store16`, `memory.size`, `memory.grow`.
+The committed WAST manifest is pinned to `WebAssembly/spec` commit `fc209c5ed8afc4dfeb9252024d217da3376c7a6f`. At this consolidation point it covers 16 unique upstream sources and 372 selected assertions with zero filters.
 
-Function and block results remain limited to zero or one numeric value. The runtime supports at most one table and one linear memory across imported and defined objects. The parser and validator understand function/table/memory/global import descriptors. Execution resolves function imports, immutable/mutable numeric global imports, and `funcref` table imports. Memory imports remain fail-closed until equivalent shared backing preserves identity, growth, and mutation visibility. Host function signatures remain i32-only.
+## Known boundaries
 
-A `TableHandle` is currently bound to at most one live runtime instance. Function references stored in a table are opaque and instance-bound; stale or foreign references trap instead of being interpreted as a coincidentally matching numeric function index. Full cross-instance function-reference/store semantics remain later work.
+This is intentionally incomplete. Important remaining work includes:
 
-Trapping float-to-integer conversions, reinterpret instructions, broader numeric operators, broader segment modes, multi-value execution, and complete spec-test conformance remain later work.
+- broader official WAST/spec-suite coverage
+- currently unsupported core instructions such as `nop`, `drop`, `select`, and `br_table`
+- coverage-guided parser fuzzing
+- differential execution against a reference engine in tests
+- deterministic performance benchmarks
+- broader malformed/adversarial runtime corpora
+- host callback multi-result ABI
+- WASI
+- threads/shared-memory proposal semantics
+- SIMD, memory64, multi-memory/multi-table
+- JIT compilation
+
+Unsupported binary features, instructions, imports, and execution forms are expected to fail closed rather than being silently approximated.
 
 ## Quick start
 
@@ -52,29 +71,30 @@ cargo run -p wasm-cli -- run path/to/module.wasm some_i64_export i64:42
 cargo run -p wasm-cli -- run path/to/module.wasm some_float_export f32:1.5 f64:2.5
 ```
 
-CLI values default to `i32`; use explicit `i64:`, `f32:`, or `f64:` prefixes for the other numeric types. `mini-wasm inspect` reports import kinds, independent index-space counts, defined objects, typed globals, exports, start function, and element/data segment counts.
+CLI values default to `i32`; use `i64:`, `f32:`, or `f64:` prefixes for the other numeric types.
 
-The standalone CLI intentionally installs no implicit host functions, globals, tables, or capabilities. Executing a module with imports therefore requires an embedding application to construct a `HostRegistry` and instantiate with `Instance::with_hosts` or `Instance::with_config`.
+The standalone CLI installs no implicit host imports or capabilities. Modules that import functions, globals, tables, or memory must be instantiated by an embedding application with an explicit `HostRegistry`.
 
-## Embedding host bindings
+## Embedding
+
+The host boundary is typed and explicit:
 
 ```rust
 use wasm_parser::ValueType;
 use wasm_runtime::{
-    GlobalHandle, HostCapabilities, HostRegistry, Instance, TableHandle, Value,
+    GlobalHandle, HostCapabilities, HostRegistry, Instance, MemoryHandle, TableHandle, Value,
 };
 
 let mut hosts = HostRegistry::new();
+
 hosts.register(
     "env",
-    "double",
-    vec![ValueType::I32],
-    vec![ValueType::I32],
+    "double_i64",
+    vec![ValueType::I64],
+    vec![ValueType::I64],
     HostCapabilities::NONE,
-    |_ctx, args| Ok(Some(Value::I32(args[0].as_i32().wrapping_mul(2)))),
+    |_ctx, args| Ok(Some(Value::I64(args[0].as_i64().wrapping_mul(2)))),
 )?;
-
-hosts.register_immutable_global("env", "build_id", Value::I64(42))?;
 
 let counter = GlobalHandle::mutable(Value::I32(0));
 hosts.register_global("env", "counter", counter.clone())?;
@@ -82,48 +102,67 @@ hosts.register_global("env", "counter", counter.clone())?;
 let table = TableHandle::new(4, Some(16))?;
 hosts.register_table("env", "dispatch", table.clone())?;
 
+let memory = MemoryHandle::new(1, Some(8))?;
+hosts.register_memory("env", "memory", memory.clone())?;
+
 let mut instance = Instance::with_hosts(module, hosts)?;
 ```
 
-Callbacks receive a `HostContext`, not the `Instance`. Memory access is denied unless the function registration explicitly grants `MEMORY_READ` or `MEMORY_READ_WRITE`. Global imports require exact numeric type and mutability matching. A mutable `GlobalHandle` is shared between the embedding application and the instance: host writes are immediately visible to `global.get`, and WebAssembly `global.set` updates the same handle.
+Callbacks receive a `HostContext`, not the entire `Instance`. Memory helpers are denied unless the registration explicitly grants `MEMORY_READ` or `MEMORY_READ_WRITE`.
 
-Imported tables use the same shared `TableHandle` from both sides. Active element initialization writes into that shared table only after every active element range has been preflighted, so failed instantiation does not leave partial host-visible segment writes. Host changes to table slots are immediately observed by `call_indirect`. The runtime is currently single-threaded; both global/table handles deliberately use single-threaded shared ownership rather than pretending to provide threads/shared-memory semantics.
+Imported mutable globals, tables, and memory use shared backing rather than copy semantics. Host-side changes are visible to Wasm and Wasm-side changes are visible through the retained handles. Active segment initialization is preflighted before host-shared targets are mutated so failed instantiation does not leave partial segment writes.
+
+For exported functions:
+
+- `Instance::invoke_export(...)` is the compatibility API for zero-or-one result
+- `Instance::invoke_export_values(...)` returns an ordered `Vec<Value>` for zero/one/many results
+
+Calling a multi-result export through the legacy zero-or-one API fails before execution.
 
 ## Workspace
 
 ```text
 crates/
-  wasm-parser/     binary format + import descriptors + typed constants + module sections
-  wasm-validator/  typed operand/control stacks + independent index-space invariants
-  wasm-runtime/    typed interpreter + shared globals/tables + linear memory + host boundary
+  wasm-parser/     binary format, sections, imports, typed constants
+  wasm-validator/  typed operand/control stacks and module invariants
+  wasm-runtime/    interpreter, memory/tables/globals, host boundary
   wasm-cli/        inspect/run command-line frontend
 docs/
   architecture.md
-  phase5b-numeric-model.md
-  phase5c-module-forms.md
   roadmap.md
+  security-threat-model.md
+  phase5c-*.md
+  phase6-*.md
 ```
 
 ## Design principles
 
-1. **Fail closed.** Unsupported binary features, runtime import kinds, segment modes, and opcodes are errors.
+1. **Fail closed.** Unsupported syntax or semantics are errors, not implicit no-ops.
 2. **No hidden engine dependency.** Runtime behavior is implemented here.
-3. **Parser != validator != executor.** Each layer has a narrow contract.
-4. **Respect independent index spaces.** Function, table, memory, and global imports never share ordinal arithmetic.
-5. **Validate types, not just arity.** Every reachable operand slot carries a `ValueType`; locals, globals, calls, labels, and control results must match exactly.
-6. **Trap precisely.** Indirect calls distinguish out-of-bounds, null entries, foreign/stale references, and dynamic type mismatches; memory ranges are checked before access.
-7. **Least capability at the host boundary.** Host callbacks receive only explicitly granted facilities.
-8. **Do not fake aliasing.** Mutable globals and imported tables use true shared backing; memory imports remain rejected until identity, mutation visibility, and growth can be preserved.
-9. **Do not leak partial instantiation effects.** Host-shared element targets are preflighted before any active segment is applied.
-10. **Meter untrusted work.** Embedders may cap call depth, memory pages, instruction fuel, and host calls.
-11. **Defense in depth.** Runtime type, stack, control, memory, table, global, and host checks remain even after static validation.
-12. **Small vertical slices.** Every phase increment ends in executable behavior and adversarial tests.
+3. **Parser != validator != executor.** Each layer owns a narrow contract.
+4. **Respect independent index spaces.** Function, table, memory, and global ordinals never share arithmetic.
+5. **Validate types, not just arity.** Reachable operand slots carry exact `ValueType`s.
+6. **Model unreachable code correctly.** Control-stack polymorphism must not weaken opcode validation.
+7. **Trap precisely.** Memory, numeric, indirect-call, and host-boundary failures stay distinguishable.
+8. **Least capability at the host boundary.** Host callbacks receive only explicitly granted runtime facilities.
+9. **Do not fake aliasing.** Imported mutable state uses shared backing.
+10. **Preflight host-visible initialization.** Failed instantiation must not leak partial segment mutations.
+11. **Meter untrusted work.** Embedders can cap call depth, memory, fuel, and host calls.
+12. **Defense in depth.** Runtime checks remain even after static validation.
+13. **Deterministic tests first.** CI, property corpora, mutation tests, and pinned conformance inputs must be reproducible.
 
-See [`docs/architecture.md`](docs/architecture.md), [`docs/phase5b-numeric-model.md`](docs/phase5b-numeric-model.md), [`docs/phase5c-module-forms.md`](docs/phase5c-module-forms.md), and [`docs/roadmap.md`](docs/roadmap.md).
+See [`docs/architecture.md`](docs/architecture.md), [`docs/roadmap.md`](docs/roadmap.md), and [`docs/security-threat-model.md`](docs/security-threat-model.md).
 
-## Status
+## CI
 
-Experimental and intentionally incomplete. It is a learning/runtime-engineering project, not a production sandbox.
+Every pull request is checked on:
+
+- Rust stable / Ubuntu
+- Rust stable / Windows
+- Rust stable / macOS
+- Rust 1.81.0 / Ubuntu (declared MSRV)
+
+Each matrix job runs formatting, Clippy with warnings denied, the full workspace test suite, and documentation builds.
 
 ## License
 
