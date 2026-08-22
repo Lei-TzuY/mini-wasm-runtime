@@ -1,0 +1,61 @@
+name: Recover core control ops stage
+
+on:
+  pull_request:
+
+permissions:
+  contents: write
+
+jobs:
+  recover:
+    if: github.head_ref == 'feat/core-control-ops'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: feat/core-control-ops
+          fetch-depth: 0
+      - name: Install Rust
+        run: rustup toolchain install stable --profile minimal --component rustfmt,clippy
+      - name: Reuse staged implementation and repair legacy assertion
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import textwrap
+
+          workflow = Path('.github/workflows/ci.yml').read_text()
+          start_marker = "          python3 - <<'PY'\n"
+          end_marker = "\n          PY\n"
+          start = workflow.index(start_marker) + len(start_marker)
+          end = workflow.index(end_marker, start)
+          script = textwrap.dedent(workflow[start:end])
+          exec(compile(script, '<staged-core-control-patch>', 'exec'))
+
+          runtime = Path('crates/wasm-runtime/src/lib.rs')
+          text = runtime.read_text()
+          old = '''    #[test]\n    fn unsupported_opcode_is_rejected_before_execution() {\n        let bytes = module_with_body(0, 1, &[0x01, 0x0b]);\n        let module = parse_module(&bytes).expect("parse test module");\n        let error = Instance::new(module).expect_err("unsupported opcode must fail validation");\n        assert!(matches!(\n            error,\n            RuntimeError::Validation(ValidationError::UnsupportedOpcode { opcode: 0x01, .. })\n        ));\n    }'''
+          new = '''    #[test]\n    fn unsupported_typed_select_is_rejected_before_execution() {\n        let bytes = module_with_body(0, 1, &[0x1c, 0x0b]);\n        let module = parse_module(&bytes).expect("parse test module");\n        let error = Instance::new(module).expect_err("unsupported opcode must fail validation");\n        assert!(matches!(\n            error,\n            RuntimeError::Validation(ValidationError::UnsupportedOpcode { opcode: 0x1c, .. })\n        ));\n    }'''
+          if text.count(old) != 1:
+              raise SystemExit('legacy unsupported-opcode regression anchor drifted')
+          runtime.write_text(text.replace(old, new, 1))
+          PY
+      - name: Format and validate
+        shell: bash
+        run: |
+          cargo fmt --all
+          cargo clippy --workspace --all-targets -- -D warnings
+          cargo test --workspace --all-targets
+          cargo doc --workspace --no-deps
+      - name: Restore normal CI and commit validated implementation
+        shell: bash
+        run: |
+          git fetch origin main
+          git checkout origin/main -- .github/workflows/ci.yml
+          rm -f .github/workflows/implement-core-control-ops.yml
+          rm -f .github/workflows/recover-core-control-stage.yml
+          git config user.name "LeiZ"
+          git config user.email "52287354+Lei-TzuY@users.noreply.github.com"
+          git add -A
+          git commit -m "feat: add core control and parametric instructions"
+          git push origin HEAD:feat/core-control-ops
