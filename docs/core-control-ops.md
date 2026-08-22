@@ -18,4 +18,8 @@ This slice adds four previously fail-closed MVP instructions: `nop`, `drop`, unt
 - `br_table` treats the selector as unsigned i32 bits, chooses an indexed target when in range and otherwise the default, then reuses the existing depth-based branch unwinding path.
 - `br_table` decoding streams depths and does not allocate from its target count.
 
+## Coverage
+
+The focused integration corpus covers `nop`/`drop` execution, both `select` branches, mismatched `select` operand types, indexed/default `br_table` dispatch, and mixed-label-signature rejection. Existing fail-closed opcode checks now use typed select (`0x1c`) so newly supported `nop` is not mistaken for an unsupported instruction.
+
 Unsupported proposal instructions remain fail-closed.
