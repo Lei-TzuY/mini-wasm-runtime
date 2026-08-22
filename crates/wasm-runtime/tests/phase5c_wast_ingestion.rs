@@ -9,6 +9,7 @@ const CONTRACT_FIXTURE: &str = include_str!("fixtures/phase5c_ingestion_contract
 const UPSTREAM_MANIFEST: &str = include_str!("fixtures/phase5c_upstream_manifest.tsv");
 const UPSTREAM_BLOCK_SUBSET: &str = include_str!("fixtures/phase5c_upstream_block_subset.wast");
 const UPSTREAM_BR_SUBSET: &str = include_str!("fixtures/phase5c_upstream_br_subset.wast");
+const UPSTREAM_BR_IF_SUBSET: &str = include_str!("fixtures/phase5c_upstream_br_if_subset.wast");
 const UPSTREAM_CONVERSIONS_SUBSET: &str =
     include_str!("fixtures/phase5c_upstream_conversions_subset.wast");
 const UPSTREAM_F32_CMP_SUBSET: &str = include_str!("fixtures/phase5c_upstream_f32_cmp_subset.wast");
@@ -335,6 +336,7 @@ fn manifest_fixture(name: &str) -> &'static str {
     match name {
         "phase5c_upstream_block_subset.wast" => UPSTREAM_BLOCK_SUBSET,
         "phase5c_upstream_br_subset.wast" => UPSTREAM_BR_SUBSET,
+        "phase5c_upstream_br_if_subset.wast" => UPSTREAM_BR_IF_SUBSET,
         "phase5c_upstream_conversions_subset.wast" => UPSTREAM_CONVERSIONS_SUBSET,
         "phase5c_upstream_f32_cmp_subset.wast" => UPSTREAM_F32_CMP_SUBSET,
         "phase5c_upstream_f32_subset.wast" => UPSTREAM_F32_SUBSET,
