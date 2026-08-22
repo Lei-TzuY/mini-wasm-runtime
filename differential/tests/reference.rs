@@ -24,7 +24,8 @@ struct Case {
 
 fn run_mini(bytes: &[u8], kind: ResultKind) -> Outcome {
     let module = parse_module(bytes).expect("differential fixture must parse in mini runtime");
-    let mut instance = MiniInstance::new(module).expect("differential fixture must validate/instantiate");
+    let mut instance =
+        MiniInstance::new(module).expect("differential fixture must validate/instantiate");
     match instance.invoke_export_values("run", &[]) {
         Err(_) => Outcome::Trap,
         Ok(values) => match (kind, values.as_slice()) {
@@ -38,8 +39,8 @@ fn run_mini(bytes: &[u8], kind: ResultKind) -> Outcome {
 fn run_reference(engine: &Engine, bytes: &[u8], kind: ResultKind) -> Outcome {
     let module = ReferenceModule::new(engine, bytes).expect("fixture must compile in Wasmtime");
     let mut store = Store::new(engine, ());
-    let instance =
-        ReferenceInstance::new(&mut store, &module, &[]).expect("fixture must instantiate in Wasmtime");
+    let instance = ReferenceInstance::new(&mut store, &module, &[])
+        .expect("fixture must instantiate in Wasmtime");
 
     match kind {
         ResultKind::I32 => {
@@ -208,12 +209,15 @@ fn supported_semantics_match_wasmtime_reference() {
 
     let engine = Engine::default();
     for case in cases {
-        let bytes = wat::parse_str(case.wat).unwrap_or_else(|error| {
-            panic!("failed to compile WAT for {}: {error}", case.name)
-        });
+        let bytes = wat::parse_str(case.wat)
+            .unwrap_or_else(|error| panic!("failed to compile WAT for {}: {error}", case.name));
         let mini = run_mini(&bytes, case.kind);
         let reference = run_reference(&engine, &bytes, case.kind);
-        assert_eq!(mini, case.expected, "mini runtime diverged for {}", case.name);
+        assert_eq!(
+            mini, case.expected,
+            "mini runtime diverged for {}",
+            case.name
+        );
         assert_eq!(
             reference, case.expected,
             "Wasmtime reference produced unexpected result for {}",
