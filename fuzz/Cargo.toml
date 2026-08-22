@@ -1,0 +1,31 @@
+[package]
+name = "mini-wasm-runtime-fuzz"
+version = "0.0.0"
+publish = false
+edition = "2021"
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4"
+wasm-parser = { path = "../crates/wasm-parser" }
+wasm-validator = { path = "../crates/wasm-validator" }
+
+[[bin]]
+name = "parse_module"
+path = "fuzz_targets/parse_module.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "parse_validate"
+path = "fuzz_targets/parse_validate.rs"
+test = false
+doc = false
+bench = false
+
+# Keep fuzz tooling isolated from the repository's Rust 1.81 workspace/MSRV
+# contract. cargo-fuzz itself requires nightly, while product crates do not.
+[workspace]
