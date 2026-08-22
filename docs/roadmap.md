@@ -111,7 +111,8 @@ The roadmap favors complete vertical slices over a broad but shallow decoder.
 - [x] initial deterministic property-based / metamorphic corpus
 - [ ] shrinking and broader structured generated-property domains
 - [x] deterministic parser/validator mutation robustness corpus
-- [ ] differential execution against a reference engine in tests only
+- [x] initial Wasmtime differential execution corpus in an isolated test workspace
+- [ ] broaden differential generation and normalize exact trap classes
 - [ ] deterministic benchmarks
 - [x] initial malformed-binary parser corpus
 - [x] untrusted-count parser allocation hardening
