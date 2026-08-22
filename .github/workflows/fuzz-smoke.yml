@@ -1,0 +1,30 @@
+name: Fuzz smoke
+
+on:
+  pull_request:
+    paths:
+      - "fuzz/**"
+      - ".github/workflows/fuzz-smoke.yml"
+  push:
+    branches:
+      - main
+    paths:
+      - "fuzz/**"
+      - ".github/workflows/fuzz-smoke.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  parser-fuzz-smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - name: Install nightly Rust
+        run: rustup toolchain install nightly --profile minimal
+      - name: Install cargo-fuzz
+        run: cargo +nightly install cargo-fuzz --locked
+      - name: Fuzz raw parser
+        run: cargo +nightly fuzz run parse_module -- -seed=1 -runs=512 -max_len=4096 -timeout=5 -rss_limit_mb=1024 -dict=fuzz/wasm.dict
+      - name: Fuzz parse-to-validation boundary
+        run: cargo +nightly fuzz run parse_validate -- -seed=1 -runs=512 -max_len=4096 -timeout=5 -rss_limit_mb=1024 -dict=fuzz/wasm.dict
