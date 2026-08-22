@@ -95,6 +95,7 @@ The roadmap favors complete vertical slices over a broad but shallow decoder.
 - [x] pinned `if.wast` result/parameter/branch manifest tranche with exact accounting
 - [x] pinned `i64.wast` arithmetic/div/rem manifest tranche with exact accounting
 - [x] pinned `f32.wast` arithmetic/rounding manifest tranche with exact accounting
+- [x] pinned `f64.wast` arithmetic/rounding manifest tranche with exact accounting
 - [ ] expand pinned upstream WAST manifest coverage across the remaining supported numeric/control/memory surface
 - [x] initial negative-conformance corpus for the supported surface
 - [ ] continue adversarial corpus expansion as new surfaces land
