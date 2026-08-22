@@ -1,224 +1,41 @@
-name: Stage core control ops
+name: CI
 
 on:
+  push:
+    branches: [main]
   pull_request:
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
-  stage:
-    if: github.head_ref == 'feat/core-control-ops'
-    runs-on: ubuntu-latest
+  test:
+    name: Rust ${{ matrix.rust }} / ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - rust: stable
+            os: ubuntu-latest
+          - rust: stable
+            os: windows-latest
+          - rust: stable
+            os: macos-latest
+          - rust: 1.81.0
+            os: ubuntu-latest
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v5
-        with:
-          ref: feat/core-control-ops
-          fetch-depth: 0
       - name: Install Rust
-        run: rustup toolchain install stable --profile minimal --component rustfmt,clippy
-      - name: Apply implementation
         shell: bash
         run: |
-          python3 - <<'PY'
-          from pathlib import Path
-
-          def replace_once(path, old, new):
-              p = Path(path)
-              text = p.read_text()
-              if old not in text:
-                  raise SystemExit(f"expected patch anchor missing in {path}: {old[:80]!r}")
-              p.write_text(text.replace(old, new, 1))
-
-          runtime = "crates/wasm-runtime/src/lib.rs"
-          validator = "crates/wasm-validator/src/typed.rs"
-          validator_lib = "crates/wasm-validator/src/lib.rs"
-
-          replace_once(
-              runtime,
-              "            match opcode {\n                0x02 | 0x03 => {",
-              "            match opcode {\n                0x01 => {}\n                0x02 | 0x03 => {",
-          )
-          replace_once(
-              runtime,
-              "                0x0d => {\n                    let branch_depth = read_u32_immediate(code, &mut pc)?;\n                    let condition = numeric::i32_from_stack(&mut stack)?;\n                    if condition != 0 {\n                        branch_to(&mut controls, &mut stack, branch_depth, &mut pc, code.len())?;\n                    }\n                }\n                0x0f => {",
-              "                0x0d => {\n                    let branch_depth = read_u32_immediate(code, &mut pc)?;\n                    let condition = numeric::i32_from_stack(&mut stack)?;\n                    if condition != 0 {\n                        branch_to(&mut controls, &mut stack, branch_depth, &mut pc, code.len())?;\n                    }\n                }\n                0x0e => {\n                    let target_count = read_u32_immediate(code, &mut pc)?;\n                    let selector = numeric::i32_from_stack(&mut stack)? as u32;\n                    let mut selected_depth = None;\n                    for target_index in 0..target_count {\n                        let depth = read_u32_immediate(code, &mut pc)?;\n                        if target_index == selector {\n                            selected_depth = Some(depth);\n                        }\n                    }\n                    let default_depth = read_u32_immediate(code, &mut pc)?;\n                    let branch_depth = selected_depth.unwrap_or(default_depth);\n                    branch_to(&mut controls, &mut stack, branch_depth, &mut pc, code.len())?;\n                }\n                0x0f => {",
-          )
-          replace_once(
-              runtime,
-              "                0x20 => {\n                    let index = read_u32_immediate(code, &mut pc)?;",
-              "                0x1a => {\n                    let _ = stack.pop().ok_or(RuntimeError::StackUnderflow)?;\n                }\n                0x1b => {\n                    let condition = numeric::i32_from_stack(&mut stack)?;\n                    let second = stack.pop().ok_or(RuntimeError::StackUnderflow)?;\n                    let first = stack.pop().ok_or(RuntimeError::StackUnderflow)?;\n                    let expected = first.value_type();\n                    let actual = second.value_type();\n                    if actual != expected {\n                        return Err(RuntimeError::ValueTypeMismatch { expected, actual });\n                    }\n                    stack.push(if condition != 0 { first } else { second });\n                }\n                0x20 => {\n                    let index = read_u32_immediate(code, &mut pc)?;",
-          )
-          replace_once(
-              runtime,
-              "            0x0c | 0x0d | 0x10 | 0x20..=0x24 | 0x3f | 0x40 => {\n                let _ = read_u32_immediate(code, &mut pc)?;\n            }\n            0x11 => {",
-              "            0x0c | 0x0d | 0x10 | 0x20..=0x24 | 0x3f | 0x40 => {\n                let _ = read_u32_immediate(code, &mut pc)?;\n            }\n            0x0e => {\n                let target_count = read_u32_immediate(code, &mut pc)?;\n                for _ in 0..target_count {\n                    let _ = read_u32_immediate(code, &mut pc)?;\n                }\n                let _ = read_u32_immediate(code, &mut pc)?;\n            }\n            0x11 => {",
-          )
-          replace_once(
-              runtime,
-              "            0x0f | 0x45..=0x66 | 0x67..=0x8a | 0x8b..=0xa6 | 0xa7..=0xbf => {}",
-              "            0x01 | 0x0f | 0x1a | 0x1b | 0x45..=0x66 | 0x67..=0x8a | 0x8b..=0xa6\n            | 0xa7..=0xbf => {}",
-          )
-
-          replace_once(
-              validator,
-              "        match opcode {\n            0x02 | 0x03 => {",
-              "        match opcode {\n            0x01 => {}\n            0x02 | 0x03 => {",
-          )
-          replace_once(
-              validator,
-              "            0x0d => {\n                let depth = read_u32(code, &mut pc, function, offset)?;\n                pop_expect(&mut stack, &controls, ValueType::I32, function, offset)?;\n                require_label_values(&stack, &controls, depth, function, offset)?;\n            }\n            0x0f => {",
-              "            0x0d => {\n                let depth = read_u32(code, &mut pc, function, offset)?;\n                pop_expect(&mut stack, &controls, ValueType::I32, function, offset)?;\n                require_label_values(&stack, &controls, depth, function, offset)?;\n            }\n            0x0e => {\n                let target_count = read_u32(code, &mut pc, function, offset)?;\n                let mut common_label_types = None::<Vec<ValueType>>;\n                for _ in 0..target_count {\n                    let depth = read_u32(code, &mut pc, function, offset)?;\n                    let label_types = control_at_depth(&controls, depth, function, offset)?\n                        .label_types\n                        .clone();\n                    if let Some(expected) = &common_label_types {\n                        if *expected != label_types {\n                            return Err(ValidationError::BranchTableTypeMismatch {\n                                function,\n                                offset,\n                                expected: expected.clone(),\n                                actual: label_types,\n                            });\n                        }\n                    } else {\n                        common_label_types = Some(label_types);\n                    }\n                }\n                let default_depth = read_u32(code, &mut pc, function, offset)?;\n                let default_label_types = control_at_depth(&controls, default_depth, function, offset)?\n                    .label_types\n                    .clone();\n                if let Some(expected) = &common_label_types {\n                    if *expected != default_label_types {\n                        return Err(ValidationError::BranchTableTypeMismatch {\n                            function,\n                            offset,\n                            expected: expected.clone(),\n                            actual: default_label_types,\n                        });\n                    }\n                }\n                pop_expect(&mut stack, &controls, ValueType::I32, function, offset)?;\n                require_label_values(&stack, &controls, default_depth, function, offset)?;\n                mark_unreachable(&mut stack, &mut controls);\n            }\n            0x0f => {",
-          )
-          replace_once(
-              validator,
-              "            0x20 => {\n                let index = read_local(code, &mut pc, function, offset, local_types)?;",
-              "            0x1a => {\n                let _ = pop_any(&mut stack, &controls, function, offset)?;\n            }\n            0x1b => {\n                pop_expect(&mut stack, &controls, ValueType::I32, function, offset)?;\n                let second = pop_any(&mut stack, &controls, function, offset)?;\n                let first = pop_any(&mut stack, &controls, function, offset)?;\n                let result_type = match (first, second) {\n                    (Some(first), Some(second)) if first != second => {\n                        return Err(ValidationError::TypeMismatch {\n                            function,\n                            offset,\n                            expected: first,\n                            actual: second,\n                        });\n                    }\n                    (Some(first), Some(_)) | (Some(first), None) => Some(first),\n                    (None, Some(second)) => Some(second),\n                    (None, None) => None,\n                };\n                if let Some(result_type) = result_type {\n                    stack.push(result_type);\n                }\n            }\n            0x20 => {\n                let index = read_local(code, &mut pc, function, offset, local_types)?;",
-          )
-          replace_once(
-              validator,
-              "fn peek_expect(\n    stack: &[ValueType],",
-              "fn pop_any(\n    stack: &mut Vec<ValueType>,\n    controls: &[ControlFrame],\n    function: usize,\n    offset: usize,\n) -> Result<Option<ValueType>, ValidationError> {\n    let frame = controls\n        .last()\n        .ok_or(ValidationError::OperandStackUnderflow { function, offset })?;\n    if stack.len() == frame.height && frame.unreachable {\n        return Ok(None);\n    }\n    stack\n        .pop()\n        .map(Some)\n        .ok_or(ValidationError::OperandStackUnderflow { function, offset })\n}\n\nfn peek_expect(\n    stack: &[ValueType],",
-          )
-
-          replace_once(
-              validator_lib,
-              "    BranchDepthOutOfBounds {\n        function: usize,\n        offset: usize,\n        depth: u32,\n    },\n    UnexpectedElse {",
-              "    BranchDepthOutOfBounds {\n        function: usize,\n        offset: usize,\n        depth: u32,\n    },\n    BranchTableTypeMismatch {\n        function: usize,\n        offset: usize,\n        expected: Vec<ValueType>,\n        actual: Vec<ValueType>,\n    },\n    UnexpectedElse {",
-          )
-          replace_once(
-              validator_lib,
-              "            Self::BranchDepthOutOfBounds {\n                function,\n                offset,\n                depth,\n            } => write!(\n                f,\n                \"function {function} branch at byte {offset} refers to missing label depth {depth}\"\n            ),\n            Self::UnexpectedElse { function, offset } => write!(",
-              "            Self::BranchDepthOutOfBounds {\n                function,\n                offset,\n                depth,\n            } => write!(\n                f,\n                \"function {function} branch at byte {offset} refers to missing label depth {depth}\"\n            ),\n            Self::BranchTableTypeMismatch {\n                function,\n                offset,\n                expected,\n                actual,\n            } => write!(\n                f,\n                \"function {function} br_table at byte {offset} mixes label types {expected:?} and {actual:?}\"\n            ),\n            Self::UnexpectedElse { function, offset } => write!(",
-          )
-
-          Path("crates/wasm-runtime/tests/core_control_ops.rs").write_text(r'''use wasm_parser::parse_module;
-          use wasm_runtime::{Instance, RuntimeError, Value};
-          use wasm_validator::ValidationError;
-
-          fn push_section(module: &mut Vec<u8>, id: u8, payload: &[u8]) {
-              assert!(payload.len() < 128, "test helper only encodes one-byte lengths");
-              module.push(id);
-              module.push(payload.len() as u8);
-              module.extend(payload);
-          }
-
-          fn module_with_body(params: u8, results: u8, body: &[u8]) -> Vec<u8> {
-              let mut type_section = vec![0x01, 0x60, params];
-              type_section.extend(std::iter::repeat(0x7f).take(params as usize));
-              type_section.push(results);
-              type_section.extend(std::iter::repeat(0x7f).take(results as usize));
-              let mut code_payload = vec![0x01, (body.len() + 1) as u8, 0x00];
-              code_payload.extend(body);
-              let mut bytes = vec![0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00];
-              push_section(&mut bytes, 1, &type_section);
-              push_section(&mut bytes, 3, &[0x01, 0x00]);
-              push_section(&mut bytes, 7, &[0x01, 0x03, b'r', b'u', b'n', 0x00, 0x00]);
-              push_section(&mut bytes, 10, &code_payload);
-              bytes
-          }
-
-          fn instance(bytes: &[u8]) -> Instance {
-              Instance::new(parse_module(bytes).expect("parse test module"))
-                  .expect("validate test module")
-          }
-
-          #[test]
-          fn nop_and_drop_execute() {
-              let bytes = module_with_body(0, 1, &[0x01, 0x41, 0x07, 0x1a, 0x41, 0x2a, 0x0b]);
-              let mut vm = instance(&bytes);
-              assert_eq!(vm.invoke_export("run", &[]).unwrap(), Some(Value::I32(42)));
-          }
-
-          #[test]
-          fn select_chooses_first_for_nonzero_condition() {
-              let bytes = module_with_body(0, 1, &[0x41, 0x0a, 0x41, 0x14, 0x41, 0x01, 0x1b, 0x0b]);
-              let mut vm = instance(&bytes);
-              assert_eq!(vm.invoke_export("run", &[]).unwrap(), Some(Value::I32(10)));
-          }
-
-          #[test]
-          fn select_chooses_second_for_zero_condition() {
-              let bytes = module_with_body(0, 1, &[0x41, 0x0a, 0x41, 0x14, 0x41, 0x00, 0x1b, 0x0b]);
-              let mut vm = instance(&bytes);
-              assert_eq!(vm.invoke_export("run", &[]).unwrap(), Some(Value::I32(20)));
-          }
-
-          #[test]
-          fn select_rejects_mismatched_value_types() {
-              let bytes = module_with_body(0, 1, &[0x41, 0x01, 0x42, 0x02, 0x41, 0x01, 0x1b, 0x0b]);
-              let module = parse_module(&bytes).expect("parse test module");
-              let error = Instance::new(module).expect_err("mismatched select types must fail");
-              assert!(matches!(error, RuntimeError::Validation(ValidationError::TypeMismatch { .. })));
-          }
-
-          #[test]
-          fn br_table_chooses_index_or_default_target() {
-              let bytes = module_with_body(1, 1, &[
-                  0x02, 0x7f,
-                  0x02, 0x7f,
-                  0x41, 0x28,
-                  0x20, 0x00,
-                  0x0e, 0x01, 0x00, 0x01,
-                  0x0b,
-                  0x41, 0x02, 0x6a,
-                  0x0b,
-                  0x0b,
-              ]);
-              let mut vm = instance(&bytes);
-              assert_eq!(vm.invoke_export("run", &[Value::I32(0)]).unwrap(), Some(Value::I32(42)));
-              assert_eq!(vm.invoke_export("run", &[Value::I32(1)]).unwrap(), Some(Value::I32(40)));
-              assert_eq!(vm.invoke_export("run", &[Value::I32(i32::MAX)]).unwrap(), Some(Value::I32(40)));
-          }
-
-          #[test]
-          fn br_table_rejects_mixed_label_signatures() {
-              let bytes = module_with_body(1, 1, &[
-                  0x02, 0x7f,
-                  0x02, 0x40,
-                  0x41, 0x28,
-                  0x20, 0x00,
-                  0x0e, 0x01, 0x00, 0x01,
-                  0x0b, 0x41, 0x02, 0x0b, 0x0b,
-              ]);
-              let module = parse_module(&bytes).expect("parse test module");
-              let error = Instance::new(module).expect_err("mixed br_table label types must fail");
-              assert!(matches!(error, RuntimeError::Validation(ValidationError::BranchTableTypeMismatch { .. })));
-          }
-          ''')
-
-          replace_once(
-              "README.md",
-              "- `block`, `loop`, `if`, `br`, `br_if`, `return`, direct calls, and `call_indirect`",
-              "- `block`, `loop`, `if`, `br`, `br_if`, `br_table`, `return`, `nop`, `drop`, `select`, direct calls, and `call_indirect`",
-          )
-          replace_once(
-              "README.md",
-              "- currently unsupported core instructions such as `nop`, `drop`, `select`, and `br_table`\n",
-              "",
-          )
-          replace_once(
-              "docs/roadmap.md",
-              "- [x] defined-function and structured-control multi-value results; host imports remain zero-or-one result\n",
-              "- [x] defined-function and structured-control multi-value results; host imports remain zero-or-one result\n- [x] MVP `nop`, `drop`, `select`, and `br_table` control/parametric instructions\n",
-          )
-          Path("docs/core-control-ops.md").write_text('''# Core control and parametric instructions\n\nThis slice adds four previously fail-closed MVP instructions: `nop`, `drop`, untyped `select` (`0x1b`), and `br_table`.\n\n## Validation invariants\n\n- `nop` has no stack effect.\n- `drop` consumes one value of any currently supported numeric type and respects unreachable-stack polymorphism.\n- `select` consumes `val1 val2 i32` and produces one value; the two candidate values must have the same type.\n- `br_table` validates every table target plus the default target, requires identical label type vectors, consumes an i32 selector, validates the shared label-result vector, and makes following code unreachable.\n- typed select (`0x1c`) remains unsupported.\n\n## Runtime invariants\n\n- every instruction remains fuel-metered, including `nop`.\n- `drop` retains a runtime stack-underflow guard as defense in depth.\n- `select` checks candidate value variants again before choosing the first value for nonzero or the second for zero.\n- `br_table` treats the selector as unsigned i32 bits, chooses an indexed target when in range and otherwise the default, then reuses the existing depth-based branch unwinding path.\n- `br_table` decoding streams depths and does not allocate from its target count.\n\nUnsupported proposal instructions remain fail-closed.\n''')
-          PY
-      - name: Format and validate
-        shell: bash
-        run: |
-          cargo fmt --all
-          cargo clippy --workspace --all-targets -- -D warnings
-          cargo test --workspace --all-targets
-          cargo doc --workspace --no-deps
-      - name: Restore normal CI and commit validated changes
-        shell: bash
-        run: |
-          git fetch origin main
-          git checkout origin/main -- .github/workflows/ci.yml
-          rm -f .github/workflows/implement-core-control-ops.yml
-          git config user.name "LeiZ"
-          git config user.email "52287354+Lei-TzuY@users.noreply.github.com"
-          git add -A
-          git commit -m "feat: add core control and parametric instructions"
-          git push origin HEAD:feat/core-control-ops
+          rustup toolchain install ${{ matrix.rust }} --profile minimal --component rustfmt,clippy
+          rustup default ${{ matrix.rust }}
+      - name: Format
+        run: cargo fmt --all -- --check
+      - name: Clippy
+        run: cargo clippy --workspace --all-targets -- -D warnings
+      - name: Test
+        run: cargo test --workspace --all-targets
+      - name: Docs
+        run: cargo doc --workspace --no-deps

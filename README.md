@@ -13,7 +13,7 @@ Major implemented surfaces include:
 - WebAssembly binary parsing for the supported MVP-oriented module surface
 - independent function/table/memory/global index spaces
 - typed operand/control-stack validation with unreachable-stack polymorphism
-- `block`, `loop`, `if`, `br`, `br_if`, `return`, direct calls, and `call_indirect`
+- `block`, `loop`, `if`, `br`, `br_if`, `br_table`, `return`, `nop`, `drop`, `select`, direct calls, and `call_indirect`
 - ordered multi-value results for defined Wasm functions and structured control
 - i32/i64/f32/f64 values, arithmetic, comparisons, integer bit operations, conversions, reinterpretation, and saturating conversions
 - typed i32/i64/f32/f64 memory loads/stores
@@ -48,7 +48,6 @@ The committed WAST manifest is pinned to `WebAssembly/spec` commit `fc209c5ed8af
 This is intentionally incomplete. Important remaining work includes:
 
 - broader official WAST/spec-suite coverage
-- currently unsupported core instructions such as `nop`, `drop`, `select`, and `br_table`
 - coverage-guided parser fuzzing
 - differential execution against a reference engine in tests
 - deterministic performance benchmarks

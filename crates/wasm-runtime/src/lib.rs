@@ -1909,6 +1909,7 @@ impl Instance {
             pc += 1;
 
             match opcode {
+                0x01 => {}
                 0x02 | 0x03 => {
                     let signature = read_block_signature(&self.module, code, &mut pc)?;
                     let info = control_map.info(offset)?;
@@ -1995,6 +1996,20 @@ impl Instance {
                         branch_to(&mut controls, &mut stack, branch_depth, &mut pc, code.len())?;
                     }
                 }
+                0x0e => {
+                    let target_count = read_u32_immediate(code, &mut pc)?;
+                    let selector = numeric::i32_from_stack(&mut stack)? as u32;
+                    let mut selected_depth = None;
+                    for target_index in 0..target_count {
+                        let depth = read_u32_immediate(code, &mut pc)?;
+                        if target_index == selector {
+                            selected_depth = Some(depth);
+                        }
+                    }
+                    let default_depth = read_u32_immediate(code, &mut pc)?;
+                    let branch_depth = selected_depth.unwrap_or(default_depth);
+                    branch_to(&mut controls, &mut stack, branch_depth, &mut pc, code.len())?;
+                }
                 0x0f => {
                     let branch_depth =
                         controls
@@ -2052,6 +2067,20 @@ impl Instance {
                     let call_args = stack.split_off(stack.len() - param_count);
                     let results = self.invoke_function(callee, &call_args, depth + 1, budget)?;
                     stack.extend(results);
+                }
+                0x1a => {
+                    let _ = stack.pop().ok_or(RuntimeError::StackUnderflow)?;
+                }
+                0x1b => {
+                    let condition = numeric::i32_from_stack(&mut stack)?;
+                    let second = stack.pop().ok_or(RuntimeError::StackUnderflow)?;
+                    let first = stack.pop().ok_or(RuntimeError::StackUnderflow)?;
+                    let expected = first.value_type();
+                    let actual = second.value_type();
+                    if actual != expected {
+                        return Err(RuntimeError::ValueTypeMismatch { expected, actual });
+                    }
+                    stack.push(if condition != 0 { first } else { second });
                 }
                 0x20 => {
                     let index = read_u32_immediate(code, &mut pc)?;
@@ -2780,6 +2809,13 @@ fn build_control_map(module: &Module, code: &[u8]) -> Result<ControlMap, Runtime
             0x0c | 0x0d | 0x10 | 0x20..=0x24 | 0x3f | 0x40 => {
                 let _ = read_u32_immediate(code, &mut pc)?;
             }
+            0x0e => {
+                let target_count = read_u32_immediate(code, &mut pc)?;
+                for _ in 0..target_count {
+                    let _ = read_u32_immediate(code, &mut pc)?;
+                }
+                let _ = read_u32_immediate(code, &mut pc)?;
+            }
             0x11 => {
                 let _ = read_u32_immediate(code, &mut pc)?;
                 let _ = read_u32_immediate(code, &mut pc)?;
@@ -2801,7 +2837,7 @@ fn build_control_map(module: &Module, code: &[u8]) -> Result<ControlMap, Runtime
             0x44 => {
                 let _ = read_fixed_u64(code, &mut pc)?;
             }
-            0x0f | 0x45..=0x66 | 0x67..=0x8a | 0x8b..=0xa6 | 0xa7..=0xbf => {}
+            0x01 | 0x0f | 0x1a | 0x1b | 0x45..=0x66 | 0x67..=0x8a | 0x8b..=0xa6 | 0xa7..=0xbf => {}
             0xfc => {
                 let subopcode = read_u32_immediate(code, &mut pc)?;
                 if subopcode > 7 {
@@ -3354,13 +3390,13 @@ mod tests {
     }
 
     #[test]
-    fn unsupported_opcode_is_rejected_before_execution() {
-        let bytes = module_with_body(0, 1, &[0x01, 0x0b]);
+    fn unsupported_typed_select_is_rejected_before_execution() {
+        let bytes = module_with_body(0, 1, &[0x1c, 0x0b]);
         let module = parse_module(&bytes).expect("parse test module");
         let error = Instance::new(module).expect_err("unsupported opcode must fail validation");
         assert!(matches!(
             error,
-            RuntimeError::Validation(ValidationError::UnsupportedOpcode { opcode: 0x01, .. })
+            RuntimeError::Validation(ValidationError::UnsupportedOpcode { opcode: 0x1c, .. })
         ));
     }
 }

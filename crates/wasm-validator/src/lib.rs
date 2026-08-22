@@ -209,6 +209,12 @@ pub enum ValidationError {
         offset: usize,
         depth: u32,
     },
+    BranchTableTypeMismatch {
+        function: usize,
+        offset: usize,
+        expected: Vec<ValueType>,
+        actual: Vec<ValueType>,
+    },
     UnexpectedElse {
         function: usize,
         offset: usize,
@@ -472,6 +478,15 @@ impl fmt::Display for ValidationError {
             } => write!(
                 f,
                 "function {function} branch at byte {offset} refers to missing label depth {depth}"
+            ),
+            Self::BranchTableTypeMismatch {
+                function,
+                offset,
+                expected,
+                actual,
+            } => write!(
+                f,
+                "function {function} br_table at byte {offset} mixes label types {expected:?} and {actual:?}"
             ),
             Self::UnexpectedElse { function, offset } => write!(
                 f,
@@ -1084,10 +1099,10 @@ mod tests {
         let valid = module_with_code(1, 1, vec![0x20, 0x00, 0x0f, 0x6a, 0x0b]);
         assert_eq!(validate(&valid), Ok(()));
 
-        let invalid = module_with_code(1, 1, vec![0x20, 0x00, 0x0f, 0x01, 0x0b]);
+        let invalid = module_with_code(1, 1, vec![0x20, 0x00, 0x0f, 0x1c, 0x0b]);
         assert!(matches!(
             validate(&invalid),
-            Err(ValidationError::UnsupportedOpcode { opcode: 0x01, .. })
+            Err(ValidationError::UnsupportedOpcode { opcode: 0x1c, .. })
         ));
     }
 

@@ -48,6 +48,7 @@ pub(super) fn validate_code(
         pc += 1;
 
         match opcode {
+            0x01 => {}
             0x02 | 0x03 => {
                 let signature = read_block_signature(module, code, &mut pc, function, offset)?;
                 let kind = if opcode == 0x02 {
@@ -119,6 +120,46 @@ pub(super) fn validate_code(
                 pop_expect(&mut stack, &controls, ValueType::I32, function, offset)?;
                 require_label_values(&stack, &controls, depth, function, offset)?;
             }
+            0x0e => {
+                let target_count = read_u32(code, &mut pc, function, offset)?;
+                let mut common_label_types = None::<Vec<ValueType>>;
+                for _ in 0..target_count {
+                    let depth = read_u32(code, &mut pc, function, offset)?;
+                    let label_types = control_at_depth(&controls, depth, function, offset)?
+                        .label_types
+                        .clone();
+                    if let Some(expected) = &common_label_types {
+                        if *expected != label_types {
+                            return Err(ValidationError::BranchTableTypeMismatch {
+                                function,
+                                offset,
+                                expected: expected.clone(),
+                                actual: label_types,
+                            });
+                        }
+                    } else {
+                        common_label_types = Some(label_types);
+                    }
+                }
+                let default_depth = read_u32(code, &mut pc, function, offset)?;
+                let default_label_types =
+                    control_at_depth(&controls, default_depth, function, offset)?
+                        .label_types
+                        .clone();
+                if let Some(expected) = &common_label_types {
+                    if *expected != default_label_types {
+                        return Err(ValidationError::BranchTableTypeMismatch {
+                            function,
+                            offset,
+                            expected: expected.clone(),
+                            actual: default_label_types,
+                        });
+                    }
+                }
+                pop_expect(&mut stack, &controls, ValueType::I32, function, offset)?;
+                require_label_values(&stack, &controls, default_depth, function, offset)?;
+                mark_unreachable(&mut stack, &mut controls);
+            }
             0x0f => {
                 require_label_values(
                     &stack,
@@ -159,6 +200,30 @@ pub(super) fn validate_code(
                 };
                 pop_expect(&mut stack, &controls, ValueType::I32, function, offset)?;
                 apply_call_signature(&mut stack, &controls, ty, function, offset)?;
+            }
+            0x1a => {
+                let _ = pop_any(&mut stack, &controls, function, offset)?;
+            }
+            0x1b => {
+                pop_expect(&mut stack, &controls, ValueType::I32, function, offset)?;
+                let second = pop_any(&mut stack, &controls, function, offset)?;
+                let first = pop_any(&mut stack, &controls, function, offset)?;
+                let result_type = match (first, second) {
+                    (Some(first), Some(second)) if first != second => {
+                        return Err(ValidationError::TypeMismatch {
+                            function,
+                            offset,
+                            expected: first,
+                            actual: second,
+                        });
+                    }
+                    (Some(first), Some(_)) | (Some(first), None) => Some(first),
+                    (None, Some(second)) => Some(second),
+                    (None, None) => None,
+                };
+                if let Some(result_type) = result_type {
+                    stack.push(result_type);
+                }
             }
             0x20 => {
                 let index = read_local(code, &mut pc, function, offset, local_types)?;
@@ -595,6 +660,24 @@ fn pop_expect(
         });
     }
     Ok(())
+}
+
+fn pop_any(
+    stack: &mut Vec<ValueType>,
+    controls: &[ControlFrame],
+    function: usize,
+    offset: usize,
+) -> Result<Option<ValueType>, ValidationError> {
+    let frame = controls
+        .last()
+        .ok_or(ValidationError::OperandStackUnderflow { function, offset })?;
+    if stack.len() == frame.height && frame.unreachable {
+        return Ok(None);
+    }
+    stack
+        .pop()
+        .map(Some)
+        .ok_or(ValidationError::OperandStackUnderflow { function, offset })
 }
 
 fn peek_expect(
