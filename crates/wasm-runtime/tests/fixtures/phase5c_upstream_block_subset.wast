@@ -3,18 +3,13 @@
 ;; source test/core/block.wast
 
 (module
-  (func $dummy)
-
-  (func (export "singular") (result i32)
-    (block (nop))
-    (block (result i32) (i32.const 7))
+  (func (export "as-return-value") (result i32)
+    (block (result i32) (i32.const 1))
+    (return)
   )
 
-  (func (export "nested") (result i32)
-    (block (result i32)
-      (block (call $dummy) (block) (nop))
-      (block (result i32) (call $dummy) (i32.const 9))
-    )
+  (func (export "as-br-value") (result i32)
+    (block (result i32) (br 0 (block (result i32) (i32.const 1))))
   )
 
   (func (export "break-value") (result i32)
@@ -77,8 +72,8 @@
   )
 )
 
-(assert_return (invoke "singular") (i32.const 7))
-(assert_return (invoke "nested") (i32.const 9))
+(assert_return (invoke "as-return-value") (i32.const 1))
+(assert_return (invoke "as-br-value") (i32.const 1))
 (assert_return (invoke "break-value") (i32.const 18))
 (assert_return
   (invoke "break-multi-value")
