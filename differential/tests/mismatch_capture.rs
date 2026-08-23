@@ -220,8 +220,9 @@ fn write_capture(
     let directory = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("target")
         .join("differential-captures");
-    fs::create_dir_all(&directory)
-        .unwrap_or_else(|error| panic!("failed to create capture directory {directory:?}: {error}"));
+    fs::create_dir_all(&directory).unwrap_or_else(|error| {
+        panic!("failed to create capture directory {directory:?}: {error}")
+    });
 
     let wat_path = directory.join(format!("{id}.wat"));
     fs::write(&wat_path, minimized.wat())
@@ -237,8 +238,9 @@ fn write_capture(
     let metadata = format!(
         "seed=0x{seed:016x}\ncase={case_index}\noriginal={original:?}\nminimized={minimized:?}\nmini={mini:?}\nreference={reference:?}\nmanifest={manifest_line}\n"
     );
-    fs::write(&metadata_path, metadata)
-        .unwrap_or_else(|error| panic!("failed to write capture metadata {metadata_path:?}: {error}"));
+    fs::write(&metadata_path, metadata).unwrap_or_else(|error| {
+        panic!("failed to write capture metadata {metadata_path:?}: {error}")
+    });
 
     CaptureFiles {
         directory,
