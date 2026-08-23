@@ -423,7 +423,13 @@ fn generated_table_differentials_capture_and_shrink_real_mismatches() {
         );
     }
 
-    assert!(successful > 0, "table corpus must exercise successful calls");
-    assert!(null_traps > 0, "table corpus must exercise null indirect calls");
+    assert!(
+        successful > 0,
+        "table corpus must exercise successful calls"
+    );
+    assert!(
+        null_traps > 0,
+        "table corpus must exercise null indirect calls"
+    );
     assert!(oob_traps > 0, "table corpus must exercise table OOB traps");
 }
