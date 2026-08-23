@@ -55,7 +55,8 @@ fn run_mini(bytes: &[u8]) -> MemoryOutcome {
 }
 
 fn run_reference(engine: &Engine, bytes: &[u8]) -> MemoryOutcome {
-    let module = ReferenceModule::new(engine, bytes).expect("memory capture candidate must compile");
+    let module =
+        ReferenceModule::new(engine, bytes).expect("memory capture candidate must compile");
     let mut store = Store::new(engine, ());
     let instance = ReferenceInstance::new(&mut store, &module, &[])
         .expect("memory capture candidate must instantiate in Wasmtime");
@@ -140,7 +141,10 @@ fn i32_candidates(value: i32) -> Vec<i32> {
 }
 
 fn shrink_case(mut case: MemoryCase, mut reproduces: impl FnMut(MemoryCase) -> bool) -> MemoryCase {
-    assert!(reproduces(case), "memory shrinker requires a reproducing input");
+    assert!(
+        reproduces(case),
+        "memory shrinker requires a reproducing input"
+    );
 
     loop {
         let mut changed = false;
@@ -376,7 +380,10 @@ fn generated_memory_differentials_capture_and_shrink_real_mismatches() {
         );
     }
 
-    assert!(in_bounds > 0, "memory corpus must exercise successful accesses");
+    assert!(
+        in_bounds > 0,
+        "memory corpus must exercise successful accesses"
+    );
     assert!(
         out_of_bounds > 0,
         "memory corpus must exercise out-of-bounds traps"
