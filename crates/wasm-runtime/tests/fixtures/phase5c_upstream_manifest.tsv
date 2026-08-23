@@ -3,6 +3,7 @@ fc209c5ed8afc4dfeb9252024d217da3376c7a6f	test/core/func.wast	phase5c_upstream_fu
 fc209c5ed8afc4dfeb9252024d217da3376c7a6f	test/core/i32.wast	phase5c_upstream_i32_subset.wast	1	7	0
 fc209c5ed8afc4dfeb9252024d217da3376c7a6f	test/core/memory.wast	phase5c_upstream_memory_subset.wast	2	14	0
 fc209c5ed8afc4dfeb9252024d217da3376c7a6f	test/core/memory_grow.wast	phase5c_upstream_memory_grow_subset.wast	3	48	0
+fc209c5ed8afc4dfeb9252024d217da3376c7a6f	test/core/float_memory.wast	phase5c_upstream_float_memory_subset.wast	6	12	0
 fc209c5ed8afc4dfeb9252024d217da3376c7a6f	test/core/address.wast	phase5c_upstream_address_subset.wast	2	60	0
 fc209c5ed8afc4dfeb9252024d217da3376c7a6f	test/core/br.wast	phase5c_upstream_br_subset.wast	1	25	0
 fc209c5ed8afc4dfeb9252024d217da3376c7a6f	test/core/br_if.wast	phase5c_upstream_br_if_subset.wast	1	57	0
