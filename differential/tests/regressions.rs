@@ -85,8 +85,14 @@ fn parse_expected(kind: &str, value: &str) -> Outcome {
 }
 
 fn validate_relative_fixture_path(path: &Path) {
-    assert!(!path.as_os_str().is_empty(), "regression fixture path is empty");
-    assert!(!path.is_absolute(), "regression fixture path must be relative");
+    assert!(
+        !path.as_os_str().is_empty(),
+        "regression fixture path is empty"
+    );
+    assert!(
+        !path.is_absolute(),
+        "regression fixture path must be relative"
+    );
     for component in path.components() {
         assert!(
             matches!(component, Component::Normal(_)),
@@ -126,7 +132,10 @@ fn load_manifest() -> Vec<Regression> {
         let fixture = PathBuf::from(fields[1].trim());
         let kind = fields[2].trim();
         let expected = fields[3].trim();
-        assert!(!id.is_empty(), "manifest line {line_number} has an empty id");
+        assert!(
+            !id.is_empty(),
+            "manifest line {line_number} has an empty id"
+        );
         validate_relative_fixture_path(&fixture);
         assert!(
             ids.insert(id.to_owned()),
