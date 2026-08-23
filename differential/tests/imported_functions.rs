@@ -53,7 +53,9 @@ fn make_mini_stateful(bytes: &[u8], state: Arc<Mutex<i64>>) -> MiniInstance {
             vec![ValueType::I64],
             HostCapabilities::NONE,
             move |_ctx, args| {
-                let mut value = callback_state.lock().expect("mini host-state mutex poisoned");
+                let mut value = callback_state
+                    .lock()
+                    .expect("mini host-state mutex poisoned");
                 *value = value.wrapping_add(args[0].as_i64());
                 Ok(Some(Value::I64(*value)))
             },
@@ -98,7 +100,9 @@ fn generated_stateful_imported_functions_match_wasmtime() {
         let inputs: Vec<i64> = (0..CALLS).map(|_| rng.next_i64()).collect();
         let wat = stateful_host_wat(salt);
         let bytes = wat::parse_str(&wat).unwrap_or_else(|error| {
-            panic!("generated imported-function WAT failed at seed={SEED:#018x} case={case}: {error}")
+            panic!(
+                "generated imported-function WAT failed at seed={SEED:#018x} case={case}: {error}"
+            )
         });
 
         let mini_state = Arc::new(Mutex::new(initial_state));
@@ -128,7 +132,10 @@ fn generated_stateful_imported_functions_match_wasmtime() {
                 panic!("Wasmtime imported-function call trapped at seed={SEED:#018x} case={case} call={call}: {error:?}")
             });
 
-            assert_eq!(mini_value, expected, "mini mismatch at case={case} call={call}");
+            assert_eq!(
+                mini_value, expected,
+                "mini mismatch at case={case} call={call}"
+            );
             assert_eq!(
                 reference_value, expected,
                 "Wasmtime mismatch at case={case} call={call}"
@@ -159,7 +166,8 @@ fn imported_host_state_is_shared_across_two_instances() {
     let mut mini_second = make_mini_stateful(&bytes, Arc::clone(&mini_state));
 
     let engine = Engine::default();
-    let module = ReferenceModule::new(&engine, &bytes).expect("compile Wasmtime shared-host module");
+    let module =
+        ReferenceModule::new(&engine, &bytes).expect("compile Wasmtime shared-host module");
     let mut store = Store::new(&engine, ());
     let reference_state = Arc::new(Mutex::new(11_i64));
     let callback_state = Arc::clone(&reference_state);
@@ -174,7 +182,9 @@ fn imported_host_state_is_shared_across_two_instances() {
     let first = ReferenceInstance::new(&mut store, &module, &imports).unwrap();
     let second = ReferenceInstance::new(&mut store, &module, &imports).unwrap();
     let first_run = first.get_typed_func::<i64, i64>(&mut store, "run").unwrap();
-    let second_run = second.get_typed_func::<i64, i64>(&mut store, "run").unwrap();
+    let second_run = second
+        .get_typed_func::<i64, i64>(&mut store, "run")
+        .unwrap();
 
     let inputs = [3_i64, -7, 19, i64::MAX, 5];
     let mut expected_state = 11_i64;
@@ -275,10 +285,9 @@ fn mixed_numeric_imported_function_parameters_match_wasmtime() {
     let engine = Engine::default();
     let module = ReferenceModule::new(&engine, &bytes).unwrap();
     let mut store = Store::new(&engine, ());
-    let host = Func::wrap(
-        &mut store,
-        |a: i32, b: i64, c: f32, d: f64| -> i64 { mixed_host_expected(a, b, c, d) },
-    );
+    let host = Func::wrap(&mut store, |a: i32, b: i64, c: f32, d: f64| -> i64 {
+        mixed_host_expected(a, b, c, d)
+    });
     let instance = ReferenceInstance::new(&mut store, &module, &[Extern::Func(host)]).unwrap();
     let run = instance
         .get_typed_func::<(i32, i64, f32, f64), i64>(&mut store, "run")
