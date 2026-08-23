@@ -20,6 +20,8 @@ A host-memory tranche exercises imported callbacks that read and write guest lin
 
 A host-failure tranche interleaves 96 successful and rejected imported callback invocations. Both callbacks increment host-owned state before returning; rejected calls must normalize to one `callback-rejected` semantic class, leave guest state unchanged, and allow later calls to execute normally. The mini runtime is matched by its typed `RuntimeError::HostCallFailed`/`HostError::Message` boundary, while Wasmtime is classified by downcasting the original custom host error type rather than inspecting diagnostic text.
 
+An automatic capture tranche generates 64 additional i32 arithmetic/bitwise/shift/rotate cases and carries a deterministic reducer that only accepts strictly simpler operand values while the same mini-vs-Wasmtime mismatch remains reproducible. A mismatch is eligible for capture only when Wasmtime also agrees with the independent Rust-side model, preventing an untrusted reference/model disagreement from being promoted as a mini-runtime regression. The minimized WAT, a `manifest.tsv`-compatible row, and provenance metadata are written under `differential/target/differential-captures/`; failed differential CI uploads that directory as a seven-day artifact when files exist.
+
 A manifest-driven regression replay corpus keeps small WAT reproducers under `tests/fixtures/regressions/`. The initial 10 seeded fixtures cover control-flow result preservation, signed-zero float semantics, multi-value ordering, memory and table bounds traps, integer arithmetic traps, invalid conversion, and indirect-call null/signature failures. The manifest records exact normalized expectations, and the runner requires the mini runtime and Wasmtime to agree with them. Seeded fixtures are regression guards, not claims of previously observed bugs.
 
 ## Boundary
@@ -34,7 +36,8 @@ A manifest-driven regression replay corpus keeps small WAT reproducers under `te
 - Imported-table cases compare guest-visible indirect-call results, host mutation visibility, null traps, and limit compatibility. They do not pretend that cross-instance imported-table aliasing exists where the mini runtime explicitly rejects it.
 - Host-memory cases compare permitted read/write behavior against Wasmtime while treating the mini runtime's explicit capability policy as its own fail-closed security boundary.
 - Host-failure cases compare explicit callback rejection by typed semantic identity on the reference side, verify host side effects that occur before the rejection, and prove that guest instructions after the failed call do not execute.
-- Regression replay rejects malformed manifest rows, duplicate IDs/paths, unsafe fixture paths, missing files, unknown outcome kinds/classes, unexpected result shapes, and unmapped traps.
+- Automatic capture is fail-closed: it shrinks only a real cross-engine mismatch whose Wasmtime result matches the independent model, and it never edits the committed regression corpus by itself.
+- Regression replay rejects malformed manifest rows, duplicate IDs or fixture paths, unsafe/non-WAT paths, missing files, unknown kinds/classes, unexpected result shapes, and unmapped traps.
 - Wasmtime and WAT tooling live only in this nested test workspace. They are not product dependencies and do not change the Rust 1.81 product MSRV.
 - Differential CI runs every integration target under `differential/tests/`.
 
@@ -44,4 +47,4 @@ Run locally with:
 cargo test --manifest-path differential/Cargo.toml -- --nocapture
 ```
 
-Future expansion should automatically capture and shrink real differential mismatches into this replay format, extend comparable host-failure normalization to additional stable typed failure surfaces, and broaden stateful multi-value sequences.
+A captured artifact is promotion-ready but still requires review before its minimized WAT and manifest row are copied into `tests/fixtures/regressions/`. Future expansion should broaden the reducer beyond the generated i32 domain, extend stable typed host-failure normalization, and automate more of the reviewed promotion workflow without silently committing CI output.
