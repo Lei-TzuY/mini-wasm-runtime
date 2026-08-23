@@ -30,7 +30,9 @@ The table capture tranche adds 96 deterministic `call_indirect` modules over a t
 
 The imported-function capture tranche crosses the host boundary with 48 deterministic stateful `i64 -> i64` callbacks and one-to-five-call traces. The independent model predicts every guest-visible XOR result and the final host-owned wrapping state. Reference-backed disagreements shrink the call-sequence length, initial host state, guest salt, and individual inputs under a strictly decreasing rank. Because the existing four-field replay manifest intentionally assumes no imports, captures instead emit a companion `.import.tsv` driver describing the host behavior, initial state, inputs, expected result trace, and final state alongside the minimized WAT and provenance metadata.
 
-A manifest-driven regression replay corpus keeps small WAT reproducers under `tests/fixtures/regressions/`. The initial 10 seeded fixtures cover control-flow result preservation, signed-zero float semantics, multi-value ordering, memory and table bounds traps, integer arithmetic traps, invalid conversion, and indirect-call null/signature failures. The manifest records exact normalized expectations, and the runner requires the mini runtime and Wasmtime to agree with them. Seeded fixtures are regression guards, not claims of previously observed bugs.
+An import-aware regression replay corpus now lives under `tests/fixtures/import_regressions/`. Its eight-field manifest is directly compatible with the driver row emitted by imported-function captures and makes host behavior, initial state, salt, inputs, expected result trace, and final host state reviewable in one place. The harness independently recomputes the full `stateful_i64_add` recurrence before execution, compiles each WAT once, and requires the mini runtime and Wasmtime to reproduce the same complete trace. Two seeded ordinary/wrapping fixtures establish the promotion path without claiming previously observed production bugs.
+
+A manifest-driven regression replay corpus keeps small no-import WAT reproducers under `tests/fixtures/regressions/`. The initial 10 seeded fixtures cover control-flow result preservation, signed-zero float semantics, multi-value ordering, memory and table bounds traps, integer arithmetic traps, invalid conversion, and indirect-call null/signature failures. The manifest records exact normalized expectations, and the runner requires the mini runtime and Wasmtime to agree with them. Seeded fixtures are regression guards, not claims of previously observed bugs.
 
 ## Boundary
 
@@ -48,8 +50,9 @@ A manifest-driven regression replay corpus keeps small WAT reproducers under `te
 - Memory capture additionally requires exact typed memory-OOB normalization and shrinks only address/offset/value candidates whose lexicographic complexity is strictly lower.
 - Multi-value capture requires Wasmtime to match the independently selected pair and shrinks condition/branch constants only through strictly lower-ranked candidates.
 - Table capture requires exact result/null/OOB oracle agreement and only accepts selector/initializer/value reductions with strictly lower rank.
-- Imported-function capture requires the complete Wasmtime result trace and final host state to match the independent recurrence. Its driver file is staging metadata, not a claim that the current no-import replay harness can consume imported fixtures directly.
-- Regression replay rejects malformed manifest rows, duplicate IDs or fixture paths, unsafe/non-WAT paths, missing files, unknown kinds/classes, unexpected result shapes, and unmapped traps.
+- Imported-function capture requires the complete Wasmtime result trace and final host state to match the independent recurrence. Its `.import.tsv` row is staging metadata until reviewed and promoted into the import-regression manifest.
+- Import-regression replay rejects malformed eight-field rows, duplicate IDs/fixtures, unsafe/non-WAT paths, missing files, unsupported host behavior, empty traces, malformed i64 values, result/input length mismatches, and expectations that disagree with the independent recurrence.
+- No-import regression replay rejects malformed manifest rows, duplicate IDs or fixture paths, unsafe/non-WAT paths, missing files, unknown kinds/classes, unexpected result shapes, and unmapped traps.
 - Wasmtime and WAT tooling live only in this nested test workspace. They are not product dependencies and do not change the Rust 1.81 product MSRV.
 - Differential CI runs every integration target under `differential/tests/`.
 
@@ -59,4 +62,4 @@ Run locally with:
 cargo test --manifest-path differential/Cargo.toml -- --nocapture
 ```
 
-A captured artifact is promotion-ready for the existing no-import domains but still requires review before its minimized WAT and manifest row are copied into `tests/fixtures/regressions/`. Imported-function captures are driver-complete staging artifacts and still need a reviewed import-aware replay/promotion path. Future expansion should automate that path, extend stable typed host-failure normalization, and broaden import capture to host globals/memory/tables without silently committing CI output.
+Captured no-import and imported-function artifacts now both have reviewed replay destinations, but promotion remains deliberate and CI never edits committed fixtures. Future expansion should broaden import capture/replay to host globals, memory, and tables, extend stable typed host-failure normalization, and automate more review assistance without silently committing CI output.
