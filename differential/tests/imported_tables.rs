@@ -82,7 +82,7 @@ fn imported_table_dispatch_and_host_mutation_match_wasmtime() {
         state ^= state >> 7;
         state ^= state << 17;
         let value = state as u32 as i32;
-        let slot = (case & 1) as i32;
+        let slot = case & 1;
         let expected = expected(value, slot);
 
         let mini_value = mini
