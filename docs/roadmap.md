@@ -122,7 +122,8 @@ The roadmap favors complete vertical slices over a broad but shallow decoder.
 - [x] imported table dispatch, host-mutation, null-trap, and limit-matching differentials
 - [x] host callback guest-memory read/write differentials plus fail-closed capability and bounds guards
 - [x] imported callback failure normalization with typed Wasmtime error downcast and post-trap recovery/state checks
-- [ ] automatically capture/shrink real mismatches and extend stable typed host-failure normalization
+- [x] initial automatic reference-backed mismatch shrinking and CI capture artifacts for generated i32 cases
+- [ ] broaden mismatch shrinking/reviewed promotion beyond generated i32 and extend stable typed host-failure normalization
 - [x] initial deterministic interpreter benchmark workloads and smoke harness
 - [ ] establish controlled-host baselines and a performance regression policy
 - [x] initial malformed-binary parser corpus
