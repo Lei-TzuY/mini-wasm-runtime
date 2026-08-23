@@ -124,7 +124,8 @@ The roadmap favors complete vertical slices over a broad but shallow decoder.
 - [x] imported callback failure normalization with typed Wasmtime error downcast and post-trap recovery/state checks
 - [x] initial automatic reference-backed mismatch shrinking and CI capture artifacts for generated i32 cases
 - [x] memory value/OOB mismatch capture with boundary-aware address/offset/value shrinking
-- [ ] broaden mismatch shrinking/reviewed promotion to multi-value, tables, imports, and additional stable typed host failures
+- [x] structured multi-value mismatch capture with branch/value shrinking and replay-ready tuples
+- [ ] broaden mismatch shrinking/reviewed promotion to tables, imports, and additional stable typed host failures
 - [x] initial deterministic interpreter benchmark workloads and smoke harness
 - [ ] establish controlled-host baselines and a performance regression policy
 - [x] initial malformed-binary parser corpus
