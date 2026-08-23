@@ -33,6 +33,8 @@
 
 (module
   (memory 1)
+  (data (i32.const 0) "abcdefgh")
+  (data (i32.const 0xfff8) "abcdefgh")
 
   (func (export "i32.load") (param $a i32) (result i32)
     (i32.load (local.get $a)))
@@ -131,3 +133,16 @@
 (assert_trap (invoke "i64.load32_s" (i32.const -1)) "out of bounds memory access")
 (assert_trap (invoke "i64.load32_u" (i32.const 0xfffd)) "out of bounds memory access")
 (assert_trap (invoke "i64.load32_u" (i32.const -1)) "out of bounds memory access")
+
+(assert_return (invoke "i64.load" (i32.const 0xfff8)) (i64.const 0x6867666564636261))
+(assert_return (invoke "i64.load" (i32.const 0)) (i64.const 0x6867666564636261))
+
+(assert_return (invoke "i64.store" (i32.const 0xfff8) (i64.const 0)))
+(assert_trap (invoke "i32.store" (i32.const 0xfffd) (i32.const 0x12345678)) "out of bounds memory access")
+(assert_return (invoke "i32.load" (i32.const 0xfffc)) (i32.const 0))
+(assert_trap (invoke "i64.store" (i32.const 0xfff9) (i64.const 0x1234567890abcdef)) "out of bounds memory access")
+(assert_return (invoke "i64.load" (i32.const 0xfff8)) (i64.const 0))
+(assert_trap (invoke "f32.store" (i32.const 0xfffd) (f32.const 0x12345678)) "out of bounds memory access")
+(assert_return (invoke "f32.load" (i32.const 0xfffc)) (f32.const 0))
+(assert_trap (invoke "f64.store" (i32.const 0xfff9) (f64.const 0x1234567890abcdef)) "out of bounds memory access")
+(assert_return (invoke "f64.load" (i32.const 0xfff8)) (f64.const 0))
