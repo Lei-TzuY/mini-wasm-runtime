@@ -3,7 +3,7 @@ use wasm_parser::parse_module;
 use wasm_runtime::{Instance, RuntimeError, Value};
 use wast::core::{NanPattern, WastArgCore, WastRetCore};
 use wast::parser::{self, ParseBuffer};
-use wast::{QuoteWat, Wast, WastArg, WastDirective, WastExecute, WastRet, Wat};
+use wast::{QuoteWat, Wast, WastArg, WastDirective, WastExecute, WastInvoke, WastRet, Wat};
 
 const CONTRACT_FIXTURE: &str = include_str!("fixtures/phase5c_ingestion_contract.wast");
 const UPSTREAM_MANIFEST: &str = include_str!("fixtures/phase5c_upstream_manifest.tsv");
@@ -45,6 +45,7 @@ enum FilterReason {
 struct IngestionReport {
     modules: usize,
     executed_assertions: usize,
+    executed_invocations: usize,
     skipped: Vec<FilterReason>,
 }
 
@@ -117,13 +118,7 @@ fn translate_expected(result: WastRet<'_>) -> Result<ExpectedValue, FilterReason
     }
 }
 
-fn translate_invoke(exec: WastExecute<'_>) -> Result<(&str, Vec<Value>), FilterReason> {
-    let invoke = match exec {
-        WastExecute::Invoke(invoke) => invoke,
-        other => {
-            return Err(FilterReason::UnsupportedExecution(format!("{other:?}")));
-        }
-    };
+fn translate_wast_invoke(invoke: WastInvoke<'_>) -> Result<(&str, Vec<Value>), FilterReason> {
     if invoke.module.is_some() {
         return Err(FilterReason::NamedModuleInvocation);
     }
@@ -133,6 +128,13 @@ fn translate_invoke(exec: WastExecute<'_>) -> Result<(&str, Vec<Value>), FilterR
         .map(translate_argument)
         .collect::<Result<Vec<_>, _>>()?;
     Ok((invoke.name, args))
+}
+
+fn translate_invoke(exec: WastExecute<'_>) -> Result<(&str, Vec<Value>), FilterReason> {
+    match exec {
+        WastExecute::Invoke(invoke) => translate_wast_invoke(invoke),
+        other => Err(FilterReason::UnsupportedExecution(format!("{other:?}"))),
+    }
 }
 
 fn translate_trap(message: &str) -> Result<TrapKind, FilterReason> {
@@ -214,6 +216,25 @@ fn run_fixture(source: &str) -> IngestionReport {
                 instance =
                     Some(Instance::new(parsed).expect("encoded supported module must instantiate"));
                 report.modules += 1;
+            }
+            WastDirective::Invoke(invoke) => {
+                let (name, args) = match translate_wast_invoke(invoke) {
+                    Ok(invoke) => invoke,
+                    Err(reason) => {
+                        report.skipped.push(reason);
+                        continue;
+                    }
+                };
+                let actual = instance
+                    .as_mut()
+                    .expect("bare invoke requires a preceding supported module")
+                    .invoke_export_values(name, &args)
+                    .expect("bare invoke must not trap");
+                assert!(
+                    actual.is_empty(),
+                    "bare invoke support is intentionally limited to zero-result exports: {name} returned {actual:?}"
+                );
+                report.executed_invocations += 1;
             }
             WastDirective::AssertReturn { exec, results, .. } => {
                 let (name, args) = match translate_invoke(exec) {
@@ -365,7 +386,8 @@ fn systematic_wast_ingestion_executes_supported_subset_and_reports_filters() {
     let report = run_fixture(CONTRACT_FIXTURE);
 
     assert_eq!(report.modules, 1);
-    assert_eq!(report.executed_assertions, 4);
+    assert_eq!(report.executed_assertions, 5);
+    assert_eq!(report.executed_invocations, 1);
     assert_eq!(report.skipped.len(), 2);
     assert!(matches!(
         &report.skipped[0],
@@ -423,6 +445,11 @@ fn pinned_upstream_manifest_executes_with_exact_accounting() {
         assert_eq!(
             report.executed_assertions, entry.expected_executed_assertions,
             "upstream source {} executed-assertion accounting drifted",
+            entry.source
+        );
+        assert_eq!(
+            report.executed_invocations, 0,
+            "upstream source {} introduced bare invokes without explicit manifest accounting",
             entry.source
         );
         assert_eq!(
