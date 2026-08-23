@@ -130,8 +130,8 @@ fn run_mini_pair(bytes: &[u8]) -> (i32, i64) {
 }
 
 fn run_reference_pair(engine: &Engine, bytes: &[u8]) -> (i32, i64) {
-    let module = ReferenceModule::new(engine, bytes)
-        .expect("multi-value fixture must compile in Wasmtime");
+    let module =
+        ReferenceModule::new(engine, bytes).expect("multi-value fixture must compile in Wasmtime");
     let mut store = Store::new(engine, ());
     let instance = ReferenceInstance::new(&mut store, &module, &[])
         .expect("multi-value fixture must instantiate in Wasmtime");
