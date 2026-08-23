@@ -1,0 +1,3 @@
+# id	fixture	behavior	initial_state	salt	inputs	expected_results	expected_final_state
+stateful-i64-add-basic	stateful_i64_add_basic.wat	stateful_i64_add	10	7	3,-2	10,12	11
+stateful-i64-add-wrap	stateful_i64_add_wrap.wat	stateful_i64_add	9223372036854775807	-1	1,-1	9223372036854775807,-9223372036854775808	9223372036854775807
