@@ -113,16 +113,25 @@ fn host_memory_read_write_state_matches_wasmtime() {
         let reference_pair = reference_run
             .call(&mut store, (address, delta))
             .unwrap_or_else(|error| {
-                panic!("Wasmtime host-memory call failed at seed={SEED:#018x} case={case}: {error:?}")
+                panic!(
+                    "Wasmtime host-memory call failed at seed={SEED:#018x} case={case}: {error:?}"
+                )
             });
 
-        assert_eq!(mini_pair, (expected, expected), "mini mismatch at case={case}");
+        assert_eq!(
+            mini_pair,
+            (expected, expected),
+            "mini mismatch at case={case}"
+        );
         assert_eq!(
             reference_pair,
             (expected, expected),
             "Wasmtime mismatch at case={case}"
         );
-        assert_eq!(mini_pair, reference_pair, "differential mismatch at case={case}");
+        assert_eq!(
+            mini_pair, reference_pair,
+            "differential mismatch at case={case}"
+        );
     }
 }
 
