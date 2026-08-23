@@ -405,6 +405,12 @@ fn generated_multi_value_differentials_capture_and_shrink_real_mismatches() {
         );
     }
 
-    assert!(then_cases > 0, "multi-value corpus must exercise then branches");
-    assert!(else_cases > 0, "multi-value corpus must exercise else branches");
+    assert!(
+        then_cases > 0,
+        "multi-value corpus must exercise then branches"
+    );
+    assert!(
+        else_cases > 0,
+        "multi-value corpus must exercise else branches"
+    );
 }
