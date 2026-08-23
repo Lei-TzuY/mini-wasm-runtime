@@ -23,3 +23,11 @@ jobs:
         run: cargo clippy --manifest-path differential/Cargo.toml --all-targets -- -D warnings
       - name: Compare with Wasmtime
         run: cargo test --manifest-path differential/Cargo.toml -- --nocapture
+      - name: Upload minimized mismatch captures
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: differential-mismatch-captures
+          path: differential/target/differential-captures/
+          if-no-files-found: ignore
+          retention-days: 7
