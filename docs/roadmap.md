@@ -119,7 +119,8 @@ The roadmap favors complete vertical slices over a broad but shallow decoder.
 - [x] imported mutable-global/memory shared-state differential cases, including cross-instance aliasing
 - [x] initial minimized seeded differential regression replay corpus
 - [x] imported host-function state/ABI differentials, including cross-instance shared callback state
-- [ ] automatically capture/shrink real mismatches and broaden imported table/host-failure combinations
+- [x] imported table dispatch, host-mutation, null-trap, and limit-matching differentials
+- [ ] automatically capture/shrink real mismatches and add richer host-failure/capability combinations
 - [x] initial deterministic interpreter benchmark workloads and smoke harness
 - [ ] establish controlled-host baselines and a performance regression policy
 - [x] initial malformed-binary parser corpus
