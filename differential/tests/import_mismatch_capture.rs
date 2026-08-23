@@ -143,11 +143,14 @@ fn reproduces_reference_backed_mismatch(engine: &Engine, case: &ImportCase) -> b
     mini != reference && reference == case.expected()
 }
 
-fn value_rank(value: i64) -> (u64, bool) {
+type ValueRank = (u64, bool);
+type ImportCaseRank = (usize, ValueRank, ValueRank, Vec<ValueRank>);
+
+fn value_rank(value: i64) -> ValueRank {
     (value.unsigned_abs(), value.is_negative())
 }
 
-fn case_rank(case: &ImportCase) -> (usize, (u64, bool), (u64, bool), Vec<(u64, bool)>) {
+fn case_rank(case: &ImportCase) -> ImportCaseRank {
     (
         case.inputs.len(),
         value_rank(case.initial_state),
