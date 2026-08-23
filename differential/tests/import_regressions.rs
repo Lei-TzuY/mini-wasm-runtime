@@ -82,8 +82,7 @@ fn independent_expected(initial_state: i64, salt: i64, inputs: &[i64]) -> TraceO
 }
 
 fn load_manifest() -> Vec<ImportRegression> {
-    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("tests/fixtures/import_regressions");
+    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/import_regressions");
     let manifest_path = root.join("manifest.tsv");
     let manifest = fs::read_to_string(&manifest_path)
         .unwrap_or_else(|error| panic!("failed to read {manifest_path:?}: {error}"));
@@ -207,7 +206,9 @@ fn run_mini(bytes: &[u8], regression: &ImportRegression) -> TraceOutcome {
             }
         }
     }
-    let final_state = *state.lock().expect("read mini import-regression host state");
+    let final_state = *state
+        .lock()
+        .expect("read mini import-regression host state");
     TraceOutcome {
         results,
         final_state,
@@ -216,7 +217,8 @@ fn run_mini(bytes: &[u8], regression: &ImportRegression) -> TraceOutcome {
 }
 
 fn run_reference(engine: &Engine, bytes: &[u8], regression: &ImportRegression) -> TraceOutcome {
-    let module = ReferenceModule::new(engine, bytes).expect("import regression fixture must compile");
+    let module =
+        ReferenceModule::new(engine, bytes).expect("import regression fixture must compile");
     let state = Arc::new(Mutex::new(regression.initial_state));
     let callback_state = Arc::clone(&state);
     let mut store = Store::new(engine, ());
@@ -244,7 +246,9 @@ fn run_reference(engine: &Engine, bytes: &[u8], regression: &ImportRegression) -
             }
         }
     }
-    let final_state = *state.lock().expect("read Wasmtime import-regression host state");
+    let final_state = *state
+        .lock()
+        .expect("read Wasmtime import-regression host state");
     TraceOutcome {
         results,
         final_state,
