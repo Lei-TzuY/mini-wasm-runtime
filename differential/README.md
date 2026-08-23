@@ -18,19 +18,22 @@ An imported-table tranche compares deterministic indirect dispatch through a hos
 
 A host-memory tranche exercises imported callbacks that read and write guest linear memory. Across 96 deterministic updates, the callback return value and the guest's immediate `i32.load` must match an independent state model in both engines. Mini-only guards additionally verify that `NONE` denies reads, `MEMORY_READ` denies writes, and out-of-bounds host access fails without mutating memory.
 
+A host-failure tranche interleaves 96 successful and rejected imported callback invocations. Both callbacks increment host-owned state before returning; rejected calls must normalize to one `callback-rejected` semantic class, leave guest state unchanged, and allow later calls to execute normally. The mini runtime is matched by its typed `RuntimeError::HostCallFailed`/`HostError::Message` boundary, while Wasmtime is classified by downcasting the original custom host error type rather than inspecting diagnostic text.
+
 A manifest-driven regression replay corpus keeps small WAT reproducers under `tests/fixtures/regressions/`. The initial 10 seeded fixtures cover control-flow result preservation, signed-zero float semantics, multi-value ordering, memory and table bounds traps, integer arithmetic traps, invalid conversion, and indirect-call null/signature failures. The manifest records exact normalized expectations, and the runner requires the mini runtime and Wasmtime to agree with them. Seeded fixtures are regression guards, not claims of previously observed bugs.
 
 ## Boundary
 
 - Test modules must parse, validate, and instantiate in the mini runtime before execution; a validation failure is not counted as a runtime trap.
 - Successful scalar and supported multi-value results are compared exactly.
-- Supported trap cases are normalized to semantic classes rather than diagnostic strings. Current shared classes cover memory/table out-of-bounds, integer overflow, integer division by zero, invalid float-to-integer conversion, null indirect calls, and indirect-call signature mismatch.
+- Supported trap cases are normalized to semantic classes rather than diagnostic strings. Current shared classes cover memory/table out-of-bounds, integer overflow, integer division by zero, invalid float-to-integer conversion, null indirect calls, indirect-call signature mismatch, and explicit imported callback rejection.
 - Any unmapped runtime error or Wasmtime trap fails closed instead of being treated as generic trap equivalence.
 - Stateful cases reuse one instance per engine across repeated calls so mutable globals, memory persistence, table dispatch state, imported host-owned state, and imported callback state participate in observable results.
 - Imported global/memory cases compare both guest-visible outputs and host-visible backing values; the shared-instance fixture verifies that two live instances observe the same imported backing.
 - Imported-function cases compare deterministic host callback side effects as well as typed ABI values; the shared-state fixture alternates calls between two live guest instances bound to one host state per engine.
 - Imported-table cases compare guest-visible indirect-call results, host mutation visibility, null traps, and limit compatibility. They do not pretend that cross-instance imported-table aliasing exists where the mini runtime explicitly rejects it.
 - Host-memory cases compare permitted read/write behavior against Wasmtime while treating the mini runtime's explicit capability policy as its own fail-closed security boundary.
+- Host-failure cases compare explicit callback rejection by typed semantic identity on the reference side, verify host side effects that occur before the rejection, and prove that guest instructions after the failed call do not execute.
 - Regression replay rejects malformed manifest rows, duplicate IDs/paths, unsafe fixture paths, missing files, unknown outcome kinds/classes, unexpected result shapes, and unmapped traps.
 - Wasmtime and WAT tooling live only in this nested test workspace. They are not product dependencies and do not change the Rust 1.81 product MSRV.
 - Differential CI runs every integration target under `differential/tests/`.
@@ -41,4 +44,4 @@ Run locally with:
 cargo test --manifest-path differential/Cargo.toml -- --nocapture
 ```
 
-Future expansion should automatically capture and shrink real differential mismatches into this replay format, add normalized host-failure comparisons where both engines expose comparable semantics, and extend stateful multi-value sequences.
+Future expansion should automatically capture and shrink real differential mismatches into this replay format, extend comparable host-failure normalization to additional stable typed failure surfaces, and broaden stateful multi-value sequences.
