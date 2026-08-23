@@ -12,4 +12,6 @@ Supported outcome kinds are `i32`, `i64`, `pair_i32_i64`, and `trap`. Trap expec
 
 The replay harness rejects duplicate IDs or fixture paths, unsafe/non-WAT paths, missing files, malformed rows, unknown kinds/classes, validation or instantiation failures where an execution trap was expected, and any result or trap that does not match both the manifest and Wasmtime.
 
-When a real differential mismatch is discovered, minimize it before committing a new fixture, keep its ID stable, and record only the smallest observable behavior needed to prevent recurrence.
+Generated i32 differentials can automatically minimize a real mini-vs-Wasmtime mismatch into `differential/target/differential-captures/`. Each capture contains a minimized `.wat`, one `manifest.tsv`-compatible row, and provenance metadata. Differential CI uploads these files on failure when they exist. Capture is intentionally staging-only: CI never edits this committed corpus.
+
+Before promotion, review the independent-model agreement and minimized behavior, copy the `.wat` into this directory, append the supplied manifest row, keep the generated ID stable, and rerun the full differential suite. Record only the smallest observable behavior needed to prevent recurrence.
