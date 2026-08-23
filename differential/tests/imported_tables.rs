@@ -37,8 +37,11 @@ fn make_mini(bytes: &[u8], table: TableHandle) -> MiniInstance {
     hosts
         .register_table("env", "tab", table)
         .expect("register mini imported table");
-    MiniInstance::with_hosts(parse_module(bytes).expect("parse imported-table fixture"), hosts)
-        .expect("instantiate mini imported-table fixture")
+    MiniInstance::with_hosts(
+        parse_module(bytes).expect("parse imported-table fixture"),
+        hosts,
+    )
+    .expect("instantiate mini imported-table fixture")
 }
 
 fn make_reference(
@@ -85,7 +88,9 @@ fn imported_table_dispatch_and_host_mutation_match_wasmtime() {
         let mini_value = mini
             .invoke_export_values("run", &[Value::I32(value), Value::I32(slot)])
             .unwrap_or_else(|error| {
-                panic!("mini imported-table call failed at seed={SEED:#018x} case={case}: {error:?}")
+                panic!(
+                    "mini imported-table call failed at seed={SEED:#018x} case={case}: {error:?}"
+                )
             });
         let mini_value = match mini_value.as_slice() {
             [Value::I32(value)] => *value,
@@ -98,8 +103,14 @@ fn imported_table_dispatch_and_host_mutation_match_wasmtime() {
             });
 
         assert_eq!(mini_value, expected, "mini mismatch at case={case}");
-        assert_eq!(reference_value, expected, "Wasmtime mismatch at case={case}");
-        assert_eq!(mini_value, reference_value, "differential mismatch at case={case}");
+        assert_eq!(
+            reference_value, expected,
+            "Wasmtime mismatch at case={case}"
+        );
+        assert_eq!(
+            mini_value, reference_value,
+            "differential mismatch at case={case}"
+        );
     }
 
     let mini_slot_zero = mini_table
@@ -171,7 +182,10 @@ fn imported_table_limit_matching_agrees_with_wasmtime() {
         )
         .is_err();
 
-        assert!(mini_rejected, "mini accepted mismatched limits {minimum} {maximum:?}");
+        assert!(
+            mini_rejected,
+            "mini accepted mismatched limits {minimum} {maximum:?}"
+        );
         assert!(
             reference_rejected,
             "Wasmtime accepted mismatched limits {minimum} {maximum:?}"
