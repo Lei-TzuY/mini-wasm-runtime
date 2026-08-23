@@ -10,6 +10,8 @@ A deterministic generated numeric tranche emits 96 i32 modules from a committed 
 
 A deterministic stateful tranche emits 64 modules combining a mutable i32 global with persistent linear memory. Each module is invoked four times on one mini-runtime instance and one Wasmtime instance. The reference recurrence independently predicts the full four-call sequence, which checks state persistence, wrapping updates, memory load/store behavior, and cross-invocation observability together.
 
-The differential workflow now runs every integration target in the nested workspace, so future differential tranches do not require editing the CI command to become active.
+A table-dispatch state tranche emits 64 modules with two initialized funcref targets and a mutable selector that alternates the `call_indirect` target across six invocations. Both engines must produce the exact alternating target-result sequence. A separate structured multi-value tranche emits 96 `if (result i32 i64)` modules and checks exact value ordering and branch selection through the mini runtime's values API and Wasmtime's typed tuple ABI.
 
-Wasmtime and WAT remain confined to the nested workspace and dedicated Ubuntu CI job; no product dependency, workspace member, or Rust 1.81 MSRV change is introduced. Generated table transitions, larger multi-value/stateful corpora, broader trap taxonomy, and minimized differential regressions remain follow-up work.
+The differential workflow runs every integration target in the nested workspace, so future differential tranches do not require editing the CI command to become active.
+
+Wasmtime and WAT remain confined to the nested workspace and dedicated Ubuntu CI job; no product dependency, workspace member, or Rust 1.81 MSRV change is introduced. Imported/shared-state differentials, broader multi-value/state combinations, additional trap taxonomy, and minimized differential regressions remain follow-up work.
