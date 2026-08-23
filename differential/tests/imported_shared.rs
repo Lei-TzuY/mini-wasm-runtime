@@ -96,8 +96,8 @@ fn reference_imports(
     address: u32,
     initial_memory: i32,
 ) -> ReferenceImports {
-    let module =
-        ReferenceModule::new(engine, bytes).expect("imported-state fixture must compile in Wasmtime");
+    let module = ReferenceModule::new(engine, bytes)
+        .expect("imported-state fixture must compile in Wasmtime");
     let mut store = Store::new(engine, ());
     let global = Global::new(
         &mut store,
@@ -209,12 +209,18 @@ fn generated_imported_global_memory_state_matches_wasmtime() {
                     panic!("Wasmtime imported-state call trapped at seed={SEED:#018x} case={case} call={call}: {error:?}")
                 });
 
-            assert_eq!(mini_pair, expected, "mini result mismatch at case={case} call={call}");
+            assert_eq!(
+                mini_pair, expected,
+                "mini result mismatch at case={case} call={call}"
+            );
             assert_eq!(
                 reference_pair, expected,
                 "Wasmtime result mismatch at case={case} call={call}"
             );
-            assert_eq!(mini_pair, reference_pair, "differential result mismatch at case={case} call={call}");
+            assert_eq!(
+                mini_pair, reference_pair,
+                "differential result mismatch at case={case} call={call}"
+            );
             assert_eq!(mini_global.get(), Value::I32(expected_global));
             assert_eq!(read_mini_i32(&mini_memory, address), expected_memory);
             assert_eq!(
@@ -242,8 +248,12 @@ fn imported_global_and_memory_are_shared_across_two_instances() {
         .expect("seed shared mini memory");
     let make_mini = || {
         let mut hosts = HostRegistry::new();
-        hosts.register_global("env", "g", mini_global.clone()).unwrap();
-        hosts.register_memory("env", "mem", mini_memory.clone()).unwrap();
+        hosts
+            .register_global("env", "g", mini_global.clone())
+            .unwrap();
+        hosts
+            .register_memory("env", "mem", mini_memory.clone())
+            .unwrap();
         MiniInstance::with_hosts(parse_module(&bytes).unwrap(), hosts).unwrap()
     };
     let mut mini_first = make_mini();
