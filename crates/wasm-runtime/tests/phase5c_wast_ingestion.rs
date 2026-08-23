@@ -55,6 +55,7 @@ struct ManifestEntry<'a> {
     fixture: &'a str,
     expected_modules: usize,
     expected_executed_assertions: usize,
+    expected_executed_invocations: usize,
     expected_filtered: usize,
 }
 
@@ -321,8 +322,8 @@ fn parse_manifest(source: &str) -> Vec<ManifestEntry<'_>> {
             let fields = line.split('\t').collect::<Vec<_>>();
             assert_eq!(
                 fields.len(),
-                6,
-                "manifest line {} must contain exactly six tab-separated fields",
+                7,
+                "manifest line {} must contain exactly seven tab-separated fields",
                 line_index + 1
             );
             assert_eq!(
@@ -351,7 +352,8 @@ fn parse_manifest(source: &str) -> Vec<ManifestEntry<'_>> {
                 fixture: fields[2],
                 expected_modules: parse_count(fields[3], "module"),
                 expected_executed_assertions: parse_count(fields[4], "executed assertion"),
-                expected_filtered: parse_count(fields[5], "filtered directive"),
+                expected_executed_invocations: parse_count(fields[5], "executed invocation"),
+                expected_filtered: parse_count(fields[6], "filtered directive"),
             })
         })
         .collect()
@@ -448,8 +450,8 @@ fn pinned_upstream_manifest_executes_with_exact_accounting() {
             entry.source
         );
         assert_eq!(
-            report.executed_invocations, 0,
-            "upstream source {} introduced bare invokes without explicit manifest accounting",
+            report.executed_invocations, entry.expected_executed_invocations,
+            "upstream source {} executed-invocation accounting drifted",
             entry.source
         );
         assert_eq!(
