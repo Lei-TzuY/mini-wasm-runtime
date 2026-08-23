@@ -33,7 +33,8 @@ fn normalize_reference_table_error(error: &wasmtime::Error) -> TableTrapClass {
 }
 
 fn run_mini_table_trap(bytes: &[u8]) -> TableTrapClass {
-    let module = parse_module(bytes).expect("table differential fixture must parse in mini runtime");
+    let module =
+        parse_module(bytes).expect("table differential fixture must parse in mini runtime");
     let mut instance =
         MiniInstance::new(module).expect("table differential fixture must validate/instantiate");
     let error = instance
@@ -43,7 +44,8 @@ fn run_mini_table_trap(bytes: &[u8]) -> TableTrapClass {
 }
 
 fn run_reference_table_trap(engine: &Engine, bytes: &[u8]) -> TableTrapClass {
-    let module = ReferenceModule::new(engine, bytes).expect("table fixture must compile in Wasmtime");
+    let module =
+        ReferenceModule::new(engine, bytes).expect("table fixture must compile in Wasmtime");
     let mut store = Store::new(engine, ());
     let instance = ReferenceInstance::new(&mut store, &module, &[])
         .expect("table fixture must instantiate in Wasmtime");
@@ -148,7 +150,8 @@ impl XorShift64 {
 }
 
 fn run_mini_i32_sequence(bytes: &[u8], calls: usize) -> Vec<i32> {
-    let module = parse_module(bytes).expect("stateful differential fixture must parse in mini runtime");
+    let module =
+        parse_module(bytes).expect("stateful differential fixture must parse in mini runtime");
     let mut instance =
         MiniInstance::new(module).expect("stateful differential fixture must validate/instantiate");
     (0..calls)
@@ -166,7 +169,8 @@ fn run_mini_i32_sequence(bytes: &[u8], calls: usize) -> Vec<i32> {
 }
 
 fn run_reference_i32_sequence(engine: &Engine, bytes: &[u8], calls: usize) -> Vec<i32> {
-    let module = ReferenceModule::new(engine, bytes).expect("stateful fixture must compile in Wasmtime");
+    let module =
+        ReferenceModule::new(engine, bytes).expect("stateful fixture must compile in Wasmtime");
     let mut store = Store::new(engine, ());
     let instance = ReferenceInstance::new(&mut store, &module, &[])
         .expect("stateful fixture must instantiate in Wasmtime");
