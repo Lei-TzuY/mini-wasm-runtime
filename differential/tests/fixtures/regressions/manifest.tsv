@@ -1,0 +1,11 @@
+# id	fixture	outcome_kind	expected
+br-table-default	br_table_default.wat	i32	40
+f64-min-negative-zero	f64_min_negative_zero.wat	i64	-9223372036854775808
+multi-value-if-order	multi_value_if_order.wat	pair_i32_i64	7,9000000000
+memory-oob	memory_oob.wat	trap	memory_out_of_bounds
+integer-div-zero	integer_div_zero.wat	trap	integer_division_by_zero
+integer-div-overflow	integer_div_overflow.wat	trap	integer_overflow
+invalid-float-conversion	invalid_float_conversion.wat	trap	bad_conversion_to_integer
+indirect-null	indirect_null.wat	trap	indirect_call_to_null
+table-oob	table_oob.wat	trap	table_out_of_bounds
+indirect-bad-signature	indirect_bad_signature.wat	trap	bad_signature
