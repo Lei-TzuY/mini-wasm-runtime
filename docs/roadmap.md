@@ -116,7 +116,8 @@ The roadmap favors complete vertical slices over a broad but shallow decoder.
 - [x] deterministic differential module generation and initial exact trap-class normalization
 - [x] initial table/indirect-call trap normalization and stateful global/memory differential generation
 - [x] generated table-dispatch state transitions and structured multi-value differential cases
-- [ ] add imported/shared-state differential cases and minimized regression fixtures
+- [x] imported mutable-global/memory shared-state differential cases, including cross-instance aliasing
+- [ ] add minimized differential regression fixtures and broader imported function/table combinations
 - [x] initial deterministic interpreter benchmark workloads and smoke harness
 - [ ] establish controlled-host baselines and a performance regression policy
 - [x] initial malformed-binary parser corpus
