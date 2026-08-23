@@ -24,6 +24,8 @@ An automatic capture tranche generates 64 additional i32 arithmetic/bitwise/shif
 
 The memory capture tranche extends that pipeline beyond pure numeric expressions. Ninety-six deterministic one-page store/load modules span successful effective addresses and exact memory-out-of-bounds traps across multiple memarg offsets. The independent model computes the unsigned effective address and four-byte width before either engine runs. Eligible mismatches are shrunk across address, offset, and stored value while preserving reference/model agreement; captures emit either an `i32` manifest expectation or the existing `memory_out_of_bounds` trap class.
 
+The multi-value capture tranche adds 96 structured `if (result i32 i64)` cases with both then and else branches forced into the corpus. The independent model selects the exact `(i32, i64)` pair from the condition before either engine runs. Reference-backed disagreements are shrunk across the condition and all four branch constants under a strictly decreasing rank, including constants from the inactive branch, and emit the existing `pair_i32_i64` replay-manifest form.
+
 A manifest-driven regression replay corpus keeps small WAT reproducers under `tests/fixtures/regressions/`. The initial 10 seeded fixtures cover control-flow result preservation, signed-zero float semantics, multi-value ordering, memory and table bounds traps, integer arithmetic traps, invalid conversion, and indirect-call null/signature failures. The manifest records exact normalized expectations, and the runner requires the mini runtime and Wasmtime to agree with them. Seeded fixtures are regression guards, not claims of previously observed bugs.
 
 ## Boundary
@@ -40,6 +42,7 @@ A manifest-driven regression replay corpus keeps small WAT reproducers under `te
 - Host-failure cases compare explicit callback rejection by typed semantic identity on the reference side, verify host side effects that occur before the rejection, and prove that guest instructions after the failed call do not execute.
 - Automatic capture is fail-closed: it shrinks only a real cross-engine mismatch whose Wasmtime result matches the independent model, and it never edits the committed regression corpus by itself.
 - Memory capture additionally requires exact typed memory-OOB normalization and shrinks only address/offset/value candidates whose lexicographic complexity is strictly lower.
+- Multi-value capture requires Wasmtime to match the independently selected pair and shrinks condition/branch constants only through strictly lower-ranked candidates.
 - Regression replay rejects malformed manifest rows, duplicate IDs or fixture paths, unsafe/non-WAT paths, missing files, unknown kinds/classes, unexpected result shapes, and unmapped traps.
 - Wasmtime and WAT tooling live only in this nested test workspace. They are not product dependencies and do not change the Rust 1.81 product MSRV.
 - Differential CI runs every integration target under `differential/tests/`.
@@ -50,4 +53,4 @@ Run locally with:
 cargo test --manifest-path differential/Cargo.toml -- --nocapture
 ```
 
-A captured artifact is promotion-ready but still requires review before its minimized WAT and manifest row are copied into `tests/fixtures/regressions/`. Future expansion should extend capture/shrinking to multi-value, table, and imported-state domains, extend stable typed host-failure normalization, and automate more of the reviewed promotion workflow without silently committing CI output.
+A captured artifact is promotion-ready but still requires review before its minimized WAT and manifest row are copied into `tests/fixtures/regressions/`. Future expansion should extend capture/shrinking to table and imported-state domains, extend stable typed host-failure normalization, and automate more of the reviewed promotion workflow without silently committing CI output.
