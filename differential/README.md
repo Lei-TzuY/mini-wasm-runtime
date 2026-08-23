@@ -16,6 +16,8 @@ An imported-function tranche adds 48 deterministic stateful host-callback module
 
 An imported-table tranche compares deterministic indirect dispatch through a host-owned funcref table, active element initialization, same-instance host relocation/nulling of table entries, null-call traps, and import-limit matching against Wasmtime. Cross-instance sharing of one imported table remains intentionally excluded because mini-runtime function references are instance-bound and one `TableHandle` cannot currently back two live instances.
 
+A host-memory tranche exercises imported callbacks that read and write guest linear memory. Across 96 deterministic updates, the callback return value and the guest's immediate `i32.load` must match an independent state model in both engines. Mini-only guards additionally verify that `NONE` denies reads, `MEMORY_READ` denies writes, and out-of-bounds host access fails without mutating memory.
+
 A manifest-driven regression replay corpus keeps small WAT reproducers under `tests/fixtures/regressions/`. The initial 10 seeded fixtures cover control-flow result preservation, signed-zero float semantics, multi-value ordering, memory and table bounds traps, integer arithmetic traps, invalid conversion, and indirect-call null/signature failures. The manifest records exact normalized expectations, and the runner requires the mini runtime and Wasmtime to agree with them. Seeded fixtures are regression guards, not claims of previously observed bugs.
 
 ## Boundary
@@ -28,6 +30,7 @@ A manifest-driven regression replay corpus keeps small WAT reproducers under `te
 - Imported global/memory cases compare both guest-visible outputs and host-visible backing values; the shared-instance fixture verifies that two live instances observe the same imported backing.
 - Imported-function cases compare deterministic host callback side effects as well as typed ABI values; the shared-state fixture alternates calls between two live guest instances bound to one host state per engine.
 - Imported-table cases compare guest-visible indirect-call results, host mutation visibility, null traps, and limit compatibility. They do not pretend that cross-instance imported-table aliasing exists where the mini runtime explicitly rejects it.
+- Host-memory cases compare permitted read/write behavior against Wasmtime while treating the mini runtime's explicit capability policy as its own fail-closed security boundary.
 - Regression replay rejects malformed manifest rows, duplicate IDs/paths, unsafe fixture paths, missing files, unknown outcome kinds/classes, unexpected result shapes, and unmapped traps.
 - Wasmtime and WAT tooling live only in this nested test workspace. They are not product dependencies and do not change the Rust 1.81 product MSRV.
 - Differential CI runs every integration target under `differential/tests/`.
@@ -38,4 +41,4 @@ Run locally with:
 cargo test --manifest-path differential/Cargo.toml -- --nocapture
 ```
 
-Future expansion should automatically capture and shrink real differential mismatches into this replay format, add richer host-failure/capability comparisons, and extend stateful multi-value sequences.
+Future expansion should automatically capture and shrink real differential mismatches into this replay format, add normalized host-failure comparisons where both engines expose comparable semantics, and extend stateful multi-value sequences.
