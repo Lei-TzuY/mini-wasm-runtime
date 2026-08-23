@@ -2,7 +2,7 @@
 ;; commit fc209c5ed8afc4dfeb9252024d217da3376c7a6f
 ;; source test/core/float_memory.wast
 
-;; Aligned f32 NaN payload load is bit-preserving.
+;; Aligned f32 NaN payload load/store is bit-preserving.
 (module
   (memory (data "\00\00\a0\7f"))
 
@@ -15,8 +15,20 @@
 
 (assert_return (invoke "i32.load") (i32.const 0x7fa00000))
 (assert_return (invoke "f32.load") (f32.const nan:0x200000))
+(invoke "reset")
+(assert_return (invoke "i32.load") (i32.const 0x0))
+(assert_return (invoke "f32.load") (f32.const 0.0))
+(invoke "f32.store")
+(assert_return (invoke "i32.load") (i32.const 0x7fa00000))
+(assert_return (invoke "f32.load") (f32.const nan:0x200000))
+(invoke "reset")
+(assert_return (invoke "i32.load") (i32.const 0x0))
+(assert_return (invoke "f32.load") (f32.const 0.0))
+(invoke "i32.store")
+(assert_return (invoke "i32.load") (i32.const 0x7fa00000))
+(assert_return (invoke "f32.load") (f32.const nan:0x200000))
 
-;; Aligned f64 NaN payload load is bit-preserving.
+;; Aligned f64 NaN payload load/store is bit-preserving.
 (module
   (memory (data "\00\00\00\00\00\00\f4\7f"))
 
@@ -29,8 +41,20 @@
 
 (assert_return (invoke "i64.load") (i64.const 0x7ff4000000000000))
 (assert_return (invoke "f64.load") (f64.const nan:0x4000000000000))
+(invoke "reset")
+(assert_return (invoke "i64.load") (i64.const 0x0))
+(assert_return (invoke "f64.load") (f64.const 0.0))
+(invoke "f64.store")
+(assert_return (invoke "i64.load") (i64.const 0x7ff4000000000000))
+(assert_return (invoke "f64.load") (f64.const nan:0x4000000000000))
+(invoke "reset")
+(assert_return (invoke "i64.load") (i64.const 0x0))
+(assert_return (invoke "f64.load") (f64.const 0.0))
+(invoke "i64.store")
+(assert_return (invoke "i64.load") (i64.const 0x7ff4000000000000))
+(assert_return (invoke "f64.load") (f64.const nan:0x4000000000000))
 
-;; Unaligned f32 NaN payload load is still bit-preserving.
+;; Unaligned f32 NaN payload load/store is still bit-preserving.
 (module
   (memory (data "\00\00\00\a0\7f"))
 
@@ -43,8 +67,20 @@
 
 (assert_return (invoke "i32.load") (i32.const 0x7fa00000))
 (assert_return (invoke "f32.load") (f32.const nan:0x200000))
+(invoke "reset")
+(assert_return (invoke "i32.load") (i32.const 0x0))
+(assert_return (invoke "f32.load") (f32.const 0.0))
+(invoke "f32.store")
+(assert_return (invoke "i32.load") (i32.const 0x7fa00000))
+(assert_return (invoke "f32.load") (f32.const nan:0x200000))
+(invoke "reset")
+(assert_return (invoke "i32.load") (i32.const 0x0))
+(assert_return (invoke "f32.load") (f32.const 0.0))
+(invoke "i32.store")
+(assert_return (invoke "i32.load") (i32.const 0x7fa00000))
+(assert_return (invoke "f32.load") (f32.const nan:0x200000))
 
-;; Unaligned f64 NaN payload load is still bit-preserving.
+;; Unaligned f64 NaN payload load/store is still bit-preserving.
 (module
   (memory (data "\00\00\00\00\00\00\00\f4\7f"))
 
@@ -57,8 +93,20 @@
 
 (assert_return (invoke "i64.load") (i64.const 0x7ff4000000000000))
 (assert_return (invoke "f64.load") (f64.const nan:0x4000000000000))
+(invoke "reset")
+(assert_return (invoke "i64.load") (i64.const 0x0))
+(assert_return (invoke "f64.load") (f64.const 0.0))
+(invoke "f64.store")
+(assert_return (invoke "i64.load") (i64.const 0x7ff4000000000000))
+(assert_return (invoke "f64.load") (f64.const nan:0x4000000000000))
+(invoke "reset")
+(assert_return (invoke "i64.load") (i64.const 0x0))
+(assert_return (invoke "f64.load") (f64.const 0.0))
+(invoke "i64.store")
+(assert_return (invoke "i64.load") (i64.const 0x7ff4000000000000))
+(assert_return (invoke "f64.load") (f64.const nan:0x4000000000000))
 
-;; Alternate f32 NaN payload must not be canonicalized.
+;; Alternate f32 NaN payload must not be canonicalized by load/store.
 (module
   (memory (data "\01\00\d0\7f"))
 
@@ -71,8 +119,20 @@
 
 (assert_return (invoke "i32.load") (i32.const 0x7fd00001))
 (assert_return (invoke "f32.load") (f32.const nan:0x500001))
+(invoke "reset")
+(assert_return (invoke "i32.load") (i32.const 0x0))
+(assert_return (invoke "f32.load") (f32.const 0.0))
+(invoke "f32.store")
+(assert_return (invoke "i32.load") (i32.const 0x7fd00001))
+(assert_return (invoke "f32.load") (f32.const nan:0x500001))
+(invoke "reset")
+(assert_return (invoke "i32.load") (i32.const 0x0))
+(assert_return (invoke "f32.load") (f32.const 0.0))
+(invoke "i32.store")
+(assert_return (invoke "i32.load") (i32.const 0x7fd00001))
+(assert_return (invoke "f32.load") (f32.const nan:0x500001))
 
-;; Alternate f64 NaN payload must not be canonicalized.
+;; Alternate f64 NaN payload must not be canonicalized by load/store.
 (module
   (memory (data "\01\00\00\00\00\00\fc\7f"))
 
@@ -83,5 +143,17 @@
   (func (export "reset") (i64.store (i32.const 0) (i64.const 0)))
 )
 
+(assert_return (invoke "i64.load") (i64.const 0x7ffc000000000001))
+(assert_return (invoke "f64.load") (f64.const nan:0xc000000000001))
+(invoke "reset")
+(assert_return (invoke "i64.load") (i64.const 0x0))
+(assert_return (invoke "f64.load") (f64.const 0.0))
+(invoke "f64.store")
+(assert_return (invoke "i64.load") (i64.const 0x7ffc000000000001))
+(assert_return (invoke "f64.load") (f64.const nan:0xc000000000001))
+(invoke "reset")
+(assert_return (invoke "i64.load") (i64.const 0x0))
+(assert_return (invoke "f64.load") (f64.const 0.0))
+(invoke "i64.store")
 (assert_return (invoke "i64.load") (i64.const 0x7ffc000000000001))
 (assert_return (invoke "f64.load") (f64.const nan:0xc000000000001))
