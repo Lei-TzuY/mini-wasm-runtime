@@ -27,6 +27,8 @@ const UPSTREAM_LOCAL_GET_SUBSET: &str =
     include_str!("fixtures/phase5c_upstream_local_get_subset.wast");
 const UPSTREAM_LOCAL_SET_SUBSET: &str =
     include_str!("fixtures/phase5c_upstream_local_set_subset.wast");
+const UPSTREAM_LOCAL_TEE_SUBSET: &str =
+    include_str!("fixtures/phase5c_upstream_local_tee_subset.wast");
 const UPSTREAM_LOOP_SUBSET: &str = include_str!("fixtures/phase5c_upstream_loop_subset.wast");
 const UPSTREAM_MEMORY_GROW_SUBSET: &str =
     include_str!("fixtures/phase5c_upstream_memory_grow_subset.wast");
@@ -383,6 +385,7 @@ fn manifest_fixture(name: &str) -> &'static str {
         "phase5c_upstream_if_subset.wast" => UPSTREAM_IF_SUBSET,
         "phase5c_upstream_local_get_subset.wast" => UPSTREAM_LOCAL_GET_SUBSET,
         "phase5c_upstream_local_set_subset.wast" => UPSTREAM_LOCAL_SET_SUBSET,
+        "phase5c_upstream_local_tee_subset.wast" => UPSTREAM_LOCAL_TEE_SUBSET,
         "phase5c_upstream_loop_subset.wast" => UPSTREAM_LOOP_SUBSET,
         "phase5c_upstream_memory_grow_subset.wast" => UPSTREAM_MEMORY_GROW_SUBSET,
         "phase5c_upstream_memory_subset.wast" => UPSTREAM_MEMORY_SUBSET,
