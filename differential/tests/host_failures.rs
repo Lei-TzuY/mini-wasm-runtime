@@ -93,19 +93,16 @@ fn make_reference(
     let module = ReferenceModule::new(engine, bytes).expect("host-failure fixture must compile");
     let mut store = Store::new(engine, ());
     let callback_calls = Arc::clone(&host_calls);
-    let gate = Func::wrap(
-        &mut store,
-        move |input: i32| -> wasmtime::Result<i32> {
-            let mut calls = callback_calls
-                .lock()
-                .expect("Wasmtime host-call counter mutex poisoned");
-            *calls = calls.wrapping_add(1);
-            if should_reject(input) {
-                return Err(ReferenceError::new(SentinelHostFailure { input }));
-            }
-            Ok(input.wrapping_add(*calls))
-        },
-    );
+    let gate = Func::wrap(&mut store, move |input: i32| -> wasmtime::Result<i32> {
+        let mut calls = callback_calls
+            .lock()
+            .expect("Wasmtime host-call counter mutex poisoned");
+        *calls = calls.wrapping_add(1);
+        if should_reject(input) {
+            return Err(ReferenceError::new(SentinelHostFailure { input }));
+        }
+        Ok(input.wrapping_add(*calls))
+    });
     let instance = ReferenceInstance::new(&mut store, &module, &[Extern::Func(gate)])
         .expect("instantiate Wasmtime host-failure fixture");
     (store, instance)
@@ -156,8 +153,7 @@ fn imported_callback_failures_normalize_and_recover_like_wasmtime() {
     let reference_host_calls = Arc::new(Mutex::new(0_i32));
     let mut mini = make_mini(&bytes, Arc::clone(&mini_host_calls));
     let engine = Engine::default();
-    let (mut store, reference) =
-        make_reference(&engine, &bytes, Arc::clone(&reference_host_calls));
+    let (mut store, reference) = make_reference(&engine, &bytes, Arc::clone(&reference_host_calls));
     let reference_run = reference
         .get_typed_func::<i32, i32>(&mut store, "run")
         .expect("Wasmtime run export must be [i32] -> [i32]");
@@ -226,7 +222,10 @@ fn imported_callback_failures_normalize_and_recover_like_wasmtime() {
         );
     }
 
-    assert!(rejected > 0, "deterministic corpus must exercise host failures");
+    assert!(
+        rejected > 0,
+        "deterministic corpus must exercise host failures"
+    );
     assert!(
         rejected < CASES,
         "deterministic corpus must also exercise recovery after successful host calls"
