@@ -12,6 +12,8 @@ The next generated tranche adds 64 stateful table-dispatch modules whose mutable
 
 An imported/shared-state tranche adds 48 deterministic modules backed by host-owned mutable globals and linear memories. It checks repeated guest updates, mid-sequence host overrides, exact multi-value results, and host-visible backing state after every call. A two-instance case additionally binds the same global and memory into two live instances per engine and alternates execution between them to verify cross-instance aliasing.
 
+An imported-function tranche adds 48 deterministic stateful host-callback modules with exact cross-call host-state recurrence, a two-instance shared callback-state case, and a mixed `i32`/`i64`/`f32`/`f64` ABI case. The mini runtime and Wasmtime must agree on every guest-visible result and host-visible state transition.
+
 A manifest-driven regression replay corpus keeps small WAT reproducers under `tests/fixtures/regressions/`. The initial 10 seeded fixtures cover control-flow result preservation, signed-zero float semantics, multi-value ordering, memory and table bounds traps, integer arithmetic traps, invalid conversion, and indirect-call null/signature failures. The manifest records exact normalized expectations, and the runner requires the mini runtime and Wasmtime to agree with them. Seeded fixtures are regression guards, not claims of previously observed bugs.
 
 ## Boundary
@@ -20,8 +22,9 @@ A manifest-driven regression replay corpus keeps small WAT reproducers under `te
 - Successful scalar and supported multi-value results are compared exactly.
 - Supported trap cases are normalized to semantic classes rather than diagnostic strings. Current shared classes cover memory/table out-of-bounds, integer overflow, integer division by zero, invalid float-to-integer conversion, null indirect calls, and indirect-call signature mismatch.
 - Any unmapped runtime error or Wasmtime trap fails closed instead of being treated as generic trap equivalence.
-- Stateful cases reuse one instance per engine across repeated calls so mutable globals, memory persistence, table dispatch state, and imported host-owned state participate in observable results.
+- Stateful cases reuse one instance per engine across repeated calls so mutable globals, memory persistence, table dispatch state, imported host-owned state, and imported callback state participate in observable results.
 - Imported global/memory cases compare both guest-visible outputs and host-visible backing values; the shared-instance fixture verifies that two live instances observe the same imported backing.
+- Imported-function cases compare deterministic host callback side effects as well as typed ABI values; the shared-state fixture alternates calls between two live guest instances bound to one host state per engine.
 - Regression replay rejects malformed manifest rows, duplicate IDs/paths, unsafe fixture paths, missing files, unknown outcome kinds/classes, unexpected result shapes, and unmapped traps.
 - Wasmtime and WAT tooling live only in this nested test workspace. They are not product dependencies and do not change the Rust 1.81 product MSRV.
 - Differential CI runs every integration target under `differential/tests/`.
@@ -32,4 +35,4 @@ Run locally with:
 cargo test --manifest-path differential/Cargo.toml -- --nocapture
 ```
 
-Future expansion should automatically capture and shrink real differential mismatches into this replay format, broaden imported-function/table combinations, add more trap normalization, and extend stateful multi-value sequences.
+Future expansion should automatically capture and shrink real differential mismatches into this replay format, broaden imported-table scenarios, add more trap normalization, and extend stateful multi-value sequences.
