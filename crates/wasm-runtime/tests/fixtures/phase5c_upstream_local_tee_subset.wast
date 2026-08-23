@@ -1,0 +1,161 @@
+;; Curated supported subset from WebAssembly/spec
+;; commit fc209c5ed8afc4dfeb9252024d217da3376c7a6f
+;; source test/core/local_tee.wast
+
+(module
+  (func (export "type-local-i32") (result i32) (local i32)
+    (local.tee 0 (i32.const 0)))
+  (func (export "type-local-i64") (result i64) (local i64)
+    (local.tee 0 (i64.const 0)))
+  (func (export "type-local-f32") (result f32) (local f32)
+    (local.tee 0 (f32.const 0)))
+  (func (export "type-local-f64") (result f64) (local f64)
+    (local.tee 0 (f64.const 0)))
+
+  (func (export "type-param-i32") (param i32) (result i32)
+    (local.tee 0 (i32.const 10)))
+  (func (export "type-param-i64") (param i64) (result i64)
+    (local.tee 0 (i64.const 11)))
+  (func (export "type-param-f32") (param f32) (result f32)
+    (local.tee 0 (f32.const 11.1)))
+  (func (export "type-param-f64") (param f64) (result f64)
+    (local.tee 0 (f64.const 12.2)))
+
+  (func (export "type-mixed") (param i64 f32 f64 i32 i32) (local f32 i64 i64 f64)
+    (drop (i64.eqz (local.tee 0 (i64.const 0))))
+    (drop (f32.neg (local.tee 1 (f32.const 0))))
+    (drop (f64.neg (local.tee 2 (f64.const 0))))
+    (drop (i32.eqz (local.tee 3 (i32.const 0))))
+    (drop (i32.eqz (local.tee 4 (i32.const 0))))
+    (drop (f32.neg (local.tee 5 (f32.const 0))))
+    (drop (i64.eqz (local.tee 6 (i64.const 0))))
+    (drop (i64.eqz (local.tee 7 (i64.const 0))))
+    (drop (f64.neg (local.tee 8 (f64.const 0))))
+  )
+
+  (func (export "write") (param i64 f32 f64 i32 i32) (result i64) (local f32 i64 i64 f64)
+    (drop (local.tee 1 (f32.const -0.3)))
+    (drop (local.tee 3 (i32.const 40)))
+    (drop (local.tee 4 (i32.const -7)))
+    (drop (local.tee 5 (f32.const 5.5)))
+    (drop (local.tee 6 (i64.const 6)))
+    (drop (local.tee 8 (f64.const 8)))
+    (i64.trunc_f64_s
+      (f64.add
+        (f64.convert_i64_u (local.get 0))
+        (f64.add
+          (f64.promote_f32 (local.get 1))
+          (f64.add
+            (local.get 2)
+            (f64.add
+              (f64.convert_i32_u (local.get 3))
+              (f64.add
+                (f64.convert_i32_s (local.get 4))
+                (f64.add
+                  (f64.promote_f32 (local.get 5))
+                  (f64.add
+                    (f64.convert_i64_u (local.get 6))
+                    (f64.add
+                      (f64.convert_i64_u (local.get 7))
+                      (local.get 8)
+                    )
+                  )
+                )
+              )
+            )
+          )
+        )
+      )
+    )
+  )
+
+  (func (export "result") (param i64 f32 f64 i32 i32) (result f64)
+    (local f32 i64 i64 f64)
+    (f64.add
+      (f64.convert_i64_u (local.tee 0 (i64.const 1)))
+      (f64.add
+        (f64.promote_f32 (local.tee 1 (f32.const 2)))
+        (f64.add
+          (local.tee 2 (f64.const 3.3))
+          (f64.add
+            (f64.convert_i32_u (local.tee 3 (i32.const 4)))
+            (f64.add
+              (f64.convert_i32_s (local.tee 4 (i32.const 5)))
+              (f64.add
+                (f64.promote_f32 (local.tee 5 (f32.const 5.5)))
+                (f64.add
+                  (f64.convert_i64_u (local.tee 6 (i64.const 6)))
+                  (f64.add
+                    (f64.convert_i64_u (local.tee 7 (i64.const 0)))
+                    (local.tee 8 (f64.const 8))
+                  )
+                )
+              )
+            )
+          )
+        )
+      )
+    )
+  )
+
+  (func $dummy)
+
+  (func (export "as-block-first") (param i32) (result i32)
+    (block (result i32) (local.tee 0 (i32.const 1)) (call $dummy)))
+  (func (export "as-block-mid") (param i32) (result i32)
+    (block (result i32) (call $dummy) (local.tee 0 (i32.const 1)) (call $dummy)))
+  (func (export "as-block-last") (param i32) (result i32)
+    (block (result i32) (call $dummy) (call $dummy) (local.tee 0 (i32.const 1))))
+
+  (func (export "as-loop-first") (param i32) (result i32)
+    (loop (result i32) (local.tee 0 (i32.const 3)) (call $dummy)))
+  (func (export "as-loop-mid") (param i32) (result i32)
+    (loop (result i32) (call $dummy) (local.tee 0 (i32.const 4)) (call $dummy)))
+  (func (export "as-loop-last") (param i32) (result i32)
+    (loop (result i32) (call $dummy) (call $dummy) (local.tee 0 (i32.const 5))))
+
+  (func (export "as-br-value") (param i32) (result i32)
+    (block (result i32) (br 0 (local.tee 0 (i32.const 9)))))
+
+  (func (export "as-return-value") (param i32) (result i32)
+    (return (local.tee 0 (i32.const 7))))
+)
+
+(assert_return (invoke "type-local-i32") (i32.const 0))
+(assert_return (invoke "type-local-i64") (i64.const 0))
+(assert_return (invoke "type-local-f32") (f32.const 0))
+(assert_return (invoke "type-local-f64") (f64.const 0))
+
+(assert_return (invoke "type-param-i32" (i32.const 2)) (i32.const 10))
+(assert_return (invoke "type-param-i64" (i64.const 3)) (i64.const 11))
+(assert_return (invoke "type-param-f32" (f32.const 4.4)) (f32.const 11.1))
+(assert_return (invoke "type-param-f64" (f64.const 5.5)) (f64.const 12.2))
+
+(assert_return
+  (invoke "type-mixed"
+    (i64.const 1) (f32.const 2.2) (f64.const 3.3) (i32.const 4) (i32.const 5)
+  )
+)
+(assert_return
+  (invoke "write"
+    (i64.const 1) (f32.const 2) (f64.const 3.3) (i32.const 4) (i32.const 5)
+  )
+  (i64.const 56)
+)
+(assert_return
+  (invoke "result"
+    (i64.const -1) (f32.const -2) (f64.const -3.3) (i32.const -4) (i32.const -5)
+  )
+  (f64.const 34.8)
+)
+
+(assert_return (invoke "as-block-first" (i32.const 0)) (i32.const 1))
+(assert_return (invoke "as-block-mid" (i32.const 0)) (i32.const 1))
+(assert_return (invoke "as-block-last" (i32.const 0)) (i32.const 1))
+
+(assert_return (invoke "as-loop-first" (i32.const 0)) (i32.const 3))
+(assert_return (invoke "as-loop-mid" (i32.const 0)) (i32.const 4))
+(assert_return (invoke "as-loop-last" (i32.const 0)) (i32.const 5))
+
+(assert_return (invoke "as-br-value" (i32.const 0)) (i32.const 9))
+(assert_return (invoke "as-return-value" (i32.const 0)) (i32.const 7))
