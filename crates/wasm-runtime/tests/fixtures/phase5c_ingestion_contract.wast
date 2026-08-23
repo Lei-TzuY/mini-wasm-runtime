@@ -15,6 +15,12 @@
     i32.const 1
     i32.const 0
     i32.div_s)
+  (global $state (mut i32) (i32.const 0))
+  (func (export "set-state") (param i32)
+    local.get 0
+    global.set $state)
+  (func (export "get-state") (result i32)
+    global.get $state)
   (global (export "g") i32 (i32.const 5)))
 
 (assert_return (invoke "add" (i32.const 20) (i32.const 22)) (i32.const 42))
@@ -22,6 +28,10 @@
 (assert_return (invoke "nearest" (f64.const 2.5)) (f64.const 2.0))
 (assert_trap (invoke "divzero") "integer divide by zero")
 
-;; Explicitly unsupported by the initial ingestion filter. They must be reported, not silently ignored.
+;; Bare zero-result invokes are supported and must execute observable state changes.
+(invoke "set-state" (i32.const 37))
+(assert_return (invoke "get-state") (i32.const 37))
+
+;; Explicitly unsupported by the ingestion filter. They must be reported, not silently ignored.
 (assert_return (get "g") (i32.const 5))
 (register "not-ingested")
