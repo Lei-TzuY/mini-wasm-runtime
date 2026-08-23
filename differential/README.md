@@ -10,13 +10,16 @@ A table/indirect-call tranche normalizes three additional shared trap classes: t
 
 The next generated tranche adds 64 stateful table-dispatch modules whose mutable selector alternates between two initialized funcref targets over six calls, plus 96 structured multi-value `if` modules returning exact `(i32, i64)` pairs. These cases compare full cross-invocation table dispatch sequences and multi-value result ordering against independent expectations in both engines.
 
+An imported/shared-state tranche adds 48 deterministic modules backed by host-owned mutable globals and linear memories. It checks repeated guest updates, mid-sequence host overrides, exact multi-value results, and host-visible backing state after every call. A two-instance case additionally binds the same global and memory into two live instances per engine and alternates execution between them to verify cross-instance aliasing.
+
 ## Boundary
 
 - Test modules must parse, validate, and instantiate in the mini runtime before execution; a validation failure is not counted as a runtime trap.
 - Successful scalar and supported multi-value results are compared exactly.
 - Supported trap cases are normalized to semantic classes rather than diagnostic strings. Current shared classes cover memory/table out-of-bounds, integer overflow, integer division by zero, invalid float-to-integer conversion, null indirect calls, and indirect-call signature mismatch.
 - Any unmapped runtime error or Wasmtime trap fails closed instead of being treated as generic trap equivalence.
-- Stateful cases reuse one instance per engine across repeated calls so mutable globals, memory persistence, and table dispatch state participate in observable results.
+- Stateful cases reuse one instance per engine across repeated calls so mutable globals, memory persistence, table dispatch state, and imported host-owned state participate in observable results.
+- Imported global/memory cases compare both guest-visible outputs and host-visible backing values; the shared-instance fixture verifies that two live instances observe the same imported backing.
 - Wasmtime and WAT tooling live only in this nested test workspace. They are not product dependencies and do not change the Rust 1.81 product MSRV.
 - Differential CI runs every integration target under `differential/tests/`.
 
@@ -26,4 +29,4 @@ Run locally with:
 cargo test --manifest-path differential/Cargo.toml -- --nocapture
 ```
 
-Future expansion should add imported/shared-state differentials, broader multi-value/state combinations, additional trap normalization, and minimized regression fixtures for every discovered mismatch.
+Future expansion should add minimized regression fixtures for discovered mismatches, broader imported-function/table combinations, additional trap normalization, and larger stateful multi-value sequences.
