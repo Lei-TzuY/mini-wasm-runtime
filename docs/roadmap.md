@@ -133,7 +133,8 @@ The roadmap favors complete vertical slices over a broad but shallow decoder.
 - [x] imported funcref-table host-mutation mismatch capture/shrinking plus reviewed replay manifest
 - [x] stable typed host-failure normalization across callback rejection, capability denial, unavailable memory, and host-memory OOB
 - [x] initial deterministic interpreter benchmark workloads and smoke harness
-- [ ] establish controlled-host baselines and a performance regression policy
+- [x] controlled-host baseline capture/comparison tooling with median/MAD noise-aware regression policy
+- [ ] record the first reviewed baseline on a pinned controlled host and operationalize periodic performance checks
 - [x] initial malformed-binary parser corpus
 - [x] untrusted-count parser allocation hardening
 - [x] initial malformed-module validation/runtime stage corpus
