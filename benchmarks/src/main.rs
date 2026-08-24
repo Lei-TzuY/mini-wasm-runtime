@@ -407,10 +407,7 @@ fn measure_workload(
     let median_ns_per_iter = median(&sample_ns);
     let mad_ns_per_iter = median_absolute_deviation(&sample_ns, median_ns_per_iter);
     let min_ns_per_iter = sample_ns.iter().copied().fold(f64::INFINITY, f64::min);
-    let max_ns_per_iter = sample_ns
-        .iter()
-        .copied()
-        .fold(f64::NEG_INFINITY, f64::max);
+    let max_ns_per_iter = sample_ns.iter().copied().fold(f64::NEG_INFINITY, f64::max);
 
     Measurement {
         name: workload.name,
@@ -430,10 +427,8 @@ fn ensure_stable_measurements(measurements: &[Measurement], label: &str) -> Resu
     let unstable: Vec<String> = measurements
         .iter()
         .filter_map(|measurement| {
-            let relative = relative_mad(
-                measurement.median_ns_per_iter,
-                measurement.mad_ns_per_iter,
-            );
+            let relative =
+                relative_mad(measurement.median_ns_per_iter, measurement.mad_ns_per_iter);
             (relative > MAX_RELATIVE_MAD).then(|| {
                 format!(
                     "{} relative MAD {:.2}% exceeds {:.2}%",
@@ -480,9 +475,14 @@ fn parse_finite_f64(value: &str, field: &str, allow_zero: bool) -> Result<f64, S
     let value = value
         .parse::<f64>()
         .map_err(|error| format!("baseline {field} is invalid: {error}"))?;
-    let valid_sign = if allow_zero { value >= 0.0 } else { value > 0.0 };
+    let valid_sign = if allow_zero {
+        value >= 0.0
+    } else {
+        value > 0.0
+    };
     if !value.is_finite() || !valid_sign {
-        return Err(format!("baseline {field} must be finite and non-negative"));
+        let requirement = if allow_zero { "non-negative" } else { "positive" };
+        return Err(format!("baseline {field} must be finite and {requirement}"));
     }
     Ok(value)
 }
@@ -509,10 +509,11 @@ fn parse_baseline(text: &str) -> Result<Baseline, String> {
             }
             let name = fields[1];
             if name.is_empty() {
-                return Err(format!("baseline line {line_number} has an empty benchmark name"));
+                return Err(format!(
+                    "baseline line {line_number} has an empty benchmark name"
+                ));
             }
-            let median_ns_per_iter =
-                parse_finite_f64(fields[2], "benchmark median", false)?;
+            let median_ns_per_iter = parse_finite_f64(fields[2], "benchmark median", false)?;
             let mad_ns_per_iter = parse_finite_f64(fields[3], "benchmark MAD", true)?;
             if entries
                 .insert(
@@ -640,10 +641,7 @@ fn regression_limit(baseline: &BaselineEntry, candidate: &Measurement) -> f64 {
         + NOISE_MULTIPLIER * baseline.mad_ns_per_iter.max(candidate.mad_ns_per_iter)
 }
 
-fn check_against_baseline(
-    baseline: &Baseline,
-    measurements: &[Measurement],
-) -> Result<(), String> {
+fn check_against_baseline(baseline: &Baseline, measurements: &[Measurement]) -> Result<(), String> {
     ensure_stable_measurements(measurements, "candidate")?;
 
     let current_names: HashSet<&str> = measurements.iter().map(|item| item.name).collect();
