@@ -1,0 +1,3 @@
+# id	fixture	behavior	address	initial_value	override_call	override_value	inputs	expected_results	expected_final_value
+mutable-i32-memory-basic	mutable_i32_memory_basic.wat	mutable_i32_memory	64	10	1	100	3,-2,4	13,98,102	102
+mutable-i32-memory-wrap-boundary	mutable_i32_memory_wrap_boundary.wat	mutable_i32_memory	65532	2147483647	1	-2147483648	1,-1	-2147483648,2147483647	2147483647
