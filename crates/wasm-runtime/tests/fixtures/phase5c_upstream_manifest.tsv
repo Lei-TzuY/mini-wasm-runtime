@@ -1,4 +1,5 @@
 # commit	source	fixture	expected_modules	expected_executed_assertions	expected_executed_invocations	expected_filtered
+fc209c5ed8afc4dfeb9252024d217da3376c7a6f	test/core/align.wast	phase5c_upstream_align_subset.wast	23	0	0	0
 fc209c5ed8afc4dfeb9252024d217da3376c7a6f	test/core/func.wast	phase5c_upstream_func_subset.wast	1	45	0	0
 fc209c5ed8afc4dfeb9252024d217da3376c7a6f	test/core/local_get.wast	phase5c_upstream_local_get_subset.wast	1	19	0	0
 fc209c5ed8afc4dfeb9252024d217da3376c7a6f	test/core/local_set.wast	phase5c_upstream_local_set_subset.wast	1	19	0	0
