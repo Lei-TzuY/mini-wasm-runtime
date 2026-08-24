@@ -155,7 +155,9 @@ fn normalize_mini(result: Result<Vec<Value>, RuntimeError>) -> HostOutcome {
         },
         Err(RuntimeError::HostCallFailed { error, .. }) => {
             let failure = match error {
-                HostError::CapabilityDenied(capability) => FailureClass::CapabilityDenied(capability),
+                HostError::CapabilityDenied(capability) => {
+                    FailureClass::CapabilityDenied(capability)
+                }
                 HostError::MemoryUnavailable => FailureClass::MemoryUnavailable,
                 HostError::MemoryOutOfBounds { address, width } => {
                     FailureClass::MemoryOutOfBounds { address, width }
@@ -255,9 +257,8 @@ fn structured_host_failures_normalize_by_type_and_recover_like_wasmtime() {
                 )
             };
 
-            let mini_outcome = normalize_mini(
-                mini.invoke_export_values("run", &[Value::I32(input)]),
-            );
+            let mini_outcome =
+                normalize_mini(mini.invoke_export_values("run", &[Value::I32(input)]));
             let reference_outcome = normalize_reference(reference_run.call(&mut store, input));
 
             assert_eq!(
