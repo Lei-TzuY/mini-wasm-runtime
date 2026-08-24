@@ -20,6 +20,8 @@ const RELATIVE_REGRESSION_MARGIN: f64 = 0.10;
 const NOISE_MULTIPLIER: f64 = 3.0;
 const MAX_RELATIVE_MAD: f64 = 0.10;
 const BASELINE_FORMAT: &str = "mini-wasm-benchmark-baseline-v1";
+const FNV_OFFSET: u64 = 0xcbf2_9ce4_8422_2325;
+const FNV_PRIME: u64 = 0x0000_0100_0000_01b3;
 
 #[derive(Clone, Copy)]
 enum Expected {
@@ -32,6 +34,13 @@ impl Expected {
         match self {
             Self::I32(value) => u64::from(value as u32),
             Self::I64(value) => value as u64,
+        }
+    }
+
+    fn tag(self) -> u8 {
+        match self {
+            Self::I32(_) => 0x32,
+            Self::I64(_) => 0x64,
         }
     }
 
@@ -68,6 +77,7 @@ struct Options {
 #[derive(Debug, Clone)]
 struct Measurement {
     name: &'static str,
+    fingerprint: u64,
     median_ns_per_iter: f64,
     mad_ns_per_iter: f64,
     min_ns_per_iter: f64,
@@ -77,6 +87,7 @@ struct Measurement {
 
 #[derive(Debug, Clone)]
 struct BaselineEntry {
+    fingerprint: u64,
     median_ns_per_iter: f64,
     mad_ns_per_iter: f64,
 }
@@ -292,8 +303,10 @@ fn options() -> Options {
             }
             "--help" | "-h" => {
                 println!(
-                    "usage: mini-wasm-benchmarks [--iterations N] [--warmup N] [--samples N] \\\n                     [--host-id ID (--write-baseline PATH | --check-baseline PATH)]\n\
-                     defaults: --iterations {DEFAULT_ITERATIONS} --warmup {DEFAULT_WARMUP} \\\n                     --samples {DEFAULT_SAMPLES}\n\
+                    "usage: mini-wasm-benchmarks [--iterations N] [--warmup N] [--samples N] \\
+                     [--host-id ID (--write-baseline PATH | --check-baseline PATH)]\n\
+                     defaults: --iterations {DEFAULT_ITERATIONS} --warmup {DEFAULT_WARMUP} \\
+                     --samples {DEFAULT_SAMPLES}\n\
                      controlled baseline modes require at least {MIN_CONTROLLED_SAMPLES} samples"
                 );
                 process::exit(0);
@@ -341,6 +354,22 @@ fn fold_checksum(checksum: u64, bits: u64, iteration: usize) -> u64 {
     checksum.rotate_left(9)
         ^ bits.wrapping_mul(0x9e37_79b9_7f4a_7c15)
         ^ (iteration as u64).wrapping_mul(0xd6e8_feb8_6659_fd93)
+}
+
+fn fnv1a(mut hash: u64, bytes: &[u8]) -> u64 {
+    for byte in bytes {
+        hash ^= u64::from(*byte);
+        hash = hash.wrapping_mul(FNV_PRIME);
+    }
+    hash
+}
+
+fn workload_fingerprint(workload: &Workload) -> u64 {
+    let hash = fnv1a(FNV_OFFSET, workload.name.as_bytes());
+    let hash = fnv1a(hash, &[0]);
+    let hash = fnv1a(hash, workload.wat.as_bytes());
+    let hash = fnv1a(hash, &[workload.expected.tag()]);
+    fnv1a(hash, &workload.expected.bits().to_le_bytes())
 }
 
 fn median(values: &[f64]) -> f64 {
@@ -411,6 +440,7 @@ fn measure_workload(
 
     Measurement {
         name: workload.name,
+        fingerprint: workload_fingerprint(workload),
         median_ns_per_iter,
         mad_ns_per_iter,
         min_ns_per_iter,
@@ -456,8 +486,11 @@ fn render_baseline(host_id: &str, options: &Options, measurements: &[Measurement
     );
     for measurement in measurements {
         output.push_str(&format!(
-            "benchmark\t{}\t{:.6}\t{:.6}\n",
-            measurement.name, measurement.median_ns_per_iter, measurement.mad_ns_per_iter
+            "benchmark\t{}\t{:016x}\t{:.6}\t{:.6}\n",
+            measurement.name,
+            measurement.fingerprint,
+            measurement.median_ns_per_iter,
+            measurement.mad_ns_per_iter
         ));
     }
     output
@@ -481,10 +514,24 @@ fn parse_finite_f64(value: &str, field: &str, allow_zero: bool) -> Result<f64, S
         value > 0.0
     };
     if !value.is_finite() || !valid_sign {
-        let requirement = if allow_zero { "non-negative" } else { "positive" };
+        let requirement = if allow_zero {
+            "non-negative"
+        } else {
+            "positive"
+        };
         return Err(format!("baseline {field} must be finite and {requirement}"));
     }
     Ok(value)
+}
+
+fn parse_fingerprint(value: &str, line_number: usize) -> Result<u64, String> {
+    if value.len() != 16 || !value.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+        return Err(format!(
+            "baseline line {line_number} fingerprint must be exactly 16 hexadecimal digits"
+        ));
+    }
+    u64::from_str_radix(value, 16)
+        .map_err(|error| format!("baseline line {line_number} fingerprint is invalid: {error}"))
 }
 
 fn parse_baseline(text: &str) -> Result<Baseline, String> {
@@ -502,9 +549,9 @@ fn parse_baseline(text: &str) -> Result<Baseline, String> {
         }
         let fields: Vec<&str> = raw_line.split('\t').collect();
         if fields.first() == Some(&"benchmark") {
-            if fields.len() != 4 {
+            if fields.len() != 5 {
                 return Err(format!(
-                    "baseline line {line_number} benchmark row must have exactly four tab-separated fields"
+                    "baseline line {line_number} benchmark row must have exactly five tab-separated fields"
                 ));
             }
             let name = fields[1];
@@ -513,12 +560,14 @@ fn parse_baseline(text: &str) -> Result<Baseline, String> {
                     "baseline line {line_number} has an empty benchmark name"
                 ));
             }
-            let median_ns_per_iter = parse_finite_f64(fields[2], "benchmark median", false)?;
-            let mad_ns_per_iter = parse_finite_f64(fields[3], "benchmark MAD", true)?;
+            let fingerprint = parse_fingerprint(fields[2], line_number)?;
+            let median_ns_per_iter = parse_finite_f64(fields[3], "benchmark median", false)?;
+            let mad_ns_per_iter = parse_finite_f64(fields[4], "benchmark MAD", true)?;
             if entries
                 .insert(
                     name.to_owned(),
                     BaselineEntry {
+                        fingerprint,
                         median_ns_per_iter,
                         mad_ns_per_iter,
                     },
@@ -664,6 +713,13 @@ fn check_against_baseline(baseline: &Baseline, measurements: &[Measurement]) -> 
             .entries
             .get(candidate.name)
             .expect("workload sets were checked above");
+        if baseline_entry.fingerprint != candidate.fingerprint {
+            failures.push(format!(
+                "{} workload fingerprint changed (baseline={:016x}, candidate={:016x})",
+                candidate.name, baseline_entry.fingerprint, candidate.fingerprint
+            ));
+            continue;
+        }
         if !baseline_is_stable(baseline_entry) {
             failures.push(format!(
                 "{} baseline relative MAD {:.2}% exceeds {:.2}%",
@@ -689,8 +745,9 @@ fn check_against_baseline(baseline: &Baseline, measurements: &[Measurement]) -> 
             "pass"
         };
         println!(
-            "comparison={} baseline_median_ns_per_iter={:.2} baseline_mad_ns_per_iter={:.2} candidate_median_ns_per_iter={:.2} candidate_mad_ns_per_iter={:.2} delta_percent={:.2} limit_ns_per_iter={:.2} status={status}",
+            "comparison={} fingerprint={:016x} baseline_median_ns_per_iter={:.2} baseline_mad_ns_per_iter={:.2} candidate_median_ns_per_iter={:.2} candidate_mad_ns_per_iter={:.2} delta_percent={:.2} limit_ns_per_iter={:.2} status={status}",
             candidate.name,
+            candidate.fingerprint,
             baseline_entry.median_ns_per_iter,
             baseline_entry.mad_ns_per_iter,
             candidate.median_ns_per_iter,
@@ -777,8 +834,9 @@ fn main() {
 
     for measurement in &measurements {
         println!(
-            "benchmark={} iterations={} warmup={} samples={} median_ns_per_iter={:.2} mad_ns_per_iter={:.2} min_ns_per_iter={:.2} max_ns_per_iter={:.2} checksum={:016x}",
+            "benchmark={} fingerprint={:016x} iterations={} warmup={} samples={} median_ns_per_iter={:.2} mad_ns_per_iter={:.2} min_ns_per_iter={:.2} max_ns_per_iter={:.2} checksum={:016x}",
             measurement.name,
+            measurement.fingerprint,
             options.iterations,
             options.warmup,
             options.samples,
@@ -814,9 +872,10 @@ fn main() {
 mod tests {
     use super::*;
 
-    fn measurement(name: &'static str, median: f64, mad: f64) -> Measurement {
+    fn measurement(name: &'static str, fingerprint: u64, median: f64, mad: f64) -> Measurement {
         Measurement {
             name,
+            fingerprint,
             median_ns_per_iter: median,
             mad_ns_per_iter: mad,
             min_ns_per_iter: median - mad,
@@ -834,6 +893,14 @@ mod tests {
     }
 
     #[test]
+    fn workload_fingerprint_changes_with_definition() {
+        let mut items = workloads();
+        let original = workload_fingerprint(&items[0]);
+        items[0].expected = Expected::I32(0);
+        assert_ne!(original, workload_fingerprint(&items[0]));
+    }
+
+    #[test]
     fn baseline_round_trip_preserves_policy_and_measurements() {
         let options = Options {
             iterations: 2_000,
@@ -843,8 +910,8 @@ mod tests {
             baseline_action: None,
         };
         let measurements = [
-            measurement("integer_mix_loop", 1_000.0, 20.0),
-            measurement("control_br_table", 2_000.0, 30.0),
+            measurement("integer_mix_loop", 0x1111, 1_000.0, 20.0),
+            measurement("control_br_table", 0x2222, 2_000.0, 30.0),
         ];
         let rendered = render_baseline("lab-box-a", &options, &measurements);
         let parsed = parse_baseline(&rendered).expect("rendered baseline must parse");
@@ -853,6 +920,7 @@ mod tests {
         assert_eq!(parsed.warmup, 128);
         assert_eq!(parsed.samples, 9);
         assert_eq!(parsed.entries.len(), 2);
+        assert_eq!(parsed.entries["integer_mix_loop"].fingerprint, 0x1111);
         assert_eq!(
             parsed.entries["integer_mix_loop"].median_ns_per_iter,
             1_000.0
@@ -863,11 +931,12 @@ mod tests {
     #[test]
     fn regression_limit_combines_relative_margin_and_observed_noise() {
         let baseline = BaselineEntry {
+            fingerprint: 1,
             median_ns_per_iter: 1_000.0,
             mad_ns_per_iter: 10.0,
         };
-        let passing = measurement("x", 1_120.0, 10.0);
-        let failing = measurement("x", 1_140.0, 10.0);
+        let passing = measurement("x", 1, 1_120.0, 10.0);
+        let failing = measurement("x", 1, 1_140.0, 10.0);
         assert_eq!(regression_limit(&baseline, &passing), 1_130.0);
         assert!(passing.median_ns_per_iter <= regression_limit(&baseline, &passing));
         assert!(failing.median_ns_per_iter > regression_limit(&baseline, &failing));
@@ -875,8 +944,30 @@ mod tests {
 
     #[test]
     fn baseline_parser_rejects_policy_drift() {
-        let text = "# mini-wasm-benchmark-baseline-v1\nhost_id\tlab\niterations\t1000\nwarmup\t64\nsamples\t7\nrelative_margin\t0.500000\nnoise_multiplier\t3.000000\nmax_relative_mad\t0.100000\nbenchmark\tx\t1000.0\t10.0\n";
+        let text = "# mini-wasm-benchmark-baseline-v1\nhost_id\tlab\niterations\t1000\nwarmup\t64\nsamples\t7\nrelative_margin\t0.500000\nnoise_multiplier\t3.000000\nmax_relative_mad\t0.100000\nbenchmark\tx\t0000000000000001\t1000.0\t10.0\n";
         let error = parse_baseline(text).expect_err("policy drift must fail closed");
         assert!(error.contains("policy constants"));
+    }
+
+    #[test]
+    fn baseline_check_rejects_workload_fingerprint_drift() {
+        let baseline = Baseline {
+            host_id: "lab".to_owned(),
+            iterations: 1_000,
+            warmup: 64,
+            samples: 7,
+            entries: HashMap::from([(
+                "x".to_owned(),
+                BaselineEntry {
+                    fingerprint: 1,
+                    median_ns_per_iter: 1_000.0,
+                    mad_ns_per_iter: 10.0,
+                },
+            )]),
+        };
+        let candidate = [measurement("x", 2, 1_000.0, 10.0)];
+        let error =
+            check_against_baseline(&baseline, &candidate).expect_err("fingerprint drift must fail");
+        assert!(error.contains("fingerprint changed"));
     }
 }
