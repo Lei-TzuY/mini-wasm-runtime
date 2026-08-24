@@ -168,8 +168,8 @@ fn independent_expected(regression: &ImportedTableRegression) -> TraceOutcome {
 }
 
 fn load_manifest() -> Vec<ImportedTableRegression> {
-    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("tests/fixtures/imported_table_regressions");
+    let root =
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/imported_table_regressions");
     let manifest_path = root.join("manifest.tsv");
     let manifest = fs::read_to_string(&manifest_path)
         .unwrap_or_else(|error| panic!("failed to read {manifest_path:?}: {error}"));
@@ -225,9 +225,9 @@ fn load_manifest() -> Vec<ImportedTableRegression> {
         let final_slot_one_present = match fields[10].trim() {
             "present" => true,
             "null" => false,
-            other => panic!(
-                "manifest line {line_number} has invalid final_slot_one state {other:?}"
-            ),
+            other => {
+                panic!("manifest line {line_number} has invalid final_slot_one state {other:?}")
+            }
         };
 
         assert_eq!(
@@ -282,7 +282,9 @@ fn load_manifest() -> Vec<ImportedTableRegression> {
 
 fn mutate_mini(table: &TableHandle, mutation: Mutation) {
     match mutation {
-        Mutation::ClearOne => table.set(1, None).expect("clear mini imported table slot 1"),
+        Mutation::ClearOne => table
+            .set(1, None)
+            .expect("clear mini imported table slot 1"),
         Mutation::CopyZeroToOne => {
             let slot_zero = table
                 .get(0)
@@ -316,18 +318,21 @@ fn run_mini(bytes: &[u8], regression: &ImportedTableRegression) -> TraceOutcome 
         if call == regression.mutation_call {
             mutate_mini(&table, regression.mutation);
         }
-        calls.push(match instance.invoke_export_values(
-            "run",
-            &[Value::I32(value), Value::I32(selector as i32)],
-        ) {
-            Ok(values) => match values.as_slice() {
-                [Value::I32(value)] => CallOutcome::I32(*value),
-                other => panic!("unexpected mini imported-table replay result shape: {other:?}"),
+        calls.push(
+            match instance
+                .invoke_export_values("run", &[Value::I32(value), Value::I32(selector as i32)])
+            {
+                Ok(values) => match values.as_slice() {
+                    [Value::I32(value)] => CallOutcome::I32(*value),
+                    other => {
+                        panic!("unexpected mini imported-table replay result shape: {other:?}")
+                    }
+                },
+                Err(RuntimeError::UninitializedTableElement(_)) => CallOutcome::IndirectCallToNull,
+                Err(RuntimeError::TableElementOutOfBounds(_)) => CallOutcome::TableOutOfBounds,
+                Err(error) => panic!("unmapped mini imported-table replay error: {error:?}"),
             },
-            Err(RuntimeError::UninitializedTableElement(_)) => CallOutcome::IndirectCallToNull,
-            Err(RuntimeError::TableElementOutOfBounds(_)) => CallOutcome::TableOutOfBounds,
-            Err(error) => panic!("unmapped mini imported-table replay error: {error:?}"),
-        });
+        );
     }
 
     TraceOutcome {
