@@ -130,7 +130,8 @@ The roadmap favors complete vertical slices over a broad but shallow decoder.
 - [x] reviewed import-aware replay/promotion manifest for stateful imported host-function captures
 - [x] imported mutable-global host-override mismatch capture/shrinking plus reviewed replay manifest
 - [x] imported memory host-override mismatch capture/shrinking plus reviewed replay manifest
-- [ ] broaden import capture/replay to host tables and extend stable typed host failures
+- [x] imported funcref-table host-mutation mismatch capture/shrinking plus reviewed replay manifest
+- [ ] extend stable typed host failures
 - [x] initial deterministic interpreter benchmark workloads and smoke harness
 - [ ] establish controlled-host baselines and a performance regression policy
 - [x] initial malformed-binary parser corpus
