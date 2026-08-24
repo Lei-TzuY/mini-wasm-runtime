@@ -1,0 +1,3 @@
+# id	fixture	behavior	initial_state	override_call	override_value	inputs	expected_results	expected_final_state
+mutable-i32-global-basic	mutable_i32_global_basic.wat	mutable_i32_global	10	1	100	3,-2,4	13,98,102	102
+mutable-i32-global-wrap	mutable_i32_global_wrap.wat	mutable_i32_global	2147483647	1	-2147483648	1,-1	-2147483648,2147483647	2147483647
