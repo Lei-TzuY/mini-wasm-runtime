@@ -368,7 +368,6 @@ fn imported_global_shrinker_reduces_override_state_and_inputs() {
     };
     let minimized = shrink_case(original.clone(), |case| {
         case.inputs.len() >= 2
-            && case.override_call <= 1
             && case.initial_state != 0
             && case.override_value != 0
             && case.inputs[0] != 0
