@@ -3,6 +3,77 @@
 ;; source test/core/loop.wast
 
 (module
+  (func $dummy)
+
+  (func (export "empty")
+    (loop)
+    (loop $l)
+  )
+
+  (func (export "singular") (result i32)
+    (loop (nop))
+    (loop (result i32) (i32.const 7))
+  )
+
+  (func (export "multi") (result i32)
+    (loop (call $dummy) (call $dummy) (call $dummy) (call $dummy))
+    (loop (result i32) (call $dummy) (call $dummy) (i32.const 8) (call $dummy))
+    (drop)
+    (loop (result i32 i64 i32)
+      (call $dummy) (call $dummy) (call $dummy) (i32.const 8) (call $dummy)
+      (call $dummy) (call $dummy) (call $dummy) (i64.const 7) (call $dummy)
+      (call $dummy) (call $dummy) (call $dummy) (i32.const 9) (call $dummy)
+    )
+    (drop) (drop)
+  )
+
+  (func (export "nested") (result i32)
+    (loop (result i32)
+      (loop (call $dummy) (block) (nop))
+      (loop (result i32) (call $dummy) (i32.const 9))
+    )
+  )
+
+  (func (export "as-select-first") (result i32)
+    (select (loop (result i32) (i32.const 1)) (i32.const 2) (i32.const 3))
+  )
+
+  (func (export "as-select-mid") (result i32)
+    (select (i32.const 2) (loop (result i32) (i32.const 1)) (i32.const 3))
+  )
+
+  (func (export "as-select-last") (result i32)
+    (select (i32.const 2) (i32.const 3) (loop (result i32) (i32.const 1)))
+  )
+
+  (func (export "as-if-condition")
+    (loop (result i32) (i32.const 1))
+    (if (then (call $dummy)))
+  )
+
+  (func (export "as-if-then") (result i32)
+    (if (result i32) (i32.const 1)
+      (then (loop (result i32) (i32.const 1)))
+      (else (i32.const 2))
+    )
+  )
+
+  (func (export "as-if-else") (result i32)
+    (if (result i32) (i32.const 1)
+      (then (i32.const 2))
+      (else (loop (result i32) (i32.const 1)))
+    )
+  )
+
+  (func (export "as-drop-operand")
+    (drop (loop (result i32) (i32.const 1)))
+  )
+
+  (func (export "as-local.tee-value") (result i32)
+    (local i32)
+    (local.tee 0 (loop (result i32) (i32.const 1)))
+  )
+
   (func (export "as-return-value") (result i32)
     (loop (result i32) (i32.const 1))
     (return)
@@ -72,6 +143,18 @@
   )
 )
 
+(assert_return (invoke "empty"))
+(assert_return (invoke "singular") (i32.const 7))
+(assert_return (invoke "multi") (i32.const 8))
+(assert_return (invoke "nested") (i32.const 9))
+(assert_return (invoke "as-select-first") (i32.const 1))
+(assert_return (invoke "as-select-mid") (i32.const 2))
+(assert_return (invoke "as-select-last") (i32.const 2))
+(assert_return (invoke "as-if-condition"))
+(assert_return (invoke "as-if-then") (i32.const 1))
+(assert_return (invoke "as-if-else") (i32.const 2))
+(assert_return (invoke "as-drop-operand"))
+(assert_return (invoke "as-local.tee-value") (i32.const 1))
 (assert_return (invoke "as-return-value") (i32.const 1))
 (assert_return (invoke "as-br-value") (i32.const 1))
 (assert_return (invoke "as-local.set-value") (i32.const 1))
