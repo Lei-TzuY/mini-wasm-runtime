@@ -21,5 +21,7 @@ jobs:
         run: cargo fmt --manifest-path benchmarks/Cargo.toml -- --check
       - name: Clippy benchmark workspace
         run: cargo clippy --manifest-path benchmarks/Cargo.toml --all-targets -- -D warnings
+      - name: Test benchmark policy
+        run: cargo test --manifest-path benchmarks/Cargo.toml
       - name: Run benchmark smoke
         run: cargo run --release --manifest-path benchmarks/Cargo.toml -- --iterations 32 --warmup 4
