@@ -103,6 +103,10 @@ fn i64_gt_s_matches_pinned_upstream_ordering_vectors() {
 #[test]
 fn i64_gt_u_matches_pinned_upstream_ordering_vectors() {
     for &(lhs, rhs, expected) in GT_U_CASES {
-        assert_eq!(run(I64_GT_U, lhs, rhs), expected, "gt_u({lhs:#x}, {rhs:#x})");
+        assert_eq!(
+            run(I64_GT_U, lhs, rhs),
+            expected,
+            "gt_u({lhs:#x}, {rhs:#x})"
+        );
     }
 }
