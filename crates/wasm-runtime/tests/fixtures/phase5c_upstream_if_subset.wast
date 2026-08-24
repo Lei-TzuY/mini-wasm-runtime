@@ -3,6 +3,64 @@
 ;; source test/core/if.wast
 
 (module
+  (func $dummy)
+
+  (func (export "empty") (param i32)
+    (if (local.get 0) (then))
+    (if (local.get 0) (then) (else))
+    (if $l (local.get 0) (then))
+    (if $l (local.get 0) (then) (else))
+  )
+
+  (func (export "singular") (param i32) (result i32)
+    (if (local.get 0) (then (nop)))
+    (if (local.get 0) (then (nop)) (else (nop)))
+    (if (result i32) (local.get 0) (then (i32.const 7)) (else (i32.const 8)))
+  )
+
+  (func (export "multi") (param i32) (result i32 i32)
+    (if (local.get 0) (then (call $dummy) (call $dummy) (call $dummy)))
+    (if (local.get 0) (then) (else (call $dummy) (call $dummy) (call $dummy)))
+    (if (result i32) (local.get 0)
+      (then (call $dummy) (call $dummy) (i32.const 8) (call $dummy))
+      (else (call $dummy) (call $dummy) (i32.const 9) (call $dummy))
+    )
+    (if (result i32 i64 i32) (local.get 0)
+      (then
+        (call $dummy) (call $dummy) (i32.const 1) (call $dummy)
+        (call $dummy) (call $dummy) (i64.const 2) (call $dummy)
+        (call $dummy) (call $dummy) (i32.const 3) (call $dummy)
+      )
+      (else
+        (call $dummy) (call $dummy) (i32.const -1) (call $dummy)
+        (call $dummy) (call $dummy) (i64.const -2) (call $dummy)
+        (call $dummy) (call $dummy) (i32.const -3) (call $dummy)
+      )
+    )
+    (drop) (drop)
+  )
+
+  (func (export "nested") (param i32 i32) (result i32)
+    (if (result i32) (local.get 0)
+      (then
+        (if (local.get 1) (then (call $dummy) (block) (nop)))
+        (if (local.get 1) (then) (else (call $dummy) (block) (nop)))
+        (if (result i32) (local.get 1)
+          (then (call $dummy) (i32.const 9))
+          (else (call $dummy) (i32.const 10))
+        )
+      )
+      (else
+        (if (local.get 1) (then (call $dummy) (block) (nop)))
+        (if (local.get 1) (then) (else (call $dummy) (block) (nop)))
+        (if (result i32) (local.get 1)
+          (then (call $dummy) (i32.const 10))
+          (else (call $dummy) (i32.const 11))
+        )
+      )
+    )
+  )
+
   (func (export "break-value") (param i32) (result i32)
     (if (result i32) (local.get 0)
       (then (br 0 (i32.const 18)) (i32.const 19))
@@ -52,6 +110,30 @@
     )
   )
 )
+
+(assert_return (invoke "empty" (i32.const 0)))
+(assert_return (invoke "empty" (i32.const 1)))
+(assert_return (invoke "empty" (i32.const 100)))
+(assert_return (invoke "empty" (i32.const -2)))
+
+(assert_return (invoke "singular" (i32.const 0)) (i32.const 8))
+(assert_return (invoke "singular" (i32.const 1)) (i32.const 7))
+(assert_return (invoke "singular" (i32.const 10)) (i32.const 7))
+(assert_return (invoke "singular" (i32.const -10)) (i32.const 7))
+
+(assert_return (invoke "multi" (i32.const 0)) (i32.const 9) (i32.const -1))
+(assert_return (invoke "multi" (i32.const 1)) (i32.const 8) (i32.const 1))
+(assert_return (invoke "multi" (i32.const 13)) (i32.const 8) (i32.const 1))
+(assert_return (invoke "multi" (i32.const -5)) (i32.const 8) (i32.const 1))
+
+(assert_return (invoke "nested" (i32.const 0) (i32.const 0)) (i32.const 11))
+(assert_return (invoke "nested" (i32.const 1) (i32.const 0)) (i32.const 10))
+(assert_return (invoke "nested" (i32.const 0) (i32.const 1)) (i32.const 10))
+(assert_return (invoke "nested" (i32.const 3) (i32.const 2)) (i32.const 9))
+(assert_return (invoke "nested" (i32.const 0) (i32.const -100)) (i32.const 10))
+(assert_return (invoke "nested" (i32.const 10) (i32.const 10)) (i32.const 9))
+(assert_return (invoke "nested" (i32.const 0) (i32.const -1)) (i32.const 10))
+(assert_return (invoke "nested" (i32.const -111) (i32.const -2)) (i32.const 9))
 
 (assert_return (invoke "break-value" (i32.const 1)) (i32.const 18))
 (assert_return (invoke "break-value" (i32.const 0)) (i32.const 21))
