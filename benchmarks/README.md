@@ -17,7 +17,7 @@ A normal smoke run remains simple:
 cargo run --release --manifest-path benchmarks/Cargo.toml -- --iterations 1000 --warmup 64
 ```
 
-`--samples N` repeats each timed workload and reports the median, median absolute deviation (MAD), minimum, maximum, and deterministic checksum. One sample is enough for CI smoke; controlled comparisons require at least seven samples.
+`--samples N` repeats each timed workload and reports the median, median absolute deviation (MAD), minimum, maximum, deterministic checksum, and a deterministic workload fingerprint. The fingerprint binds the benchmark name, WAT definition, result type, and expected result bits so an old timing baseline cannot silently be reused after the workload itself changes. One sample is enough for CI smoke; controlled comparisons require at least seven samples.
 
 ## Controlled-host baselines
 
@@ -41,7 +41,7 @@ cargo run --release --manifest-path benchmarks/Cargo.toml -- \
   --check-baseline benchmarks/baselines/lab-box-a.tsv
 ```
 
-The baseline parser fails closed on schema/policy drift, host mismatch, measurement-setting mismatch, duplicate or stale workloads, missing workloads, malformed values, or an unstable baseline. Candidate measurements also fail as inconclusive when relative MAD exceeds 10%.
+The baseline parser fails closed on schema/policy drift, host mismatch, measurement-setting mismatch, duplicate or stale workloads, missing workloads, malformed values, workload-fingerprint drift, or an unstable baseline. Candidate measurements also fail as inconclusive when relative MAD exceeds 10%. Changing a benchmark's WAT or expected result therefore requires a newly reviewed baseline instead of comparing unlike workloads.
 
 For each workload, the regression limit is:
 
@@ -53,6 +53,6 @@ A candidate median strictly above that limit is a regression. This combines a 10
 
 ## Hosted CI boundary
 
-GitHub-hosted runner timing is noisy and hardware is not pinned. CI therefore checks benchmark formatting, Clippy, unit tests for baseline parsing/statistics/policy, successful release execution, exact workload results, and checksums. It never supplies `--check-baseline`, so hosted-runner wall-clock data cannot fail a pull request as a performance regression.
+GitHub-hosted runner timing is noisy and hardware is not pinned. CI therefore checks benchmark formatting, Clippy, unit tests for baseline parsing/statistics/policy/fingerprints, successful release execution, exact workload results, and checksums. It never supplies `--check-baseline`, so hosted-runner wall-clock data cannot fail a pull request as a performance regression.
 
 `benchmarks/baselines/` is reserved for reviewed measurements from identified controlled hosts. The repository does not fabricate a baseline from shared CI timing; the first trusted host measurement remains a deliberate follow-up.
