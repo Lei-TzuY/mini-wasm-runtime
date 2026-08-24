@@ -212,7 +212,11 @@ fn read_mini_i32(memory: &MemoryHandle, address: u32) -> i32 {
     let bytes = memory
         .read(address, WIDTH as usize)
         .expect("read imported-memory regression backing");
-    i32::from_le_bytes(bytes.try_into().expect("four-byte imported-memory replay read"))
+    i32::from_le_bytes(
+        bytes
+            .try_into()
+            .expect("four-byte imported-memory replay read"),
+    )
 }
 
 fn run_mini(bytes: &[u8], regression: &MemoryRegression) -> TraceOutcome {
