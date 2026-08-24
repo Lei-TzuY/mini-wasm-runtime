@@ -3,6 +3,7 @@
 ;; source test/core/if.wast
 
 (module
+  (memory 1)
   (func $dummy)
 
   (func (export "empty") (param i32)
@@ -213,6 +214,32 @@
     )
   )
 
+  (func (export "as-store-first") (param i32)
+    (if (result i32) (local.get 0)
+      (then (call $dummy) (i32.const 1))
+      (else (call $dummy) (i32.const 0))
+    )
+    (i32.const 2)
+    (i32.store)
+  )
+  (func (export "as-store-last") (param i32)
+    (i32.const 2)
+    (if (result i32) (local.get 0)
+      (then (call $dummy) (i32.const 1))
+      (else (call $dummy) (i32.const 0))
+    )
+    (i32.store)
+  )
+
+  (func (export "as-memory.grow-value") (param i32) (result i32)
+    (memory.grow
+      (if (result i32) (local.get 0)
+        (then (i32.const 1))
+        (else (i32.const 0))
+      )
+    )
+  )
+
   (func $f (param i32) (result i32) (local.get 0))
   (func (export "as-call-value") (param i32) (result i32)
     (call $f
@@ -273,6 +300,14 @@
       )
     )
     (global.get $a)
+  )
+  (func (export "as-load-operand") (param i32) (result i32)
+    (i32.load
+      (if (result i32) (local.get 0)
+        (then (i32.const 11))
+        (else (i32.const 10))
+      )
+    )
   )
 
   (func (export "break-value") (param i32) (result i32)
@@ -382,6 +417,14 @@
 (assert_return (invoke "as-call_indirect-mid" (i32.const 1)) (i32.const 2))
 (assert_return (invoke "as-call_indirect-last" (i32.const 0)) (i32.const 2))
 
+(assert_return (invoke "as-store-first" (i32.const 0)))
+(assert_return (invoke "as-store-first" (i32.const 1)))
+(assert_return (invoke "as-store-last" (i32.const 0)))
+(assert_return (invoke "as-store-last" (i32.const 1)))
+
+(assert_return (invoke "as-memory.grow-value" (i32.const 0)) (i32.const 1))
+(assert_return (invoke "as-memory.grow-value" (i32.const 1)) (i32.const 1))
+
 (assert_return (invoke "as-call-value" (i32.const 0)) (i32.const 0))
 (assert_return (invoke "as-call-value" (i32.const 1)) (i32.const 1))
 (assert_return (invoke "as-return-value" (i32.const 0)) (i32.const 0))
@@ -396,6 +439,9 @@
 (assert_return (invoke "as-local.tee-value" (i32.const 1)) (i32.const 1))
 (assert_return (invoke "as-global.set-value" (i32.const 0)) (i32.const 0))
 (assert_return (invoke "as-global.set-value" (i32.const 1)) (i32.const 1))
+
+(assert_return (invoke "as-load-operand" (i32.const 0)) (i32.const 0))
+(assert_return (invoke "as-load-operand" (i32.const 1)) (i32.const 0))
 
 (assert_return (invoke "break-value" (i32.const 1)) (i32.const 18))
 (assert_return (invoke "break-value" (i32.const 0)) (i32.const 21))
