@@ -17,6 +17,12 @@
     (i64.rem_s (local.get 0) (local.get 1)))
   (func (export "rem_u") (param i64 i64) (result i64)
     (i64.rem_u (local.get 0) (local.get 1)))
+  (func (export "and") (param i64 i64) (result i64)
+    (i64.and (local.get 0) (local.get 1)))
+  (func (export "or") (param i64 i64) (result i64)
+    (i64.or (local.get 0) (local.get 1)))
+  (func (export "xor") (param i64 i64) (result i64)
+    (i64.xor (local.get 0) (local.get 1)))
 )
 
 (assert_return (invoke "add" (i64.const 0x7fffffffffffffff) (i64.const 1)) (i64.const 0x8000000000000000))
@@ -53,3 +59,18 @@
 (assert_return (invoke "rem_u" (i64.const 0x8ff00ff00ff00ff0) (i64.const 0x100000001)) (i64.const 0x80000001))
 (assert_return (invoke "rem_u" (i64.const -5) (i64.const 2)) (i64.const 1))
 (assert_return (invoke "rem_u" (i64.const 5) (i64.const -2)) (i64.const 5))
+
+(assert_return (invoke "and" (i64.const 1) (i64.const 0)) (i64.const 0))
+(assert_return (invoke "and" (i64.const 0) (i64.const 1)) (i64.const 0))
+(assert_return (invoke "and" (i64.const 1) (i64.const 1)) (i64.const 1))
+(assert_return (invoke "and" (i64.const 0) (i64.const 0)) (i64.const 0))
+
+(assert_return (invoke "or" (i64.const 1) (i64.const 0)) (i64.const 1))
+(assert_return (invoke "or" (i64.const 0) (i64.const 1)) (i64.const 1))
+(assert_return (invoke "or" (i64.const 1) (i64.const 1)) (i64.const 1))
+(assert_return (invoke "or" (i64.const 0) (i64.const 0)) (i64.const 0))
+
+(assert_return (invoke "xor" (i64.const 1) (i64.const 0)) (i64.const 1))
+(assert_return (invoke "xor" (i64.const 0) (i64.const 1)) (i64.const 1))
+(assert_return (invoke "xor" (i64.const 1) (i64.const 1)) (i64.const 0))
+(assert_return (invoke "xor" (i64.const 0) (i64.const 0)) (i64.const 0))
