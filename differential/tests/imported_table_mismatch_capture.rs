@@ -109,7 +109,9 @@ impl TableCase {
 
 fn mutate_mini(table: &TableHandle, mutation: Mutation) {
     match mutation {
-        Mutation::ClearOne => table.set(1, None).expect("clear mini imported table slot 1"),
+        Mutation::ClearOne => table
+            .set(1, None)
+            .expect("clear mini imported table slot 1"),
         Mutation::CopyZeroToOne => {
             let slot_zero = table
                 .get(0)
@@ -143,10 +145,9 @@ fn run_mini(bytes: &[u8], case: &TableCase) -> TraceOutcome {
         if call == case.mutation_call {
             mutate_mini(&table, case.mutation);
         }
-        let outcome = match instance.invoke_export_values(
-            "run",
-            &[Value::I32(value), Value::I32(selector as i32)],
-        ) {
+        let outcome = match instance
+            .invoke_export_values("run", &[Value::I32(value), Value::I32(selector as i32)])
+        {
             Ok(values) => match values.as_slice() {
                 [Value::I32(value)] => CallOutcome::I32(*value),
                 other => panic!("unexpected mini imported-table result shape: {other:?}"),
@@ -307,10 +308,7 @@ fn selector_candidates(value: u32) -> Vec<u32> {
     candidates
 }
 
-fn shrink_case(
-    mut case: TableCase,
-    mut reproduces: impl FnMut(&TableCase) -> bool,
-) -> TableCase {
+fn shrink_case(mut case: TableCase, mut reproduces: impl FnMut(&TableCase) -> bool) -> TableCase {
     assert!(
         reproduces(&case),
         "imported-table shrinker requires a reproducing input"
@@ -688,8 +686,17 @@ fn generated_imported_table_differentials_capture_and_shrink_real_mismatches() {
     }
 
     assert!(successful > 0, "imported-table corpus must execute calls");
-    assert!(null_traps > 0, "imported-table corpus must execute null traps");
-    assert!(oob_traps > 0, "imported-table corpus must execute OOB traps");
-    assert!(clear_cases > 0, "imported-table corpus must clear host slots");
+    assert!(
+        null_traps > 0,
+        "imported-table corpus must execute null traps"
+    );
+    assert!(
+        oob_traps > 0,
+        "imported-table corpus must execute OOB traps"
+    );
+    assert!(
+        clear_cases > 0,
+        "imported-table corpus must clear host slots"
+    );
     assert!(copy_cases > 0, "imported-table corpus must copy host slots");
 }
