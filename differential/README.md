@@ -32,6 +32,8 @@ The imported-function capture tranche crosses the host boundary with 48 determin
 
 An import-aware regression replay corpus now lives under `tests/fixtures/import_regressions/`. Its eight-field manifest is directly compatible with the driver row emitted by imported-function captures and makes host behavior, initial state, salt, inputs, expected result trace, and final host state reviewable in one place. The harness independently recomputes the full `stateful_i64_add` recurrence before execution, compiles each WAT once, and requires the mini runtime and Wasmtime to reproduce the same complete trace. Two seeded ordinary/wrapping fixtures establish the promotion path without claiming previously observed production bugs.
 
+The imported-global capture/replay tranche adds 48 deterministic traces over a host-owned mutable i32 global. Each case performs a host override immediately before one guest invocation, then lets guest code wrapping-add generated inputs into the same backing. A mismatch is capture-eligible only when Wasmtime matches an independent full-trace recurrence. The reducer can shorten the sequence, move the override earlier, and simplify the initial value, override value, and every input under a strictly decreasing rank. Captures emit `.global.tsv` drivers, and `tests/fixtures/imported_global_regressions/` provides the matching nine-field reviewed replay destination. Replay checks both the complete guest-visible result trace and the final host-visible global value in both engines.
+
 A manifest-driven regression replay corpus keeps small no-import WAT reproducers under `tests/fixtures/regressions/`. The initial 10 seeded fixtures cover control-flow result preservation, signed-zero float semantics, multi-value ordering, memory and table bounds traps, integer arithmetic traps, invalid conversion, and indirect-call null/signature failures. The manifest records exact normalized expectations, and the runner requires the mini runtime and Wasmtime to agree with them. Seeded fixtures are regression guards, not claims of previously observed bugs.
 
 ## Boundary
@@ -52,6 +54,8 @@ A manifest-driven regression replay corpus keeps small no-import WAT reproducers
 - Table capture requires exact result/null/OOB oracle agreement and only accepts selector/initializer/value reductions with strictly lower rank.
 - Imported-function capture requires the complete Wasmtime result trace and final host state to match the independent recurrence. Its `.import.tsv` row is staging metadata until reviewed and promoted into the import-regression manifest.
 - Import-regression replay rejects malformed eight-field rows, duplicate IDs/fixtures, unsafe/non-WAT paths, missing files, unsupported host behavior, empty traces, malformed i64 values, result/input length mismatches, and expectations that disagree with the independent recurrence.
+- Imported-global capture requires Wasmtime to match the independent host-override recurrence, and each shrink step must strictly reduce sequence/override/value complexity while keeping the override in range.
+- Imported-global replay rejects malformed nine-field rows, duplicate IDs/fixtures, unsafe paths, unsupported behavior, empty traces, invalid i32/usize fields, out-of-range overrides, result/input length mismatches, missing fixtures, and expectations that disagree with the recurrence.
 - No-import regression replay rejects malformed manifest rows, duplicate IDs or fixture paths, unsafe/non-WAT paths, missing files, unknown kinds/classes, unexpected result shapes, and unmapped traps.
 - Wasmtime and WAT tooling live only in this nested test workspace. They are not product dependencies and do not change the Rust 1.81 product MSRV.
 - Differential CI runs every integration target under `differential/tests/`.
@@ -62,4 +66,4 @@ Run locally with:
 cargo test --manifest-path differential/Cargo.toml -- --nocapture
 ```
 
-Captured no-import and imported-function artifacts now both have reviewed replay destinations, but promotion remains deliberate and CI never edits committed fixtures. Future expansion should broaden import capture/replay to host globals, memory, and tables, extend stable typed host-failure normalization, and automate more review assistance without silently committing CI output.
+Captured no-import, imported-function, and imported-global artifacts now have reviewed replay destinations, but promotion remains deliberate and CI never edits committed fixtures. Future expansion should broaden import capture/replay to host memory and tables, extend stable typed host-failure normalization, and automate more review assistance without silently committing CI output.
