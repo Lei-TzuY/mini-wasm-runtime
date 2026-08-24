@@ -3,6 +3,69 @@
 ;; source test/core/block.wast
 
 (module
+  (func $dummy)
+
+  (func (export "empty")
+    (block)
+    (block $l)
+  )
+
+  (func (export "singular") (result i32)
+    (block (nop))
+    (block (result i32) (i32.const 7))
+  )
+
+  (func (export "multi") (result i32)
+    (block (call $dummy) (call $dummy) (call $dummy) (call $dummy))
+    (block (result i32)
+      (call $dummy) (call $dummy) (call $dummy) (i32.const 7) (call $dummy)
+    )
+    (drop)
+    (block (result i32 i64 i32)
+      (call $dummy) (call $dummy) (call $dummy) (i32.const 8) (call $dummy)
+      (call $dummy) (call $dummy) (call $dummy) (i64.const 7) (call $dummy)
+      (call $dummy) (call $dummy) (call $dummy) (i32.const 9) (call $dummy)
+    )
+    (drop) (drop)
+  )
+
+  (func (export "nested") (result i32)
+    (block (result i32)
+      (block (call $dummy) (block) (nop))
+      (block (result i32) (call $dummy) (i32.const 9))
+    )
+  )
+
+  (func (export "as-select-first") (result i32)
+    (select (block (result i32) (i32.const 1)) (i32.const 2) (i32.const 3))
+  )
+  (func (export "as-select-mid") (result i32)
+    (select (i32.const 2) (block (result i32) (i32.const 1)) (i32.const 3))
+  )
+  (func (export "as-select-last") (result i32)
+    (select (i32.const 2) (i32.const 3) (block (result i32) (i32.const 1)))
+  )
+
+  (func (export "as-loop-first") (result i32)
+    (loop (result i32) (block (result i32) (i32.const 1)) (call $dummy) (call $dummy))
+  )
+  (func (export "as-loop-mid") (result i32)
+    (loop (result i32) (call $dummy) (block (result i32) (i32.const 1)) (call $dummy))
+  )
+  (func (export "as-loop-last") (result i32)
+    (loop (result i32) (call $dummy) (call $dummy) (block (result i32) (i32.const 1)))
+  )
+
+  (func (export "as-if-condition")
+    (block (result i32) (i32.const 1)) (if (then (call $dummy)))
+  )
+  (func (export "as-if-then") (result i32)
+    (if (result i32) (i32.const 1) (then (block (result i32) (i32.const 1))) (else (i32.const 2)))
+  )
+  (func (export "as-if-else") (result i32)
+    (if (result i32) (i32.const 1) (then (i32.const 2)) (else (block (result i32) (i32.const 1))))
+  )
+
   (func (export "as-return-value") (result i32)
     (block (result i32) (i32.const 1))
     (return)
@@ -71,6 +134,23 @@
     (i32.add)
   )
 )
+
+(assert_return (invoke "empty"))
+(assert_return (invoke "singular") (i32.const 7))
+(assert_return (invoke "multi") (i32.const 8))
+(assert_return (invoke "nested") (i32.const 9))
+
+(assert_return (invoke "as-select-first") (i32.const 1))
+(assert_return (invoke "as-select-mid") (i32.const 2))
+(assert_return (invoke "as-select-last") (i32.const 2))
+
+(assert_return (invoke "as-loop-first") (i32.const 1))
+(assert_return (invoke "as-loop-mid") (i32.const 1))
+(assert_return (invoke "as-loop-last") (i32.const 1))
+
+(assert_return (invoke "as-if-condition"))
+(assert_return (invoke "as-if-then") (i32.const 1))
+(assert_return (invoke "as-if-else") (i32.const 2))
 
 (assert_return (invoke "as-return-value") (i32.const 1))
 (assert_return (invoke "as-br-value") (i32.const 1))
