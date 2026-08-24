@@ -46,7 +46,7 @@ fn comparison_module(opcode: u8) -> Vec<u8> {
 
 fn run(opcode: u8, lhs: i64, rhs: i64) -> i32 {
     let module = comparison_module(opcode);
-    let instance = Instance::new(parse_module(&module).expect("parse i64 comparison fixture"))
+    let mut instance = Instance::new(parse_module(&module).expect("parse i64 comparison fixture"))
         .expect("instantiate i64 comparison fixture");
     match instance
         .invoke_export("run", &[Value::I64(lhs), Value::I64(rhs)])
