@@ -5,12 +5,14 @@ on:
     paths:
       - "fuzz/**"
       - ".github/workflows/fuzz-smoke.yml"
+      - ".github/workflows/fuzz-campaign.yml"
   push:
     branches:
       - main
     paths:
       - "fuzz/**"
       - ".github/workflows/fuzz-smoke.yml"
+      - ".github/workflows/fuzz-campaign.yml"
 
 permissions:
   contents: read
