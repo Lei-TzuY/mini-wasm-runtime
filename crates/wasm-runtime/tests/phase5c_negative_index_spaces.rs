@@ -53,10 +53,7 @@ fn table_export_cannot_escape_table_index_space() {
         .expect_err("table export must remain inside the table index space");
     assert!(matches!(
         error,
-        RuntimeError::Validation(ValidationError::TableExportOutOfBounds {
-            table_index: 1,
-            ..
-        })
+        RuntimeError::Validation(ValidationError::TableExportOutOfBounds { table_index: 1, .. })
     ));
 }
 
