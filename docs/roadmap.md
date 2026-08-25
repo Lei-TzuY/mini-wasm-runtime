@@ -109,7 +109,7 @@ The roadmap favors complete vertical slices over a broad but shallow decoder.
 
 - [x] initial cargo-fuzz parser and parse-to-validation targets with bounded nightly CI smoke
 - [x] scheduled coverage-guided campaigns, corpus minimization, sanitizer-backed fuzzing, and source-coverage report automation
-- [ ] promote coverage blind spots and real fuzz discoveries into reviewed deterministic seeds/regressions
+- [x] promote coverage blind spots and real fuzz discoveries into reviewed deterministic seeds/regressions
 - [x] initial deterministic property-based / metamorphic corpus
 - [x] deterministic shrinking and initial structured generated-property domains
 - [x] broaden structured generators to multi-value, tables, imports, and richer stateful memory sequences
