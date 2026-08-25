@@ -1,9 +1,7 @@
 use std::collections::HashMap;
 
 use wasm_parser::parse_module;
-use wasm_runtime::{
-    GlobalHandle, HostRegistry, Instance, MemoryHandle, RuntimeError, Value,
-};
+use wasm_runtime::{GlobalHandle, HostRegistry, Instance, MemoryHandle, RuntimeError, Value};
 
 const I32: u8 = 0x7f;
 const I64: u8 = 0x7e;
@@ -62,54 +60,20 @@ fn header() -> Vec<u8> {
     vec![0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00]
 }
 
-fn multi_value_if_module(
-    then_i32: u8,
-    then_i64: u8,
-    else_i32: u8,
-    else_i64: u8,
-) -> Vec<u8> {
+fn multi_value_if_module(then_i32: u8, then_i64: u8, else_i32: u8, else_i64: u8) -> Vec<u8> {
     debug_assert!(then_i32 < 64 && then_i64 < 64 && else_i32 < 64 && else_i64 < 64);
 
     let mut module = header();
     let types = [
-        0x02,
-        0x60,
-        0x01,
-        I32,
-        0x02,
-        I32,
-        I64,
-        0x60,
-        0x00,
-        0x02,
-        I32,
-        I64,
+        0x02, 0x60, 0x01, I32, 0x02, I32, I64, 0x60, 0x00, 0x02, I32, I64,
     ];
     push_section(&mut module, 1, &types);
     push_section(&mut module, 3, &[0x01, 0x00]);
-    push_section(
-        &mut module,
-        7,
-        &[0x01, 0x03, b'r', b'u', b'n', 0x00, 0x00],
-    );
+    push_section(&mut module, 7, &[0x01, 0x03, b'r', b'u', b'n', 0x00, 0x00]);
 
     let body = [
-        0x00,
-        0x20,
-        0x00,
-        0x04,
-        0x01,
-        0x41,
-        then_i32,
-        0x42,
-        then_i64,
-        0x05,
-        0x41,
-        else_i32,
-        0x42,
-        else_i64,
-        0x0b,
-        0x0b,
+        0x00, 0x20, 0x00, 0x04, 0x01, 0x41, then_i32, 0x42, then_i64, 0x05, 0x41, else_i32, 0x42,
+        else_i64, 0x0b, 0x0b,
     ];
     let mut code = vec![0x01];
     push_u32(&mut code, body.len() as u32);
@@ -123,27 +87,12 @@ fn indirect_dispatch_module(first_delta: u8, second_delta: u8) -> Vec<u8> {
 
     let mut module = header();
     let types = [
-        0x02,
-        0x60,
-        0x01,
-        I32,
-        0x01,
-        I32,
-        0x60,
-        0x02,
-        I32,
-        I32,
-        0x01,
-        I32,
+        0x02, 0x60, 0x01, I32, 0x01, I32, 0x60, 0x02, I32, I32, 0x01, I32,
     ];
     push_section(&mut module, 1, &types);
     push_section(&mut module, 3, &[0x03, 0x00, 0x00, 0x01]);
     push_section(&mut module, 4, &[0x01, 0x70, 0x00, 0x03]);
-    push_section(
-        &mut module,
-        7,
-        &[0x01, 0x03, b'r', b'u', b'n', 0x00, 0x02],
-    );
+    push_section(&mut module, 7, &[0x01, 0x03, b'r', b'u', b'n', 0x00, 0x02]);
     push_section(
         &mut module,
         9,
@@ -152,9 +101,7 @@ fn indirect_dispatch_module(first_delta: u8, second_delta: u8) -> Vec<u8> {
 
     let first = [0x00, 0x20, 0x00, 0x41, first_delta, 0x6a, 0x0b];
     let second = [0x00, 0x20, 0x00, 0x41, second_delta, 0x6a, 0x0b];
-    let dispatcher = [
-        0x00, 0x20, 0x00, 0x20, 0x01, 0x11, 0x00, 0x00, 0x0b,
-    ];
+    let dispatcher = [0x00, 0x20, 0x00, 0x20, 0x01, 0x11, 0x00, 0x00, 0x0b];
 
     let mut code = vec![0x03];
     for body in [&first[..], &second[..], &dispatcher[..]] {
@@ -167,11 +114,7 @@ fn indirect_dispatch_module(first_delta: u8, second_delta: u8) -> Vec<u8> {
 
 fn imported_global_accumulator_module() -> Vec<u8> {
     let mut module = header();
-    push_section(
-        &mut module,
-        1,
-        &[0x01, 0x60, 0x01, I32, 0x01, I32],
-    );
+    push_section(&mut module, 1, &[0x01, 0x60, 0x01, I32, 0x01, I32]);
 
     let mut imports = vec![0x01];
     push_name(&mut imports, "env");
@@ -180,24 +123,10 @@ fn imported_global_accumulator_module() -> Vec<u8> {
     push_section(&mut module, 2, &imports);
 
     push_section(&mut module, 3, &[0x01, 0x00]);
-    push_section(
-        &mut module,
-        7,
-        &[0x01, 0x03, b'r', b'u', b'n', 0x00, 0x00],
-    );
+    push_section(&mut module, 7, &[0x01, 0x03, b'r', b'u', b'n', 0x00, 0x00]);
 
     let body = [
-        0x00,
-        0x23,
-        0x00,
-        0x20,
-        0x00,
-        0x6a,
-        0x24,
-        0x00,
-        0x23,
-        0x00,
-        0x0b,
+        0x00, 0x23, 0x00, 0x20, 0x00, 0x6a, 0x24, 0x00, 0x23, 0x00, 0x0b,
     ];
     let mut code = vec![0x01];
     push_u32(&mut code, body.len() as u32);
@@ -208,19 +137,7 @@ fn imported_global_accumulator_module() -> Vec<u8> {
 
 fn imported_memory_state_module() -> Vec<u8> {
     let mut module = header();
-    let types = [
-        0x02,
-        0x60,
-        0x01,
-        I32,
-        0x01,
-        I32,
-        0x60,
-        0x02,
-        I32,
-        I32,
-        0x00,
-    ];
+    let types = [0x02, 0x60, 0x01, I32, 0x01, I32, 0x60, 0x02, I32, I32, 0x00];
     push_section(&mut module, 1, &types);
 
     let mut imports = vec![0x01];
@@ -240,9 +157,7 @@ fn imported_memory_state_module() -> Vec<u8> {
     push_section(&mut module, 7, &exports);
 
     let load = [0x00, 0x20, 0x00, 0x28, 0x02, 0x00, 0x0b];
-    let store = [
-        0x00, 0x20, 0x00, 0x20, 0x01, 0x36, 0x02, 0x00, 0x0b,
-    ];
+    let store = [0x00, 0x20, 0x00, 0x20, 0x01, 0x36, 0x02, 0x00, 0x0b];
     let mut code = vec![0x02];
     for body in [&load[..], &store[..]] {
         push_u32(&mut code, body.len() as u32);
@@ -270,9 +185,15 @@ fn generated_multi_value_if_preserves_order_and_branch_selection() {
         let mut instance =
             Instance::new(module).expect("generated multi-value fixture must instantiate");
         let expected = if condition != 0 {
-            vec![Value::I32(i32::from(then_i32)), Value::I64(i64::from(then_i64))]
+            vec![
+                Value::I32(i32::from(then_i32)),
+                Value::I64(i64::from(then_i64)),
+            ]
         } else {
-            vec![Value::I32(i32::from(else_i32)), Value::I64(i64::from(else_i64))]
+            vec![
+                Value::I32(i32::from(else_i32)),
+                Value::I64(i64::from(else_i64)),
+            ]
         };
 
         assert_eq!(
@@ -297,10 +218,8 @@ fn generated_table_dispatch_distinguishes_targets_null_and_oob() {
 
         let module = parse_module(&indirect_dispatch_module(first_delta, second_delta))
             .expect("generated table fixture must parse");
-        let mut instance =
-            Instance::new(module).expect("generated table fixture must instantiate");
-        let observed =
-            instance.invoke_export("run", &[Value::I32(value), Value::I32(selector)]);
+        let mut instance = Instance::new(module).expect("generated table fixture must instantiate");
+        let observed = instance.invoke_export("run", &[Value::I32(value), Value::I32(selector)]);
 
         match selector {
             0 => assert_eq!(
@@ -340,8 +259,8 @@ fn generated_imported_global_sequence_matches_independent_state_model() {
     hosts
         .register_global("env", "g", global.clone())
         .expect("register generated imported global");
-    let mut instance =
-        Instance::with_hosts(module, hosts).expect("generated imported-global fixture must instantiate");
+    let mut instance = Instance::with_hosts(module, hosts)
+        .expect("generated imported-global fixture must instantiate");
 
     let mut rng = XorShift64::new(SEED ^ 0x3c6e_f372_fe94_f82b);
     let mut model = 0i32;
@@ -389,8 +308,8 @@ fn generated_stateful_memory_sequence_preserves_host_guest_aliasing() {
     hosts
         .register_memory("env", "mem", memory.clone())
         .expect("register generated imported memory");
-    let mut instance =
-        Instance::with_hosts(module, hosts).expect("generated imported-memory fixture must instantiate");
+    let mut instance = Instance::with_hosts(module, hosts)
+        .expect("generated imported-memory fixture must instantiate");
 
     let fixed_addresses = [0u32, 4, 8, 64, 1_024, 65_532];
     let mut rng = XorShift64::new(SEED ^ 0xa54f_f53a_5f1d_36f1);
