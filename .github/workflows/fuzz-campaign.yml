@@ -12,7 +12,7 @@ jobs:
   coverage-guided-campaign:
     name: ${{ matrix.target }} campaign
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 40
     strategy:
       fail-fast: false
       matrix:
@@ -23,11 +23,12 @@ jobs:
       FUZZ_TARGET: ${{ matrix.target }}
       CORPUS_DIR: fuzz/corpus/${{ matrix.target }}
       ARTIFACT_DIR: fuzz/artifacts/${{ matrix.target }}
+      COVERAGE_DIR: fuzz/coverage/${{ matrix.target }}
     steps:
       - uses: actions/checkout@v5
 
-      - name: Install nightly Rust
-        run: rustup toolchain install nightly --profile minimal
+      - name: Install nightly Rust and coverage tools
+        run: rustup toolchain install nightly --profile minimal --component llvm-tools-preview
 
       - name: Install cargo-fuzz
         run: cargo +nightly install cargo-fuzz --locked
@@ -41,6 +42,7 @@ jobs:
             fuzz-corpus-${{ runner.os }}-${{ matrix.target }}-
 
       - name: Run 15-minute coverage-guided campaign
+        id: campaign
         run: >-
           cargo +nightly fuzz run "$FUZZ_TARGET" --
           -seed=1
@@ -51,7 +53,8 @@ jobs:
           -dict=fuzz/wasm.dict
 
       - name: Minimize surviving corpus
-        if: success()
+        id: minimize
+        if: success() && steps.campaign.outcome == 'success'
         run: >-
           cargo +nightly fuzz cmin "$FUZZ_TARGET" --
           -max_len=4096
@@ -60,7 +63,7 @@ jobs:
           -dict=fuzz/wasm.dict
 
       - name: Upload minimized corpus snapshot
-        if: success()
+        if: success() && steps.minimize.outcome == 'success'
         uses: actions/upload-artifact@v4
         with:
           name: fuzz-corpus-${{ matrix.target }}
@@ -68,8 +71,27 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
+      - name: Replay minimized corpus with source coverage
+        if: success() && steps.minimize.outcome == 'success'
+        run: cargo +nightly fuzz coverage "$FUZZ_TARGET"
+
+      - name: Render coverage summary, LCOV, and HTML
+        if: success()
+        run: bash fuzz/render-coverage.sh "$FUZZ_TARGET"
+
+      - name: Upload coverage report
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: fuzz-coverage-${{ matrix.target }}
+          path: |
+            ${{ env.COVERAGE_DIR }}/coverage.profdata
+            ${{ env.COVERAGE_DIR }}/report/
+          if-no-files-found: error
+          retention-days: 14
+
       - name: Upload crash artifacts
-        if: failure()
+        if: failure() && steps.campaign.outcome == 'failure'
         uses: actions/upload-artifact@v4
         with:
           name: fuzz-crash-${{ matrix.target }}
