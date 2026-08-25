@@ -122,24 +122,8 @@ fn narrow_memarg_offsets_reach_the_last_legal_bytes() {
     assert_eq!(UPSTREAM_SPEC_COMMIT.len(), 40);
 
     for (base, store, load, alignment, offset, input, expected) in [
-        (
-            (WASM_PAGE_SIZE - 8) as i32,
-            0x3a,
-            0x2d,
-            0x00,
-            7,
-            -1,
-            255,
-        ),
-        (
-            (WASM_PAGE_SIZE - 9) as i32,
-            0x3b,
-            0x2f,
-            0x01,
-            7,
-            -1,
-            65_535,
-        ),
+        ((WASM_PAGE_SIZE - 8) as i32, 0x3a, 0x2d, 0x00, 7, -1, 255),
+        ((WASM_PAGE_SIZE - 9) as i32, 0x3b, 0x2f, 0x01, 7, -1, 65_535),
     ] {
         let module = roundtrip_with_offset(base, store, load, alignment, offset);
         let mut vm = instance(&module);
@@ -188,12 +172,10 @@ fn failed_narrow_offset_stores_are_atomic() {
     ] {
         let module = store_with_offset(opcode, alignment, offset);
         let mut vm = instance(&module);
-        let tail_before = vm.memory().expect("defined memory").bytes()[WASM_PAGE_SIZE - 4..].to_vec();
+        let tail_before =
+            vm.memory().expect("defined memory").bytes()[WASM_PAGE_SIZE - 4..].to_vec();
         let error = vm
-            .invoke_export(
-                "run",
-                &[Value::I32(base as i32), Value::I32(0x1234_5678)],
-            )
+            .invoke_export("run", &[Value::I32(base as i32), Value::I32(0x1234_5678)])
             .expect_err("failed narrow offset store must trap before mutation");
         assert_memory_oob(error, effective as u64, width);
         assert_eq!(
