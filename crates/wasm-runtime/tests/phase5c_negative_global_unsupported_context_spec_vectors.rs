@@ -70,26 +70,12 @@ fn assert_unsupported(module: &[u8], opcode: u8) {
 }
 
 #[test]
-fn upstream_global_get_select_context_remains_fail_closed() {
-    // WebAssembly/spec test/core/global.wast @ the pinned revision:
-    // (select (global.get $x) (i32.const 2) (i32.const 3)).
-    // select is not yet in this runtime's supported opcode surface.
-    assert_eq!(UPSTREAM_SPEC_COMMIT.len(), 40);
-
-    let module = module_with_function(&[
-        0x23, 0x00, // global.get $x
-        0x41, 0x02, // i32.const 2
-        0x41, 0x03, // i32.const 3
-        0x1b, // select
-    ]);
-    assert_unsupported(&module, 0x1b);
-}
-
-#[test]
 fn upstream_global_get_br_table_contexts_remain_fail_closed() {
     // The pinned upstream vectors place global.get first and last among the
     // br_table operands. br_table itself is not yet supported, so both forms
     // must be rejected before execution rather than partially interpreted.
+    assert_eq!(UPSTREAM_SPEC_COMMIT.len(), 40);
+
     let cases = [
         module_with_function(&[
             0x02, I32, // block (result i32)

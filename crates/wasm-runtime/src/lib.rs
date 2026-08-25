@@ -1844,6 +1844,13 @@ impl Instance {
                         stack.push(result);
                     }
                 }
+                0x1b => {
+                    let condition = numeric::i32_from_stack(&mut stack)?;
+                    let rhs = stack.pop().ok_or(RuntimeError::StackUnderflow)?;
+                    let lhs = stack.pop().ok_or(RuntimeError::StackUnderflow)?;
+                    numeric::expect_type(lhs, rhs.value_type())?;
+                    stack.push(if condition != 0 { lhs } else { rhs });
+                }
                 0x20 => {
                     let index = read_u32_immediate(code, &mut pc)?;
                     let value = *locals
@@ -2520,6 +2527,7 @@ fn build_control_map(module: &Module, code: &[u8]) -> Result<ControlMap, Runtime
                 let _ = read_fixed_u64(code, &mut pc)?;
             }
             0x0f
+            | 0x1b
             | 0x45..=0x66
             | 0x6a..=0x6c
             | 0x7c..=0x7e

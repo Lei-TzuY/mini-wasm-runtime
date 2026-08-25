@@ -169,6 +169,7 @@ pub(super) fn validate_code(
                 pop_expect(&mut stack, &controls, ValueType::I32, function, offset)?;
                 apply_call_signature(&mut stack, &controls, ty, function, offset)?;
             }
+            0x1b => select(&mut stack, &controls, function, offset)?,
             0x20 => {
                 let index = read_local(code, &mut pc, function, offset, local_types)?;
                 let ty = local_types[index as usize];
@@ -382,6 +383,33 @@ fn apply_call_signature(
     Ok(())
 }
 
+fn select(
+    stack: &mut Vec<ValueType>,
+    controls: &[ControlFrame],
+    function: usize,
+    offset: usize,
+) -> Result<(), ValidationError> {
+    pop_expect(stack, controls, ValueType::I32, function, offset)?;
+    let rhs = pop_any(stack, controls, function, offset)?;
+    let lhs = pop_any(stack, controls, function, offset)?;
+    let result = match (lhs, rhs) {
+        (Some(actual), Some(expected)) if actual != expected => {
+            return Err(ValidationError::TypeMismatch {
+                function,
+                offset,
+                expected,
+                actual,
+            });
+        }
+        (Some(ty), Some(_)) | (Some(ty), None) | (None, Some(ty)) => Some(ty),
+        (None, None) => None,
+    };
+    if let Some(ty) = result {
+        stack.push(ty);
+    }
+    Ok(())
+}
+
 fn unary(
     stack: &mut Vec<ValueType>,
     controls: &[ControlFrame],
@@ -419,6 +447,24 @@ fn binary_compare(
     pop_expect(stack, controls, ty, function, offset)?;
     stack.push(ValueType::I32);
     Ok(())
+}
+
+fn pop_any(
+    stack: &mut Vec<ValueType>,
+    controls: &[ControlFrame],
+    function: usize,
+    offset: usize,
+) -> Result<Option<ValueType>, ValidationError> {
+    let frame = controls
+        .last()
+        .ok_or(ValidationError::OperandStackUnderflow { function, offset })?;
+    if stack.len() == frame.height && frame.unreachable {
+        return Ok(None);
+    }
+    stack
+        .pop()
+        .map(Some)
+        .ok_or(ValidationError::OperandStackUnderflow { function, offset })
 }
 
 fn pop_expect(
