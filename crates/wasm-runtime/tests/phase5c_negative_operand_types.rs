@@ -2,7 +2,6 @@ use wasm_parser::{parse_module, ValueType};
 use wasm_runtime::{Instance, RuntimeError};
 use wasm_validator::ValidationError;
 
-const I32: u8 = 0x7f;
 const I64: u8 = 0x7e;
 
 fn push_u32(bytes: &mut Vec<u8>, mut value: u32) {
