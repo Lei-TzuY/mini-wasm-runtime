@@ -84,11 +84,7 @@ fn roundtrip_at(address: i32, store: u8, load: u8, alignment: u8) -> Vec<u8> {
 }
 
 fn load_at(opcode: u8, alignment: u8) -> Vec<u8> {
-    single_memory_function_module(
-        &[I32],
-        Some(I32),
-        &[0x20, 0x00, opcode, alignment, 0x00],
-    )
+    single_memory_function_module(&[I32], Some(I32), &[0x20, 0x00, opcode, alignment, 0x00])
 }
 
 fn store_at(opcode: u8, alignment: u8) -> Vec<u8> {
@@ -121,14 +117,7 @@ fn upstream_last_valid_page_end_accesses_succeed() {
 
     for (address, store, load, alignment, input, expected) in [
         ((WASM_PAGE_SIZE - 1) as i32, 0x3a, 0x2d, 0x00, -1, 255),
-        (
-            (WASM_PAGE_SIZE - 2) as i32,
-            0x3b,
-            0x2f,
-            0x01,
-            -1,
-            65_535,
-        ),
+        ((WASM_PAGE_SIZE - 2) as i32, 0x3b, 0x2f, 0x01, -1, 65_535),
         (
             (WASM_PAGE_SIZE - 4) as i32,
             0x36,
@@ -174,7 +163,8 @@ fn failed_page_end_stores_are_atomic() {
     ] {
         let module = store_at(opcode, alignment);
         let mut vm = instance(&module);
-        let tail_before = vm.memory().expect("defined memory").bytes()[WASM_PAGE_SIZE - 4..].to_vec();
+        let tail_before =
+            vm.memory().expect("defined memory").bytes()[WASM_PAGE_SIZE - 4..].to_vec();
         let error = vm
             .invoke_export(
                 "run",
