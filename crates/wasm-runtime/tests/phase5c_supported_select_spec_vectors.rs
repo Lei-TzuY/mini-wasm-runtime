@@ -178,6 +178,44 @@ fn select_rejects_non_i32_condition() {
 }
 
 #[test]
+fn select_rejects_reachable_operand_underflow() {
+    let module = parse_module(&module_with_result(
+        None,
+        &[
+            0x41, 0x01, // only one candidate value
+            0x41, 0x00, // condition
+            0x1b,
+        ],
+    ))
+    .expect("underflow vector must parse");
+    assert!(matches!(
+        validate(&module),
+        Err(ValidationError::OperandStackUnderflow { .. })
+    ));
+}
+
+#[test]
+fn typed_select_remains_explicitly_fail_closed() {
+    let module = parse_module(&module_with_result(
+        Some(I32),
+        &[
+            0x41, 0x01, // first value
+            0x41, 0x02, // second value
+            0x41, 0x00, // condition
+            0x1c, 0x01, I32, // typed select [i32]
+        ],
+    ))
+    .expect("typed-select boundary vector must parse");
+    assert!(matches!(
+        validate(&module),
+        Err(ValidationError::UnsupportedOpcode {
+            opcode: 0x1c,
+            ..
+        })
+    ));
+}
+
+#[test]
 fn select_preserves_polymorphic_unreachable_stack_semantics() {
     for instructions in [
         vec![
