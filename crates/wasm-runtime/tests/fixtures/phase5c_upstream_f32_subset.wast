@@ -67,3 +67,7 @@
 (assert_return (invoke "sub" (f32.const -0x0p+0) (f32.const 0x1p-126)) (f32.const -0x1p-126))
 (assert_return (invoke "sub" (f32.const 0x0p+0) (f32.const -0x1p-126)) (f32.const 0x1p-126))
 (assert_return (invoke "sub" (f32.const 0x0p+0) (f32.const 0x1p-126)) (f32.const -0x1p-126))
+(assert_return (invoke "sub" (f32.const -0x0p+0) (f32.const -0x1p-1)) (f32.const 0x1p-1))
+(assert_return (invoke "sub" (f32.const -0x0p+0) (f32.const 0x1p-1)) (f32.const -0x1p-1))
+(assert_return (invoke "sub" (f32.const 0x0p+0) (f32.const -0x1p-1)) (f32.const 0x1p-1))
+(assert_return (invoke "sub" (f32.const 0x0p+0) (f32.const 0x1p-1)) (f32.const -0x1p-1))
