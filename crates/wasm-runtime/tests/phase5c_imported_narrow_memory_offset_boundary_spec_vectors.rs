@@ -95,7 +95,8 @@ fn imported_narrow_module(offset: u32) -> Vec<u8> {
 }
 
 fn instance(offset: u32, memory: &MemoryHandle) -> Instance {
-    let module = parse_module(&imported_narrow_module(offset)).expect("imported narrow vector parses");
+    let module =
+        parse_module(&imported_narrow_module(offset)).expect("imported narrow vector parses");
     let mut hosts = HostRegistry::new();
     hosts.register_memory("env", "mem", memory.clone()).unwrap();
     Instance::with_hosts(module, hosts).expect("imported narrow vector instantiates")
@@ -114,7 +115,9 @@ fn assert_memory_oob(error: RuntimeError, expected_address: u64, expected_width:
 #[test]
 fn imported_narrow_offsets_read_the_last_legal_bytes_from_host_backing() {
     let memory = MemoryHandle::new(1, Some(2)).unwrap();
-    memory.write((WASM_PAGE_SIZE - 2) as u32, &[0x34, 0x12]).unwrap();
+    memory
+        .write((WASM_PAGE_SIZE - 2) as u32, &[0x34, 0x12])
+        .unwrap();
     let mut vm = instance(7, &memory);
 
     assert_eq!(
@@ -154,34 +157,33 @@ fn failed_imported_narrow_stores_leave_host_backing_unchanged() {
     let error = vm
         .invoke_export(
             "store8",
-            &[
-                Value::I32((WASM_PAGE_SIZE - 7) as i32),
-                Value::I32(0xaa),
-            ],
+            &[Value::I32((WASM_PAGE_SIZE - 7) as i32), Value::I32(0xaa)],
         )
         .expect_err("OOB store8 must trap before host mutation");
     assert_memory_oob(error, WASM_PAGE_SIZE as u64, 1);
-    assert_eq!(memory.read((WASM_PAGE_SIZE - 4) as u32, 4).unwrap(), b"KEEP");
+    assert_eq!(
+        memory.read((WASM_PAGE_SIZE - 4) as u32, 4).unwrap(),
+        b"KEEP"
+    );
 
     let error = vm
         .invoke_export(
             "store16",
-            &[
-                Value::I32((WASM_PAGE_SIZE - 8) as i32),
-                Value::I32(0x1234),
-            ],
+            &[Value::I32((WASM_PAGE_SIZE - 8) as i32), Value::I32(0x1234)],
         )
         .expect_err("OOB store16 must trap before host mutation");
     assert_memory_oob(error, (WASM_PAGE_SIZE - 1) as u64, 2);
-    assert_eq!(memory.read((WASM_PAGE_SIZE - 4) as u32, 4).unwrap(), b"KEEP");
+    assert_eq!(
+        memory.read((WASM_PAGE_SIZE - 4) as u32, 4).unwrap(),
+        b"KEEP"
+    );
 }
 
 #[test]
 fn imported_narrow_effective_addresses_do_not_wrap_at_u32() {
-    for (offset, base, expected_address) in [
-        (1, -1, 0x1_0000_0000u64),
-        (u32::MAX, 1, 0x1_0000_0000u64),
-    ] {
+    for (offset, base, expected_address) in
+        [(1, -1, 0x1_0000_0000u64), (u32::MAX, 1, 0x1_0000_0000u64)]
+    {
         let memory = MemoryHandle::new(1, Some(2)).unwrap();
         let mut vm = instance(offset, &memory);
 
