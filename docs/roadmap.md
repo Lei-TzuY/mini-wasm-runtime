@@ -141,6 +141,7 @@ The roadmap favors complete vertical slices over a broad but shallow decoder.
 - [x] initial malformed-binary parser corpus
 - [x] untrusted-count parser allocation hardening
 - [x] initial malformed-module validation/runtime stage corpus
+- [x] expand stage-sensitive malformed-module coverage across import/export index spaces, host bindings, active segments, and normalized dynamic traps
 - [ ] continue malformed-module corpus expansion from fuzzing and differential regressions
 - [x] initial runtime security invariants and threat model
 - [ ] revisit the threat model as host capabilities, concurrency, WASI-like interfaces, or JIT execution expand
