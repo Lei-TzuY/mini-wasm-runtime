@@ -57,11 +57,9 @@ fn upstream_empty_active_elements_beyond_table_end_fail_closed() {
     // still out of bounds even though the segment itself has zero elements.
     assert_eq!(UPSTREAM_SPEC_COMMIT.len(), 40);
 
-    for (table_size, offset, expected_offset) in [
-        (0, 1, 1u64),
-        (20, 21, 21),
-        (20, -1, u64::from(u32::MAX)),
-    ] {
+    for (table_size, offset, expected_offset) in
+        [(0, 1, 1u64), (20, 21, 21), (20, -1, u64::from(u32::MAX))]
+    {
         let module = parse_module(&empty_active_element_module(table_size, offset))
             .expect("empty active element OOB vector must parse");
         let error = Instance::new(module)
