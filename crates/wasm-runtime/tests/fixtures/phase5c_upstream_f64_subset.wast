@@ -67,3 +67,7 @@
 (assert_return (invoke "sub" (f64.const -0x0p+0) (f64.const 0x1p-1022)) (f64.const -0x1p-1022))
 (assert_return (invoke "sub" (f64.const 0x0p+0) (f64.const -0x1p-1022)) (f64.const 0x1p-1022))
 (assert_return (invoke "sub" (f64.const 0x0p+0) (f64.const 0x1p-1022)) (f64.const -0x1p-1022))
+(assert_return (invoke "sub" (f64.const -0x0p+0) (f64.const -0x1p-1)) (f64.const 0x1p-1))
+(assert_return (invoke "sub" (f64.const -0x0p+0) (f64.const 0x1p-1)) (f64.const -0x1p-1))
+(assert_return (invoke "sub" (f64.const 0x0p+0) (f64.const -0x1p-1)) (f64.const 0x1p-1))
+(assert_return (invoke "sub" (f64.const 0x0p+0) (f64.const 0x1p-1)) (f64.const -0x1p-1))
