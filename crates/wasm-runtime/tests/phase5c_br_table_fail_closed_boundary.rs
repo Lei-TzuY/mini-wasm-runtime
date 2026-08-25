@@ -3,7 +3,10 @@ use wasm_runtime::{Instance, RuntimeError};
 use wasm_validator::ValidationError;
 
 fn push_section(module: &mut Vec<u8>, id: u8, payload: &[u8]) {
-    assert!(payload.len() < 128, "fixture helper only needs one-byte lengths");
+    assert!(
+        payload.len() < 128,
+        "fixture helper only needs one-byte lengths"
+    );
     module.push(id);
     module.push(payload.len() as u8);
     module.extend_from_slice(payload);
@@ -26,7 +29,8 @@ fn module_with_body(results: u8, body: &[u8]) -> Vec<u8> {
 fn assert_br_table_rejected(body: &[u8], expected_offset: usize) {
     let bytes = module_with_body(0, body);
     let module = parse_module(&bytes).expect("boundary fixture must remain structurally parseable");
-    let error = Instance::new(module).expect_err("br_table must remain fail-closed until fully admitted");
+    let error =
+        Instance::new(module).expect_err("br_table must remain fail-closed until fully admitted");
     assert!(matches!(
         error,
         RuntimeError::Validation(ValidationError::UnsupportedOpcode {
