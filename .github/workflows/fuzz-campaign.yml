@@ -1,0 +1,78 @@
+name: Scheduled fuzz campaign
+
+on:
+  schedule:
+    - cron: "17 3 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  coverage-guided-campaign:
+    name: ${{ matrix.target }} campaign
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        target:
+          - parse_module
+          - parse_validate
+    env:
+      FUZZ_TARGET: ${{ matrix.target }}
+      CORPUS_DIR: fuzz/corpus/${{ matrix.target }}
+      ARTIFACT_DIR: fuzz/artifacts/${{ matrix.target }}
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Install nightly Rust
+        run: rustup toolchain install nightly --profile minimal
+
+      - name: Install cargo-fuzz
+        run: cargo +nightly install cargo-fuzz --locked
+
+      - name: Restore evolving corpus
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.CORPUS_DIR }}
+          key: fuzz-corpus-${{ runner.os }}-${{ matrix.target }}-${{ github.run_id }}
+          restore-keys: |
+            fuzz-corpus-${{ runner.os }}-${{ matrix.target }}-
+
+      - name: Run 15-minute coverage-guided campaign
+        run: >-
+          cargo +nightly fuzz run "$FUZZ_TARGET" --
+          -seed=1
+          -max_total_time=900
+          -max_len=4096
+          -timeout=5
+          -rss_limit_mb=1024
+          -dict=fuzz/wasm.dict
+
+      - name: Minimize surviving corpus
+        if: success()
+        run: >-
+          cargo +nightly fuzz cmin "$FUZZ_TARGET" --
+          -max_len=4096
+          -timeout=5
+          -rss_limit_mb=1024
+          -dict=fuzz/wasm.dict
+
+      - name: Upload minimized corpus snapshot
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: fuzz-corpus-${{ matrix.target }}
+          path: ${{ env.CORPUS_DIR }}/
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Upload crash artifacts
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: fuzz-crash-${{ matrix.target }}
+          path: ${{ env.ARTIFACT_DIR }}/
+          if-no-files-found: ignore
+          retention-days: 30
