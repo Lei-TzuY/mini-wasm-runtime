@@ -15,7 +15,8 @@ mod numeric;
 pub use numeric::Value;
 use wasm_validator::{validate, ValidationError, MAX_MEMORY_PAGES};
 
-const DEFAULT_MAX_CALL_DEPTH: usize = 1024;
+pub const MAX_CALL_DEPTH: usize = 32;
+const DEFAULT_MAX_CALL_DEPTH: usize = MAX_CALL_DEPTH;
 pub const WASM_PAGE_SIZE: usize = 65_536;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -1879,9 +1880,10 @@ impl Instance {
         if function < imported {
             return self.invoke_host(function, args, budget);
         }
-        if depth >= self.limits.max_call_depth {
+        let call_depth_limit = self.limits.max_call_depth.min(MAX_CALL_DEPTH);
+        if depth >= call_depth_limit {
             return Err(RuntimeError::CallDepthExceeded {
-                limit: self.limits.max_call_depth,
+                limit: call_depth_limit,
             });
         }
 

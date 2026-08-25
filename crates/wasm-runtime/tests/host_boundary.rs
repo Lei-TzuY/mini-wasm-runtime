@@ -4,6 +4,7 @@ use wasm_parser::{
 };
 use wasm_runtime::{
     HostCapabilities, HostError, HostRegistry, Instance, RuntimeError, RuntimeLimits, Value,
+    MAX_CALL_DEPTH,
 };
 
 fn imported_reader_module() -> Module {
@@ -137,5 +138,37 @@ fn configured_call_depth_stops_recursive_wasm() {
     assert!(matches!(
         instance.invoke_export("recurse", &[]),
         Err(RuntimeError::CallDepthExceeded { limit: 2 })
+    ));
+}
+
+#[test]
+fn configured_call_depth_cannot_bypass_runtime_safety_ceiling() {
+    let module = Module {
+        types: vec![FuncType {
+            params: vec![],
+            results: vec![],
+        }],
+        function_type_indices: vec![0],
+        exports: vec![Export {
+            name: "recurse".into(),
+            kind: ExportKind::Function,
+            index: 0,
+        }],
+        code: vec![FunctionBody {
+            locals: vec![],
+            code: vec![0x10, 0x00, 0x0b],
+        }],
+        ..Module::default()
+    };
+    let limits = RuntimeLimits {
+        max_call_depth: usize::MAX,
+        ..RuntimeLimits::default()
+    };
+    let mut instance = Instance::with_config(module, HostRegistry::new(), limits).unwrap();
+    assert!(matches!(
+        instance.invoke_export("recurse", &[]),
+        Err(RuntimeError::CallDepthExceeded {
+            limit: MAX_CALL_DEPTH
+        })
     ));
 }

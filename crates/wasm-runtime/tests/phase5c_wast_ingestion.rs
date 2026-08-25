@@ -9,6 +9,7 @@ const CONTRACT_FIXTURE: &str = include_str!("fixtures/phase5c_ingestion_contract
 const UPSTREAM_MANIFEST: &str = include_str!("fixtures/phase5c_upstream_manifest.tsv");
 const UPSTREAM_ADDRESS_SUBSET: &str = include_str!("fixtures/phase5c_upstream_address_subset.wast");
 const UPSTREAM_ALIGN_SUBSET: &str = include_str!("fixtures/phase5c_upstream_align_subset.wast");
+const UPSTREAM_CALL_SUBSET: &str = include_str!("fixtures/phase5c_upstream_call_subset.wast");
 const UPSTREAM_BLOCK_SUBSET: &str = include_str!("fixtures/phase5c_upstream_block_subset.wast");
 const UPSTREAM_BR_SUBSET: &str = include_str!("fixtures/phase5c_upstream_br_subset.wast");
 const UPSTREAM_BR_IF_SUBSET: &str = include_str!("fixtures/phase5c_upstream_br_if_subset.wast");
@@ -80,6 +81,7 @@ enum TrapKind {
     IntegerOverflow,
     InvalidConversionToInteger,
     MemoryOutOfBounds,
+    UndefinedElement,
 }
 
 fn is_supported_core_module(module: &QuoteWat<'_>) -> bool {
@@ -146,6 +148,7 @@ fn translate_trap(message: &str) -> Result<TrapKind, FilterReason> {
         "integer overflow" => Ok(TrapKind::IntegerOverflow),
         "invalid conversion to integer" => Ok(TrapKind::InvalidConversionToInteger),
         "out of bounds memory access" => Ok(TrapKind::MemoryOutOfBounds),
+        "undefined element" => Ok(TrapKind::UndefinedElement),
         other => Err(FilterReason::UnsupportedTrapMessage(other.to_string())),
     }
 }
@@ -196,6 +199,10 @@ fn trap_matches(expected: TrapKind, actual: &RuntimeError) -> bool {
             matches!(actual, RuntimeError::InvalidConversionToInteger)
         }
         TrapKind::MemoryOutOfBounds => matches!(actual, RuntimeError::MemoryOutOfBounds { .. }),
+        TrapKind::UndefinedElement => matches!(
+            actual,
+            RuntimeError::TableElementOutOfBounds(_) | RuntimeError::UninitializedTableElement(_)
+        ),
     }
 }
 
@@ -345,6 +352,7 @@ fn manifest_fixture(name: &str) -> &'static str {
     match name {
         "phase5c_upstream_address_subset.wast" => UPSTREAM_ADDRESS_SUBSET,
         "phase5c_upstream_align_subset.wast" => UPSTREAM_ALIGN_SUBSET,
+        "phase5c_upstream_call_subset.wast" => UPSTREAM_CALL_SUBSET,
         "phase5c_upstream_block_subset.wast" => UPSTREAM_BLOCK_SUBSET,
         "phase5c_upstream_br_subset.wast" => UPSTREAM_BR_SUBSET,
         "phase5c_upstream_br_if_subset.wast" => UPSTREAM_BR_IF_SUBSET,

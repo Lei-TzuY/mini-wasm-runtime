@@ -22,3 +22,4 @@ fc209c5ed8afc4dfeb9252024d217da3376c7a6f	test/core/f32_cmp.wast	phase5c_upstream
 fc209c5ed8afc4dfeb9252024d217da3376c7a6f	test/core/f64_cmp.wast	phase5c_upstream_f64_cmp_subset.wast	1	12	0
 fc209c5ed8afc4dfeb9252024d217da3376c7a6f	test/core/conversions.wast	phase5c_upstream_conversions_subset.wast	1	92	0
 fc209c5ed8afc4dfeb9252024d217da3376c7a6f	test/core/return.wast	phase5c_upstream_return_subset.wast	2	44	0
+fc209c5ed8afc4dfeb9252024d217da3376c7a6f	test/core/call.wast	phase5c_upstream_call_subset.wast	1	65	0
