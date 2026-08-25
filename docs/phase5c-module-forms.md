@@ -4,16 +4,17 @@ Phase 5C broadens the module surface only where the runtime can preserve WebAsse
 
 ## Current completed slices
 
-The current Phase-5C branch has completed eight major vertical slices and continues to deepen conformance within those boundaries:
+The current Phase-5C branch has completed nine major vertical slices and continues to deepen conformance within those boundaries:
 
 1. **Type-index block signatures.** Signed-33 blocktype decoding, block parameters, zero-or-one numeric results, loop parameter label types, if/else parameter restoration, and runtime control metadata all use the referenced function type exactly.
 2. **Independent import index spaces.** The parser retains function/table/memory/global import descriptors in binary order while the validator resolves each kind in its own WebAssembly index space. Object imports do not shift function indices.
 3. **Numeric global imports.** Immutable and mutable i32/i64/f32/f64 imports use explicit host bindings and shared `GlobalHandle` backing with exact type and mutability matching.
 4. **Shared imported tables.** `TableHandle` gives imported `funcref` tables host-visible shared backing. Active element segments update the same table after all-segment preflight, host slot changes are immediately visible to `call_indirect`, and opaque instance-bound `FunctionRef` values fail closed when stale or foreign.
 5. **Shared imported memory.** `MemoryHandle` gives imported memories shared host/Wasm backing. Host and Wasm observe the same bytes, current page count, growth, and maximum; import-limit matching and runtime caps are enforced before instantiation.
-6. **Imported-memory adversarial hardening.** Active data initialization preflights every segment before mutating shared memory, and capability-gated host callbacks access the exact same imported backing retained by the embedding host.
-7. **Negative conformance hardening.** Cross-layer malformed and invalid fixtures lock in rejection of duplicate/out-of-order sections, function/code cardinality mismatch, bad index spaces and instruction immediates, control-stack/type errors, memory misuse, and global index/mutability/initializer violations.
-8. **Curated supported-spec vectors.** Source-faithful vectors derived from `WebAssembly/spec` at pinned commit `fc209c5ed8afc4dfeb9252024d217da3376c7a6f` exercise supported numeric, function/control, `call_indirect`, memory, and numeric-global semantics without claiming unsupported proposal features or silently filtering invalid cases.
+6. **Imported-object adversarial hardening.** Active data/element initialization preflights every segment before mutating shared backing. Failed table preflight does not poison a retained handle, and capability-gated host callbacks access the exact same imported memory retained by the embedding host.
+7. **Negative conformance hardening.** Cross-layer malformed and invalid fixtures lock in rejection of duplicate/out-of-order sections, function/code cardinality mismatch, bad index spaces and instruction immediates, control-stack/type errors, memory misuse, global index/mutability/initializer violations, unsupported segment modes, and segment target/offset errors.
+8. **Curated supported-spec vectors.** Source-faithful vectors derived from `WebAssembly/spec` at pinned commit `fc209c5ed8afc4dfeb9252024d217da3376c7a6f` exercise supported numeric, function/control, `call_indirect`, memory/grow/page-end/memarg-offset, active segment, and numeric-global semantics without claiming unsupported proposal features or silently filtering invalid cases.
+9. **Untyped numeric `select` (`0x1b`).** Validator stack typing preserves unreachable-stack polymorphism and runtime execution supports i32/i64/f32/f64 values. Zero/nonzero choice, global contexts, candidate/condition type errors, reachable underflow, and the typed-select boundary are explicitly tested.
 
 ## Goals
 
@@ -109,6 +110,8 @@ Host byte writes are immediately visible to Wasm loads, and Wasm stores are imme
 
 Active data initialization is transactional with respect to shared memory: every active segment range is preflighted before any segment is copied. If a later segment is out of bounds, no earlier segment is left partially applied. Host callbacks granted explicit memory capabilities read and write this same imported backing; no shadow copy exists.
 
+For the supported i32 load/store family, effective addresses are formed from the unsigned i32 base plus the unsigned memarg offset without 32-bit wraparound. Page-end tests cover full-width and narrow 8/16-bit accesses. Out-of-bounds stores preflight the entire write before mutation, including when the backing memory is host-shared through `MemoryHandle`.
+
 ## Block type indices
 
 MVP block types encode either `0x40` or a value type. The multi-value extension also allows a signed type index. Phase 5C accepts a type-index block signature when:
@@ -119,11 +122,19 @@ MVP block types encode either `0x40` or a value type. The multi-value extension 
 
 For blocks and ifs, branch labels carry the result types. Loop labels carry the block parameter types. Each if arm starts with the declared block parameters. A type-index signature requiring multiple result values remains explicitly rejected.
 
+## Parametric/control boundary
+
+Untyped numeric `select` (`0x1b`) is supported for i32/i64/f32/f64. The validator requires an i32 condition and candidate values of one common numeric type, while preserving WebAssembly's polymorphic unreachable-stack rules. Runtime execution returns the first candidate for any nonzero condition and the second candidate for zero without applying numeric conversion.
+
+Typed select (`0x1c`) remains explicitly fail closed with `ValidationError::UnsupportedOpcode`. `br_table` (`0x0e`) also remains outside the supported opcode surface until immediate decoding, common-label typing, runtime target selection, and control-map scanning are implemented together.
+
 ## Segment forms
 
 Active data/element segments are supported in narrow forms. Passive or declarative segments are useful only when matching bulk-memory/reference-type instructions exist. Merely parsing them and then ignoring them would be incorrect.
 
-Therefore additional segment modes remain deferred unless their complete parser -> validator -> instantiation/execution semantics are implemented. No segment is silently dropped.
+Therefore additional segment modes remain deferred unless their complete parser -> validator -> instantiation/execution semantics are implemented. Explicit memory/table-index mode 2 currently fails closed instead of being interpreted as legacy mode 0. No segment is silently dropped.
+
+Active segment offsets are literal-only i32 constant expressions. Instantiation interprets their bits as unsigned i32 addresses/indices, checks against the current memory/table size rather than a declared maximum, and preflights all active writes before exposing mutations to imported backing.
 
 ## Conformance strategy
 
@@ -137,7 +148,7 @@ Conformance work is scoped to the supported feature set:
 - curated source-faithful vectors from the pinned `WebAssembly/spec` revision for semantics already implemented by the runtime;
 - explicit fail-closed tests for upstream forms that fall immediately outside the supported boundary, rather than silently filtering or approximating them.
 
-Current Phase-5C integration coverage includes signed-33 boundaries, multi-byte type indices, block parameters, loop label parameters, if/else restoration, missing/multi-result block types, mixed import ordering, imported object index visibility, immutable/global binding checks, bidirectional mutable-global aliasing, imported-table limit matching, active-element host visibility, host-to-`call_indirect` table mutation, stale-reference isolation, failed imported-table instantiation atomicity, imported-memory limit matching and runtime caps, host/Wasm memory aliasing, multi-instance shared memory, memory growth visibility, failed imported-memory instantiation atomicity, host-callback access to imported memory, control/index/immediate/type negative-conformance suites, numeric-global index and immutability rejection, global-initializer fail-closed behavior, and curated pinned supported-spec vectors spanning numeric/function/control/indirect-call/memory/global behavior.
+Current Phase-5C integration coverage includes signed-33 boundaries, multi-byte type indices, block parameters, loop label parameters, if/else restoration, missing/multi-result block types, mixed import ordering, imported object index visibility, immutable/global binding checks, bidirectional mutable-global aliasing, imported-table limit matching, active-element host visibility, host-to-`call_indirect` table mutation, stale-reference isolation, failed imported-table instantiation atomicity, imported-memory limit matching and runtime caps, host/Wasm memory aliasing, multi-instance shared memory, memory growth visibility, failed imported-memory instantiation atomicity, host-callback access to imported memory, exact full-width and narrow memarg effective-address boundaries, failed-store atomicity for defined and imported memory, control/index/immediate/type negative-conformance suites, numeric-global index and immutability rejection, global-initializer fail-closed behavior, untyped numeric `select` validation/execution, typed-select fail-closed behavior, and curated pinned supported-spec vectors spanning numeric/function/control/indirect-call/memory/global behavior.
 
 Reference-engine differential testing remains Phase 6; Phase 5C must not add Wasmtime/Wasmer as a runtime dependency.
 
@@ -145,8 +156,9 @@ Reference-engine differential testing remains Phase 6; Phase 5C must not add Was
 
 Still intentionally deferred:
 - non-i32 host function ABI;
-- broader data/element modes;
+- passive/declarative and explicit-index data/element modes;
 - multi-value execution;
+- `br_table` and typed select (`0x1c`) as complete validator/runtime/control-map slices;
 - broader numeric operators, reinterpret, and trapping conversions;
 - i64/f32/f64 memory instruction families;
 - broader and more automated upstream spec coverage beyond the current curated pinned vectors;
