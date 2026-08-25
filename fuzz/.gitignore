@@ -1,4 +1,6 @@
 artifacts/
+corpus/
 coverage/
+review/
 target/
 Cargo.lock

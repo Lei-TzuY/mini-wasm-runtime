@@ -41,6 +41,12 @@ jobs:
           restore-keys: |
             fuzz-corpus-${{ runner.os }}-${{ matrix.target }}-
 
+      - name: Materialize reviewed seed corpus
+        run: python3 fuzz/materialize-seeds.py "$FUZZ_TARGET"
+
+      - name: Replay reviewed seed manifest
+        run: cargo test -p wasm-validator --test fuzz_seed_replay
+
       - name: Run 15-minute coverage-guided campaign
         id: campaign
         run: >-
@@ -79,7 +85,13 @@ jobs:
         if: success()
         run: bash fuzz/render-coverage.sh "$FUZZ_TARGET"
 
-      - name: Upload coverage report
+      - name: Render reviewable minimized-corpus inventory
+        if: success()
+        run: >-
+          cargo run -p wasm-validator --example review_fuzz_corpus -- "$CORPUS_DIR"
+          > "$COVERAGE_DIR/report/corpus-review.tsv"
+
+      - name: Upload coverage and review report
         if: success()
         uses: actions/upload-artifact@v4
         with:
