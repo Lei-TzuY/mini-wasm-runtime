@@ -60,27 +60,31 @@ fn imported_narrow_module(offset: u32) -> Vec<u8> {
     push_name(&mut imports, "mem");
     imports.extend([0x02, 0x01, 0x01, 0x02]); // memory min=1 max=2
     push_section(&mut module, 2, &imports);
-    push_section(&mut module, 3, &[0x04, 0x00, 0x00, 0x01, 0x01]);
+    push_section(
+        &mut module,
+        3,
+        &[0x06, 0x00, 0x00, 0x00, 0x00, 0x01, 0x01],
+    );
 
-    let mut exports = vec![0x04];
+    let mut exports = vec![0x06];
     for (name, index) in [
-        ("load8", 0u32),
-        ("load16", 1),
-        ("store8", 2),
-        ("store16", 3),
+        ("load8s", 0u32),
+        ("load8u", 1),
+        ("load16s", 2),
+        ("load16u", 3),
+        ("store8", 4),
+        ("store16", 5),
     ] {
         push_export(&mut exports, name, index);
     }
     push_section(&mut module, 7, &exports);
 
-    let mut code = vec![0x04];
-    let mut load8 = vec![0x20, 0x00, 0x2d, 0x00];
-    push_u32(&mut load8, offset);
-    push_body(&mut code, &load8);
-
-    let mut load16 = vec![0x20, 0x00, 0x2f, 0x01];
-    push_u32(&mut load16, offset);
-    push_body(&mut code, &load16);
+    let mut code = vec![0x06];
+    for (opcode, alignment) in [(0x2c, 0x00), (0x2d, 0x00), (0x2e, 0x01), (0x2f, 0x01)] {
+        let mut load = vec![0x20, 0x00, opcode, alignment];
+        push_u32(&mut load, offset);
+        push_body(&mut code, &load);
+    }
 
     let mut store8 = vec![0x20, 0x00, 0x20, 0x01, 0x3a, 0x00];
     push_u32(&mut store8, offset);
@@ -116,20 +120,21 @@ fn assert_memory_oob(error: RuntimeError, expected_address: u64, expected_width:
 fn imported_narrow_offsets_read_the_last_legal_bytes_from_host_backing() {
     let memory = MemoryHandle::new(1, Some(2)).unwrap();
     memory
-        .write((WASM_PAGE_SIZE - 2) as u32, &[0x34, 0x12])
+        .write((WASM_PAGE_SIZE - 2) as u32, &[0x00, 0x80])
         .unwrap();
     let mut vm = instance(7, &memory);
 
-    assert_eq!(
-        vm.invoke_export("load8", &[Value::I32((WASM_PAGE_SIZE - 8) as i32)])
-            .unwrap(),
-        Some(Value::I32(0x12))
-    );
-    assert_eq!(
-        vm.invoke_export("load16", &[Value::I32((WASM_PAGE_SIZE - 9) as i32)])
-            .unwrap(),
-        Some(Value::I32(0x1234))
-    );
+    for (name, base, expected) in [
+        ("load8s", WASM_PAGE_SIZE - 8, -128),
+        ("load8u", WASM_PAGE_SIZE - 8, 128),
+        ("load16s", WASM_PAGE_SIZE - 9, -32_768),
+        ("load16u", WASM_PAGE_SIZE - 9, 32_768),
+    ] {
+        assert_eq!(
+            vm.invoke_export(name, &[Value::I32(base as i32)]).unwrap(),
+            Some(Value::I32(expected))
+        );
+    }
 }
 
 #[test]
@@ -137,15 +142,17 @@ fn imported_narrow_offsets_trap_at_precise_effective_addresses() {
     let memory = MemoryHandle::new(1, Some(2)).unwrap();
     let mut vm = instance(7, &memory);
 
-    let error = vm
-        .invoke_export("load8", &[Value::I32((WASM_PAGE_SIZE - 7) as i32)])
-        .expect_err("effective page end must trap for load8");
-    assert_memory_oob(error, WASM_PAGE_SIZE as u64, 1);
-
-    let error = vm
-        .invoke_export("load16", &[Value::I32((WASM_PAGE_SIZE - 8) as i32)])
-        .expect_err("last byte cannot start a two-byte load");
-    assert_memory_oob(error, (WASM_PAGE_SIZE - 1) as u64, 2);
+    for (name, base, effective, width) in [
+        ("load8s", WASM_PAGE_SIZE - 7, WASM_PAGE_SIZE, 1usize),
+        ("load8u", WASM_PAGE_SIZE - 7, WASM_PAGE_SIZE, 1usize),
+        ("load16s", WASM_PAGE_SIZE - 8, WASM_PAGE_SIZE - 1, 2usize),
+        ("load16u", WASM_PAGE_SIZE - 8, WASM_PAGE_SIZE - 1, 2usize),
+    ] {
+        let error = vm
+            .invoke_export(name, &[Value::I32(base as i32)])
+            .expect_err("invalid imported narrow effective address must trap");
+        assert_memory_oob(error, effective as u64, width);
+    }
 }
 
 #[test]
@@ -187,7 +194,12 @@ fn imported_narrow_effective_addresses_do_not_wrap_at_u32() {
         let memory = MemoryHandle::new(1, Some(2)).unwrap();
         let mut vm = instance(offset, &memory);
 
-        for (name, width) in [("load8", 1usize), ("load16", 2usize)] {
+        for (name, width) in [
+            ("load8s", 1usize),
+            ("load8u", 1usize),
+            ("load16s", 2usize),
+            ("load16u", 2usize),
+        ] {
             let error = vm
                 .invoke_export(name, &[Value::I32(base)])
                 .expect_err("effective address must not wrap into host memory");
