@@ -87,11 +87,7 @@ fn imported_memory_data_module(
     module
 }
 
-fn imported_table_element_module(
-    minimum: u32,
-    maximum: Option<u32>,
-    offset: i32,
-) -> Vec<u8> {
+fn imported_table_element_module(minimum: u32, maximum: Option<u32>, offset: i32) -> Vec<u8> {
     let mut module = vec![0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00];
 
     push_section(&mut module, 1, &[0x01, 0x60, 0x00, 0x00]);
