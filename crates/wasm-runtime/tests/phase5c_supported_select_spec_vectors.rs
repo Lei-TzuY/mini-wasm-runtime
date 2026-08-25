@@ -37,11 +37,7 @@ fn module_with_result(result_type: Option<u8>, instructions: &[u8]) -> Vec<u8> {
     }
     push_section(&mut module, 1, &ty);
     push_section(&mut module, 3, &[0x01, 0x00]);
-    push_section(
-        &mut module,
-        7,
-        &[0x01, 0x03, b'r', b'u', b'n', 0x00, 0x00],
-    );
+    push_section(&mut module, 7, &[0x01, 0x03, b'r', b'u', b'n', 0x00, 0x00]);
 
     let mut body = vec![0x00];
     body.extend_from_slice(instructions);
@@ -66,11 +62,7 @@ fn upstream_global_select_module() -> Vec<u8> {
             0x41, 0x06, 0x0b, // i32.const 6; end
         ],
     );
-    push_section(
-        &mut module,
-        7,
-        &[0x01, 0x03, b'r', b'u', b'n', 0x00, 0x00],
-    );
+    push_section(&mut module, 7, &[0x01, 0x03, b'r', b'u', b'n', 0x00, 0x00]);
     let body = [
         0x00, // no locals
         0x23, 0x00, // global.get 0 => first value (6)
@@ -120,31 +112,19 @@ fn pinned_upstream_global_get_select_context_executes() {
 #[test]
 fn select_executes_both_directions_for_all_numeric_types() {
     execute(
-        &module_with_result(
-            Some(I32),
-            &[0x41, 0x0b, 0x41, 0x16, 0x41, 0x01, 0x1b],
-        ),
+        &module_with_result(Some(I32), &[0x41, 0x0b, 0x41, 0x16, 0x41, 0x01, 0x1b]),
         Value::I32(11),
     );
     execute(
-        &module_with_result(
-            Some(I32),
-            &[0x41, 0x0b, 0x41, 0x16, 0x41, 0x00, 0x1b],
-        ),
+        &module_with_result(Some(I32), &[0x41, 0x0b, 0x41, 0x16, 0x41, 0x00, 0x1b]),
         Value::I32(22),
     );
     execute(
-        &module_with_result(
-            Some(I64),
-            &[0x42, 0x0b, 0x42, 0x16, 0x41, 0x01, 0x1b],
-        ),
+        &module_with_result(Some(I64), &[0x42, 0x0b, 0x42, 0x16, 0x41, 0x01, 0x1b]),
         Value::I64(11),
     );
     execute(
-        &module_with_result(
-            Some(I64),
-            &[0x42, 0x0b, 0x42, 0x16, 0x41, 0x00, 0x1b],
-        ),
+        &module_with_result(Some(I64), &[0x42, 0x0b, 0x42, 0x16, 0x41, 0x00, 0x1b]),
         Value::I64(22),
     );
     execute(&f32_select(1), Value::F32(11.5));
