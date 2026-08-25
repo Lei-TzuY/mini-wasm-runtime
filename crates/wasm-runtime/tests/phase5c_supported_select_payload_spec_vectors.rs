@@ -117,10 +117,7 @@ fn upstream_select_preserves_f32_nan_payload_bits() {
     let one_bits = 1.0f32.to_bits();
     let two_bits = 2.0f32.to_bits();
 
-    for (lhs_bits, rhs_bits, condition) in [
-        (nan_bits, one_bits, 1),
-        (two_bits, nan_bits, 0),
-    ] {
+    for (lhs_bits, rhs_bits, condition) in [(nan_bits, one_bits, 1), (two_bits, nan_bits, 0)] {
         match invoke(&f32_select(lhs_bits, rhs_bits, condition)) {
             Value::F32(value) => assert_eq!(value.to_bits(), nan_bits),
             other => panic!("expected f32 select result, got {other:?}"),
@@ -135,10 +132,7 @@ fn upstream_select_preserves_f64_nan_payload_bits() {
     let one_bits = 1.0f64.to_bits();
     let two_bits = 2.0f64.to_bits();
 
-    for (lhs_bits, rhs_bits, condition) in [
-        (nan_bits, one_bits, 1),
-        (two_bits, nan_bits, 0),
-    ] {
+    for (lhs_bits, rhs_bits, condition) in [(nan_bits, one_bits, 1), (two_bits, nan_bits, 0)] {
         match invoke(&f64_select(lhs_bits, rhs_bits, condition)) {
             Value::F64(value) => assert_eq!(value.to_bits(), nan_bits),
             other => panic!("expected f64 select result, got {other:?}"),
