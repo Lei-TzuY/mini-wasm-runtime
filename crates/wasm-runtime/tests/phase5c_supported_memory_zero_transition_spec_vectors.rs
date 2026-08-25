@@ -39,8 +39,7 @@ fn zero_page_transition_module() -> Vec<u8> {
         &mut module,
         1,
         &[
-            0x03, 0x60, 0x00, 0x01, I32, 0x60, 0x01, I32, 0x01, I32, 0x60, 0x02, I32, I32,
-            0x00,
+            0x03, 0x60, 0x00, 0x01, I32, 0x60, 0x01, I32, 0x01, I32, 0x60, 0x02, I32, I32, 0x00,
         ],
     );
     push_section(&mut module, 3, &[0x04, 0x00, 0x01, 0x01, 0x02]);
@@ -151,10 +150,7 @@ fn second_growth_makes_previous_page_boundary_zero_filled_and_preserves_page_zer
     assert_eq!(invoke_i32(&mut vm, "grow", &[Value::I32(1)]), 1);
     assert_eq!(invoke_i32(&mut vm, "size", &[]), 2);
     assert_eq!(invoke_i32(&mut vm, "load", &[Value::I32(next_page)]), 0);
-    assert_eq!(
-        invoke_i32(&mut vm, "load", &[Value::I32(0)]),
-        0x1234_5678
-    );
+    assert_eq!(invoke_i32(&mut vm, "load", &[Value::I32(0)]), 0x1234_5678);
 
     assert_eq!(
         vm.invoke_export("store", &[Value::I32(next_page), Value::I32(3)])
@@ -162,8 +158,5 @@ fn second_growth_makes_previous_page_boundary_zero_filled_and_preserves_page_zer
         None
     );
     assert_eq!(invoke_i32(&mut vm, "load", &[Value::I32(next_page)]), 3);
-    assert_eq!(
-        invoke_i32(&mut vm, "load", &[Value::I32(0)]),
-        0x1234_5678
-    );
+    assert_eq!(invoke_i32(&mut vm, "load", &[Value::I32(0)]), 0x1234_5678);
 }
