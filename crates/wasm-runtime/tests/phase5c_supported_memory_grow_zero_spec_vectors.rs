@@ -39,10 +39,7 @@ fn memory_grow_zero_module() -> Vec<u8> {
         &mut module,
         1,
         &[
-            0x03,
-            0x60, 0x02, I32, I32, 0x00,
-            0x60, 0x01, I32, 0x01, I32,
-            0x60, 0x00, 0x01, I32,
+            0x03, 0x60, 0x02, I32, I32, 0x00, 0x60, 0x01, I32, 0x01, I32, 0x60, 0x00, 0x01, I32,
         ],
     );
     push_section(&mut module, 3, &[0x05, 0x00, 0x01, 0x01, 0x01, 0x02]);
@@ -51,12 +48,9 @@ fn memory_grow_zero_module() -> Vec<u8> {
         &mut module,
         7,
         &[
-            0x05,
-            0x06, b's', b't', b'o', b'r', b'e', b'8', 0x00, 0x00,
-            0x05, b'l', b'o', b'a', b'd', b'8', 0x00, 0x01,
-            0x06, b'l', b'o', b'a', b'd', b'3', b'2', 0x00, 0x02,
-            0x04, b'g', b'r', b'o', b'w', 0x00, 0x03,
-            0x04, b's', b'i', b'z', b'e', 0x00, 0x04,
+            0x05, 0x06, b's', b't', b'o', b'r', b'e', b'8', 0x00, 0x00, 0x05, b'l', b'o', b'a',
+            b'd', b'8', 0x00, 0x01, 0x06, b'l', b'o', b'a', b'd', b'3', b'2', 0x00, 0x02, 0x04,
+            b'g', b'r', b'o', b'w', 0x00, 0x03, 0x04, b's', b'i', b'z', b'e', 0x00, 0x04,
         ],
     );
 
@@ -89,11 +83,8 @@ fn invoke_i32(vm: &mut Instance, name: &str, args: &[Value]) -> i32 {
 
 fn store8(vm: &mut Instance, address: usize, value: i32) {
     assert_eq!(
-        vm.invoke_export(
-            "store8",
-            &[Value::I32(address as i32), Value::I32(value)],
-        )
-        .expect("store8 must execute"),
+        vm.invoke_export("store8", &[Value::I32(address as i32), Value::I32(value)],)
+            .expect("store8 must execute"),
         None
     );
 }
