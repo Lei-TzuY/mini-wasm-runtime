@@ -36,6 +36,30 @@ fn upstream_explicit_memory_index_data_mode_fails_closed_before_payload_reinterp
 }
 
 #[test]
+fn upstream_passive_data_mode_fails_closed_at_discriminant() {
+    // `data.wast` uses passive data segments. Phase 5C only accepts legacy
+    // active mode 0, so a well-formed passive empty segment must be rejected
+    // as mode 1 rather than having its byte-vector length reinterpreted.
+    assert_eq!(UPSTREAM_SPEC_COMMIT.len(), 40);
+
+    let mut module = vec![0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00];
+    push_section(
+        &mut module,
+        11,
+        &[
+            0x01, // one data segment
+            0x01, // passive mode
+            0x00, // empty byte vector
+        ],
+    );
+
+    assert_eq!(
+        parse_module(&module),
+        Err(ParseError::UnsupportedDataSegmentMode(1))
+    );
+}
+
+#[test]
 fn upstream_explicit_table_index_element_mode_fails_closed_before_payload_reinterpretation() {
     // WebAssembly/spec test/core/elem.wast includes the binary mode-2 form
     // `(elem (table 0) (i32.const 0) func 0)`. Phase 5C intentionally only
@@ -61,4 +85,32 @@ fn upstream_explicit_table_index_element_mode_fails_closed_before_payload_reinte
         parse_module(&module),
         Err(ParseError::UnsupportedElementSegmentMode(2))
     );
+}
+
+#[test]
+fn upstream_nonlegacy_element_modes_fail_closed_at_discriminant() {
+    // `elem.wast` exercises passive, declarative, and expression-based element
+    // encodings. Their standard binary discriminants are 1 and 3..=7; mode 2
+    // has its own crafted regression above. Each payload below is a minimal
+    // mode-shaped encoding, but rejection must happen immediately at the mode.
+    assert_eq!(UPSTREAM_SPEC_COMMIT.len(), 40);
+
+    let cases: &[(u32, &[u8])] = &[
+        (1, &[0x01, 0x01, 0x00, 0x00]),
+        (3, &[0x01, 0x03, 0x00, 0x00]),
+        (4, &[0x01, 0x04, 0x41, 0x00, 0x0b, 0x00]),
+        (5, &[0x01, 0x05, 0x70, 0x00]),
+        (6, &[0x01, 0x06, 0x00, 0x41, 0x00, 0x0b, 0x70, 0x00]),
+        (7, &[0x01, 0x07, 0x70, 0x00]),
+    ];
+
+    for &(mode, payload) in cases {
+        let mut module = vec![0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00];
+        push_section(&mut module, 9, payload);
+        assert_eq!(
+            parse_module(&module),
+            Err(ParseError::UnsupportedElementSegmentMode(mode)),
+            "element mode {mode} must fail closed"
+        );
+    }
 }
