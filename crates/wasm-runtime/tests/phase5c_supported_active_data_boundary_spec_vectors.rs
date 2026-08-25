@@ -152,16 +152,30 @@ fn upstream_non_empty_active_data_uses_current_memory_bounds_and_unsigned_offset
 
 #[test]
 fn upstream_empty_active_data_beyond_memory_end_is_still_out_of_bounds() {
-    for maximum in [None, Some(1)] {
-        let module = parse_module(&data_segment_module(0, maximum, 1, b""))
+    // The pinned data.wast directly covers empty@1 with a zero-page memory;
+    // the one-page and negative cases lock the same boundary and unsigned-i32
+    // rules already exercised by its neighboring non-empty vectors.
+    for (minimum, maximum, offset, expected_offset) in [
+        (0, None, 1, 1u64),
+        (0, Some(1), 1, 1),
+        (1, None, 0x1_0001, 0x1_0001),
+        (1, Some(2), 0x1_0001, 0x1_0001),
+        (1, None, -1, u64::from(u32::MAX)),
+    ] {
+        let module = parse_module(&data_segment_module(minimum, maximum, offset, b""))
             .expect("empty out-of-bounds data vector must parse");
-        assert!(matches!(
-            Instance::new(module),
-            Err(RuntimeError::DataSegmentOutOfBounds {
-                segment: 0,
-                offset: 1,
-                length: 0,
-            })
-        ));
+        let error = Instance::new(module)
+            .expect_err("empty active data beyond current memory end must fail instantiation");
+        assert!(
+            matches!(
+                error,
+                RuntimeError::DataSegmentOutOfBounds {
+                    segment: 0,
+                    offset,
+                    length: 0,
+                } if offset == expected_offset
+            ),
+            "unexpected error for minimum={minimum}, maximum={maximum:?}, offset={offset}: {error:?}"
+        );
     }
 }
