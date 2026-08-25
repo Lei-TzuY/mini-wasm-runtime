@@ -85,8 +85,9 @@ fn function_module(params: &[u8], result: u8, instructions: &[u8]) -> Vec<u8> {
 }
 
 fn invoke(module: &[u8], args: &[Value]) -> Option<Value> {
-    let mut instance = Instance::new(parse_module(module).expect("translated spec vector must parse"))
-        .expect("translated supported spec vector must validate and instantiate");
+    let mut instance =
+        Instance::new(parse_module(module).expect("translated spec vector must parse"))
+            .expect("translated supported spec vector must validate and instantiate");
     instance
         .invoke_export("run", args)
         .expect("translated supported spec vector must execute")
@@ -120,7 +121,10 @@ fn upstream_func_i32_value_return_and_break_vectors_execute() {
     // WebAssembly/spec test/core/func.wast: value-i32, return-i32, break-i32.
     let mut value = Vec::new();
     push_i32_const(&mut value, 77);
-    assert_eq!(invoke(&function_module(&[], I32, &value), &[]), Some(Value::I32(77)));
+    assert_eq!(
+        invoke(&function_module(&[], I32, &value), &[]),
+        Some(Value::I32(77))
+    );
 
     let mut returned = Vec::new();
     push_i32_const(&mut returned, 78);
