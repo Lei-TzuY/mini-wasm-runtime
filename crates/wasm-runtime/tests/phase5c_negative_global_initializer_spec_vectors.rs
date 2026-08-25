@@ -35,6 +35,29 @@ fn module_with_global(value_type: u8, initializer: &[u8]) -> Vec<u8> {
     module
 }
 
+fn module_with_imported_i32_global_initializer(initializer: &[u8]) -> Vec<u8> {
+    let mut module = vec![0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00];
+    push_section(
+        &mut module,
+        2,
+        &[
+            0x01, // one import
+            0x03, b'e', b'n', b'v', // module "env"
+            0x01, b'g', // name "g"
+            0x03, // global import
+            I32, 0x00, // immutable i32
+        ],
+    );
+
+    let mut globals = vec![
+        0x01, // one defined global
+        I32, 0x00, // immutable i32
+    ];
+    globals.extend_from_slice(initializer);
+    push_section(&mut module, 6, &globals);
+    module
+}
+
 #[test]
 fn upstream_global_initializer_rejects_non_constant_local_get() {
     // WebAssembly/spec test/core/global.wast @ the pinned revision:
@@ -53,6 +76,24 @@ fn upstream_global_initializer_rejects_non_constant_local_get() {
     assert_eq!(
         parse_module(&module),
         Err(ParseError::InvalidConstExprOpcode(0x20))
+    );
+}
+
+#[test]
+fn upstream_imported_global_get_initializer_remains_fail_closed() {
+    // MVP constant expressions allow global.get of an imported immutable
+    // global. Phase 5C deliberately keeps defined-global initializers literal
+    // only until global.get const-expr parse/validation/instantiation semantics
+    // are implemented as one complete slice.
+    assert_eq!(UPSTREAM_SPEC_COMMIT.len(), 40);
+
+    let module = module_with_imported_i32_global_initializer(&[
+        0x23, 0x00, // global.get 0
+        0x0b, // end
+    ]);
+    assert_eq!(
+        parse_module(&module),
+        Err(ParseError::InvalidConstExprOpcode(0x23))
     );
 }
 
