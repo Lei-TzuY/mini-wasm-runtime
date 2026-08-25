@@ -298,3 +298,66 @@ fn mixed_numeric_imported_function_parameters_match_wasmtime() {
     assert_eq!(reference_value, expected);
     assert_eq!(mini_value, reference_value);
 }
+
+#[test]
+fn multi_result_imported_function_matches_wasmtime() {
+    let wat = r#"(module
+        (import "env" "host" (func $host (param i32) (result i32 i64 f32 f64)))
+        (func (export "run") (param i32) (result i32 i64 f32 f64)
+            local.get 0
+            call $host))"#;
+    let bytes = wat::parse_str(wat).expect("compile multi-result imported-function WAT");
+    let input = 17_i32;
+
+    let mut hosts = HostRegistry::new();
+    hosts
+        .register_values(
+            "env",
+            "host",
+            vec![ValueType::I32],
+            vec![
+                ValueType::I32,
+                ValueType::I64,
+                ValueType::F32,
+                ValueType::F64,
+            ],
+            HostCapabilities::NONE,
+            |_ctx, values| {
+                let value = values[0].as_i32();
+                Ok(vec![
+                    Value::I32(value.wrapping_add(1)),
+                    Value::I64(i64::from(value).wrapping_mul(2)),
+                    Value::F32(value as f32 + 0.5),
+                    Value::F64(f64::from(value) - 0.25),
+                ])
+            },
+        )
+        .unwrap();
+    let module = parse_module(&bytes).unwrap();
+    let mut mini = MiniInstance::with_hosts(module, hosts).unwrap();
+    let mini_values = mini
+        .invoke_export_values("run", &[Value::I32(input)])
+        .unwrap();
+
+    let engine = Engine::default();
+    let module = ReferenceModule::new(&engine, &bytes).unwrap();
+    let mut store = Store::new(&engine, ());
+    let host = Func::wrap(&mut store, |value: i32| -> (i32, i64, f32, f64) {
+        (
+            value.wrapping_add(1),
+            i64::from(value).wrapping_mul(2),
+            value as f32 + 0.5,
+            f64::from(value) - 0.25,
+        )
+    });
+    let instance = ReferenceInstance::new(&mut store, &module, &[Extern::Func(host)]).unwrap();
+    let run = instance
+        .get_typed_func::<i32, (i32, i64, f32, f64)>(&mut store, "run")
+        .unwrap();
+    let reference = run.call(&mut store, input).unwrap();
+
+    assert_eq!(mini_values[0], Value::I32(reference.0));
+    assert_eq!(mini_values[1], Value::I64(reference.1));
+    assert_eq!(mini_values[2].as_f32().to_bits(), reference.2.to_bits());
+    assert_eq!(mini_values[3].as_f64().to_bits(), reference.3.to_bits());
+}

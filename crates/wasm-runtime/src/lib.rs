@@ -504,7 +504,7 @@ impl HostContext<'_> {
 }
 
 type HostCallback = Box<
-    dyn for<'a> FnMut(&mut HostContext<'a>, &[Value]) -> Result<Option<Value>, HostError> + 'static,
+    dyn for<'a> FnMut(&mut HostContext<'a>, &[Value]) -> Result<Vec<Value>, HostError> + 'static,
 >;
 
 struct HostFunction {
@@ -540,7 +540,7 @@ impl fmt::Display for HostRegistryError {
             }
             Self::UnsupportedSignature => write!(
                 f,
-                "host function signatures support numeric value types with at most one result"
+                "HostRegistry::register supports numeric value types with at most one result; use register_values for multi-result callbacks"
             ),
         }
     }
@@ -579,7 +579,7 @@ impl HostRegistry {
         params: Vec<ValueType>,
         results: Vec<ValueType>,
         capabilities: HostCapabilities,
-        callback: F,
+        mut callback: F,
     ) -> Result<(), HostRegistryError>
     where
         F: for<'a> FnMut(&mut HostContext<'a>, &[Value]) -> Result<Option<Value>, HostError>
@@ -588,6 +588,28 @@ impl HostRegistry {
         if results.len() > 1 {
             return Err(HostRegistryError::UnsupportedSignature);
         }
+        self.register_values(
+            module,
+            name,
+            params,
+            results,
+            capabilities,
+            move |context, args| callback(context, args).map(|result| result.into_iter().collect()),
+        )
+    }
+
+    pub fn register_values<F>(
+        &mut self,
+        module: impl Into<String>,
+        name: impl Into<String>,
+        params: Vec<ValueType>,
+        results: Vec<ValueType>,
+        capabilities: HostCapabilities,
+        callback: F,
+    ) -> Result<(), HostRegistryError>
+    where
+        F: for<'a> FnMut(&mut HostContext<'a>, &[Value]) -> Result<Vec<Value>, HostError> + 'static,
+    {
         let module = module.into();
         let name = name.into();
         let key = (module.clone(), name.clone());
@@ -1822,7 +1844,7 @@ impl Instance {
                 name: import.name.clone(),
                 error,
             })?;
-        let actual = usize::from(result.is_some());
+        let actual = result.len();
         if actual != ty.results.len() {
             return Err(RuntimeError::HostResultArityMismatch {
                 module: import.module,
@@ -1831,18 +1853,18 @@ impl Instance {
                 actual,
             });
         }
-        if let (Some(value), Some(&expected)) = (result, ty.results.first()) {
+        for (&expected, &value) in ty.results.iter().zip(&result) {
             let actual = value.value_type();
             if actual != expected {
                 return Err(RuntimeError::HostResultTypeMismatch {
-                    module: import.module,
-                    name: import.name,
+                    module: import.module.clone(),
+                    name: import.name.clone(),
                     expected,
                     actual,
                 });
             }
         }
-        Ok(result.into_iter().collect())
+        Ok(result)
     }
 
     fn invoke_function(

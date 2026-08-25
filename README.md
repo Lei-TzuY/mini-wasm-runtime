@@ -26,7 +26,7 @@ Major implemented surfaces include:
 - configurable call-depth, memory-page, instruction-fuel, and host-call limits
 - CLI inspect/run support with typed arguments and ordered multi-value output
 
-Host callbacks support i32/i64/f32/f64 parameter types and zero-or-one result. Multi-result execution is currently supported for defined Wasm functions, while the host callback ABI deliberately remains zero-or-one result.
+Host callbacks support i32/i64/f32/f64 parameters and results. `HostRegistry::register` remains the source-compatible zero-or-one-result API, while `HostRegistry::register_values` returns an ordered `Vec<Value>` for zero, one, or many host results.
 
 ## Conformance and hardening
 
@@ -53,7 +53,6 @@ This is intentionally incomplete. Important remaining work includes:
 - promotion of fuzz coverage blind spots and real discoveries into reviewed deterministic regressions
 - broader malformed/adversarial runtime corpora
 - recording and periodically checking a reviewed performance baseline on a pinned controlled host
-- host callback multi-result ABI
 - WASI
 - threads/shared-memory proposal semantics
 - SIMD, memory64, multi-memory/multi-table
@@ -94,6 +93,15 @@ hosts.register(
     vec![ValueType::I64],
     HostCapabilities::NONE,
     |_ctx, args| Ok(Some(Value::I64(args[0].as_i64().wrapping_mul(2)))),
+)?;
+
+hosts.register_values(
+    "env",
+    "split",
+    vec![ValueType::I32],
+    vec![ValueType::I32, ValueType::I64],
+    HostCapabilities::NONE,
+    |_ctx, args| Ok(vec![Value::I32(args[0].as_i32()), Value::I64(args[0].as_i32() as i64)]),
 )?;
 
 let counter = GlobalHandle::mutable(Value::I32(0));

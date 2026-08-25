@@ -1,7 +1,7 @@
 //! Typed validation for the executable WebAssembly subset.
 //!
 //! Phase 5B validates every reachable operand as an explicit MVP numeric type.
-//! Defined code may use i32/i64/f32/f64 multi-value results; the host import ABI remains at most one result.
+//! Defined code and imported host functions may use ordered i32/i64/f32/f64 multi-value results.
 
 use std::{collections::HashSet, fmt};
 use wasm_parser::{decode_u32, DataMode, ExportKind, FuncType, ImportDesc, Module, ValueType};
@@ -625,14 +625,8 @@ fn validate_imports(module: &Module) -> Result<(), ValidationError> {
     for (import, entry) in module.imports.iter().enumerate() {
         match entry.desc {
             ImportDesc::Function(type_index) => {
-                let Some(function_type) = module.types.get(type_index as usize) else {
+                if module.types.get(type_index as usize).is_none() {
                     return Err(ValidationError::ImportTypeIndexOutOfBounds { import, type_index });
-                };
-                if function_type.results.len() > 1 {
-                    return Err(ValidationError::UnsupportedImportResultArity {
-                        import,
-                        results: function_type.results.len(),
-                    });
                 }
             }
             ImportDesc::Table(table_type) => {

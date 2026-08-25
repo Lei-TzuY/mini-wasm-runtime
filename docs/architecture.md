@@ -92,8 +92,8 @@ Validation currently enforces, among other invariants:
 - memory imports plus defined memories form the memory index space;
 - global imports plus defined globals form the global index space;
 - export indices resolve in the matching kind and export names are unique;
-- function imports remain i32-only with zero or one result;
-- defined functions have zero or one numeric result;
+- function imports and defined functions may use ordered i32/i64/f32/f64 result vectors;
+- imported host signatures must resolve exactly against registered parameter/result vectors;
 - at most one total table and one total memory are accepted by the current runtime subset;
 - memory/table limits are validated even when the object is imported;
 - `global.get` / `global.set` use the combined global index space and exact mutability/type information;
@@ -181,11 +181,14 @@ Memory imports participate in validation and the memory index space, but instant
 
 ### Host binding and capability boundary
 
-`HostRegistry` currently holds three executable binding classes:
+`HostRegistry` currently holds four executable binding classes:
 
-1. host functions, with i32-only signatures and zero-or-one result;
-2. numeric `GlobalHandle` bindings, immutable or mutable, supporting all four current numeric `Value` variants;
-3. `TableHandle` bindings for the current single-table `funcref` subset.
+1. typed host functions using i32/i64/f32/f64 parameter/result vectors;
+2. numeric `GlobalHandle` bindings, immutable or mutable;
+3. `TableHandle` bindings for the current single-table `funcref` subset;
+4. shared `MemoryHandle` bindings for the current single-memory subset.
+
+`HostRegistry::register` preserves the original `Option<Value>` zero-or-one-result callback API. `HostRegistry::register_values` accepts callbacks returning `Vec<Value>` and is the multi-result host ABI. Internally both paths normalize to ordered result vectors before runtime validation.
 
 Host functions receive a `HostContext`, not the `Instance`. Memory access requires explicit `NONE`, `MEMORY_READ`, or `MEMORY_READ_WRITE` capabilities. Runtime arguments are type-checked before callbacks run.
 
@@ -203,11 +206,9 @@ After supported imports are resolved and state/segments are initialized, an opti
 - multiple live instances sharing one `TableHandle`
 - cross-instance function-reference dispatch
 - thread-safe/shared-memory global or table handles
-- non-i32 host function callbacks
 - multiple tables or memories
 - passive/declarative element modes
 - passive or explicit-memory-index data modes
-- multi-value results
 - i64/f32/f64 memory load/store families
 - trapping float-to-integer conversions and reinterpret instructions
 - complete numeric opcode coverage

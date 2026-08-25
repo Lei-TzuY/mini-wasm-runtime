@@ -77,7 +77,8 @@ The roadmap favors complete vertical slices over a broad but shallow decoder.
 - [x] non-i32 host function import ABI
 - [x] block parameters and type-index block signatures with zero-or-one result
 - [x] broader data/element modes
-- [x] defined-function and structured-control multi-value results; host imports remain zero-or-one result
+- [x] defined-function and structured-control multi-value results
+- [x] host callback multi-result ABI with backward-compatible zero-or-one-result registration
 - [x] MVP `nop`, `drop`, `select`, and `br_table` control/parametric instructions
 - [x] MVP i32/i64 count, div/rem, bitwise, shift, and rotate operators
 - [x] MVP f32/f64 unary, arithmetic, min/max, and copysign operators

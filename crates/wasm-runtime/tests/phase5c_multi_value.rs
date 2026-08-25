@@ -216,13 +216,9 @@ fn validator_rejects_wrong_multi_result_order() {
 }
 
 #[test]
-fn multi_result_host_imports_remain_fail_closed_at_host_abi_boundary() {
+fn multi_result_host_imports_validate_for_vector_callback_binding() {
     let module = parse_module(&multi_result_import_module()).unwrap();
-    assert!(matches!(
-        validate(&module),
-        Err(ValidationError::UnsupportedImportResultArity {
-            import: 0,
-            results: 2
-        })
-    ));
+    validate(&module).expect(
+        "multi-result host imports are valid when the embedding supplies a vector callback",
+    );
 }
