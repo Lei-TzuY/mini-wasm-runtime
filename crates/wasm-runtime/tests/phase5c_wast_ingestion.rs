@@ -22,6 +22,7 @@ const UPSTREAM_FUNC_SUBSET: &str = include_str!("fixtures/phase5c_upstream_func_
 const UPSTREAM_I32_SUBSET: &str = include_str!("fixtures/phase5c_upstream_i32_subset.wast");
 const UPSTREAM_I64_SUBSET: &str = include_str!("fixtures/phase5c_upstream_i64_subset.wast");
 const UPSTREAM_IF_SUBSET: &str = include_str!("fixtures/phase5c_upstream_if_subset.wast");
+const UPSTREAM_LOAD_SUBSET: &str = include_str!("fixtures/phase5c_upstream_load_subset.wast");
 const UPSTREAM_LOOP_SUBSET: &str = include_str!("fixtures/phase5c_upstream_loop_subset.wast");
 const UPSTREAM_MEMORY_GROW_SUBSET: &str =
     include_str!("fixtures/phase5c_upstream_memory_grow_subset.wast");
@@ -29,6 +30,7 @@ const UPSTREAM_MEMORY_SUBSET: &str = include_str!("fixtures/phase5c_upstream_mem
 const UPSTREAM_NOP_SUBSET: &str = include_str!("fixtures/phase5c_upstream_nop_subset.wast");
 const UPSTREAM_RETURN_SUBSET: &str = include_str!("fixtures/phase5c_upstream_return_subset.wast");
 const UPSTREAM_SELECT_SUBSET: &str = include_str!("fixtures/phase5c_upstream_select_subset.wast");
+const UPSTREAM_STORE_SUBSET: &str = include_str!("fixtures/phase5c_upstream_store_subset.wast");
 const PINNED_UPSTREAM_SPEC_COMMIT: &str = "fc209c5ed8afc4dfeb9252024d217da3376c7a6f";
 
 #[derive(Debug, PartialEq, Eq)]
@@ -352,12 +354,14 @@ fn manifest_fixture(name: &str) -> &'static str {
         "phase5c_upstream_i32_subset.wast" => UPSTREAM_I32_SUBSET,
         "phase5c_upstream_i64_subset.wast" => UPSTREAM_I64_SUBSET,
         "phase5c_upstream_if_subset.wast" => UPSTREAM_IF_SUBSET,
+        "phase5c_upstream_load_subset.wast" => UPSTREAM_LOAD_SUBSET,
         "phase5c_upstream_loop_subset.wast" => UPSTREAM_LOOP_SUBSET,
         "phase5c_upstream_memory_grow_subset.wast" => UPSTREAM_MEMORY_GROW_SUBSET,
         "phase5c_upstream_memory_subset.wast" => UPSTREAM_MEMORY_SUBSET,
         "phase5c_upstream_nop_subset.wast" => UPSTREAM_NOP_SUBSET,
         "phase5c_upstream_return_subset.wast" => UPSTREAM_RETURN_SUBSET,
         "phase5c_upstream_select_subset.wast" => UPSTREAM_SELECT_SUBSET,
+        "phase5c_upstream_store_subset.wast" => UPSTREAM_STORE_SUBSET,
         other => panic!("manifest names unregistered fixture {other:?}"),
     }
 }
