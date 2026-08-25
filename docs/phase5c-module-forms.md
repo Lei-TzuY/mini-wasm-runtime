@@ -4,7 +4,7 @@ Phase 5C broadens the module surface only where the runtime can preserve WebAsse
 
 ## Current completed slices
 
-The current Phase-5C branch has completed seven vertical slices:
+The current Phase-5C branch has completed eight major vertical slices and continues to deepen conformance within those boundaries:
 
 1. **Type-index block signatures.** Signed-33 blocktype decoding, block parameters, zero-or-one numeric results, loop parameter label types, if/else parameter restoration, and runtime control metadata all use the referenced function type exactly.
 2. **Independent import index spaces.** The parser retains function/table/memory/global import descriptors in binary order while the validator resolves each kind in its own WebAssembly index space. Object imports do not shift function indices.
@@ -12,7 +12,8 @@ The current Phase-5C branch has completed seven vertical slices:
 4. **Shared imported tables.** `TableHandle` gives imported `funcref` tables host-visible shared backing. Active element segments update the same table after all-segment preflight, host slot changes are immediately visible to `call_indirect`, and opaque instance-bound `FunctionRef` values fail closed when stale or foreign.
 5. **Shared imported memory.** `MemoryHandle` gives imported memories shared host/Wasm backing. Host and Wasm observe the same bytes, current page count, growth, and maximum; import-limit matching and runtime caps are enforced before instantiation.
 6. **Imported-memory adversarial hardening.** Active data initialization preflights every segment before mutating shared memory, and capability-gated host callbacks access the exact same imported backing retained by the embedding host.
-7. **Initial negative-conformance corpus.** Cross-layer malformed and invalid fixtures lock in rejection of duplicate/out-of-order standard sections, function/code cardinality mismatch, duplicate export names, missing start targets, and memory instructions without a linear memory.
+7. **Negative conformance hardening.** Cross-layer malformed and invalid fixtures lock in rejection of duplicate/out-of-order sections, function/code cardinality mismatch, bad index spaces and instruction immediates, control-stack/type errors, memory misuse, and global index/mutability/initializer violations.
+8. **Curated supported-spec vectors.** Source-faithful vectors derived from `WebAssembly/spec` at pinned commit `fc209c5ed8afc4dfeb9252024d217da3376c7a6f` exercise supported numeric, function/control, `call_indirect`, memory, and numeric-global semantics without claiming unsupported proposal features or silently filtering invalid cases.
 
 ## Goals
 
@@ -64,6 +65,12 @@ host GlobalHandle clone ----+
 The host may update the handle between calls and the next WebAssembly `global.get` sees the new value. Conversely, WebAssembly `global.set` updates the shared cell observed by the host. The handle rejects writes to immutable globals and values of the wrong numeric type.
 
 Defined globals use the same internal handle abstraction but remain instance-owned because no public alias is created for them.
+
+### Global initializer boundary
+
+Defined globals currently store exactly one numeric literal constant (`i32.const`, `i64.const`, `f32.const`, or `f64.const`) followed by `end`. The parser verifies that the literal type matches the declared global type and rejects any non-end instruction following the literal. It also rejects non-literal initializer opcodes such as `local.get`.
+
+This deliberately does **not** claim support for `global.get` initializers, reference-valued globals, or extended-constant-expression operators. Those forms require a richer constant-expression representation plus the corresponding validation/instantiation rules. Until that complete vertical slice exists, they remain fail closed rather than being partially parsed or evaluated.
 
 ### Shared table identity
 
@@ -126,9 +133,11 @@ Conformance work is scoped to the supported feature set:
 - cross-layer tests that parse -> validate -> instantiate -> execute when execution exists;
 - runtime defense-in-depth tests for malformed host bindings and dynamic bounds/type errors;
 - mixed-import fixtures specifically checking that one object kind cannot perturb another kind's index space;
-- aliasing fixtures that verify mutable imported state is observable from both sides of the host/runtime boundary.
+- aliasing fixtures that verify mutable imported state is observable from both sides of the host/runtime boundary;
+- curated source-faithful vectors from the pinned `WebAssembly/spec` revision for semantics already implemented by the runtime;
+- explicit fail-closed tests for upstream forms that fall immediately outside the supported boundary, rather than silently filtering or approximating them.
 
-Current Phase-5C integration coverage includes signed-33 boundaries, multi-byte type indices, block parameters, loop label parameters, if/else restoration, missing/multi-result block types, mixed import ordering, imported object index visibility, immutable/global binding checks, bidirectional mutable-global aliasing, imported-table limit matching, active-element host visibility, host-to-`call_indirect` table mutation, stale-reference isolation, failed imported-table instantiation atomicity, imported-memory limit matching and runtime caps, host/Wasm memory aliasing, multi-instance shared memory, memory growth visibility, failed imported-memory instantiation atomicity, host-callback access to imported memory, and the initial malformed/invalid negative-conformance corpus.
+Current Phase-5C integration coverage includes signed-33 boundaries, multi-byte type indices, block parameters, loop label parameters, if/else restoration, missing/multi-result block types, mixed import ordering, imported object index visibility, immutable/global binding checks, bidirectional mutable-global aliasing, imported-table limit matching, active-element host visibility, host-to-`call_indirect` table mutation, stale-reference isolation, failed imported-table instantiation atomicity, imported-memory limit matching and runtime caps, host/Wasm memory aliasing, multi-instance shared memory, memory growth visibility, failed imported-memory instantiation atomicity, host-callback access to imported memory, control/index/immediate/type negative-conformance suites, numeric-global index and immutability rejection, global-initializer fail-closed behavior, and curated pinned supported-spec vectors spanning numeric/function/control/indirect-call/memory/global behavior.
 
 Reference-engine differential testing remains Phase 6; Phase 5C must not add Wasmtime/Wasmer as a runtime dependency.
 
@@ -140,8 +149,9 @@ Still intentionally deferred:
 - multi-value execution;
 - broader numeric operators, reinterpret, and trapping conversions;
 - i64/f32/f64 memory instruction families;
-- WebAssembly spec tests for supported features;
-- broader negative-conformance coverage beyond the initial corpus.
+- broader and more automated upstream spec coverage beyond the current curated pinned vectors;
+- richer constant expressions, including supported `global.get` initializer semantics, only as a complete parser/validator/instantiation slice;
+- remaining negative-conformance coverage for unsupported reference, segment, initializer, and validation-context forms.
 
 ## Non-goals
 
