@@ -6,7 +6,7 @@ The project intentionally does **not** embed Wasmtime, Wasmer, or another WebAss
 
 ## Current status
 
-The current consolidation baseline combines the completed Phase 1–5 implementation with the first Phase 6 hardening slices. It is an experimental interpreter/runtime-engineering project, not a production sandbox.
+The current baseline combines the completed Phase 1–5 implementation with a substantial Phase 6 engineering-hardening layer. It is an experimental interpreter/runtime-engineering project, not a production sandbox.
 
 Major implemented surfaces include:
 
@@ -33,10 +33,12 @@ Host callbacks support i32/i64/f32/f64 parameter types and zero-or-one result. M
 The repository includes more than feature tests. The current baseline also contains:
 
 - cross-layer negative-conformance tests for parser, validator, instantiation, and runtime failures
-- malformed-binary parser corpus
-- untrusted-count parser allocation hardening
-- deterministic property/metamorphic tests
+- malformed-binary parser corpus and untrusted-count allocation hardening
+- deterministic property/metamorphic tests, including generated expression/control, multi-value, table-dispatch, imported-state, and stateful-memory domains
 - deterministic parser/validator mutation robustness tests
+- cargo-fuzz parser and parse-to-validation targets with scheduled coverage-guided, sanitizer-backed campaigns, corpus minimization, and source-coverage report automation
+- isolated Wasmtime differential execution with deterministic generators, normalized trap classes, mismatch shrinking, replay fixtures, and imported-state/host-boundary coverage
+- deterministic interpreter benchmarks plus controlled-host median/MAD baseline comparison tooling
 - executable runtime security invariants plus a documented threat model
 - pinned upstream WebAssembly spec provenance
 - WAST ingestion infrastructure with exact executed/filtered accounting
@@ -48,10 +50,9 @@ The committed WAST manifest is pinned to `WebAssembly/spec` commit `fc209c5ed8af
 This is intentionally incomplete. Important remaining work includes:
 
 - broader official WAST/spec-suite coverage
-- coverage-guided parser fuzzing
-- differential execution against a reference engine in tests
-- deterministic performance benchmarks
+- promotion of fuzz coverage blind spots and real discoveries into reviewed deterministic regressions
 - broader malformed/adversarial runtime corpora
+- recording and periodically checking a reviewed performance baseline on a pinned controlled host
 - host callback multi-result ABI
 - WASI
 - threads/shared-memory proposal semantics

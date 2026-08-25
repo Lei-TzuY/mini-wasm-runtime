@@ -111,7 +111,7 @@ The roadmap favors complete vertical slices over a broad but shallow decoder.
 - [ ] promote coverage blind spots and real fuzz discoveries into reviewed deterministic seeds/regressions
 - [x] initial deterministic property-based / metamorphic corpus
 - [x] deterministic shrinking and initial structured generated-property domains
-- [ ] broaden structured generators to multi-value, tables, imports, and richer stateful memory sequences
+- [x] broaden structured generators to multi-value, tables, imports, and richer stateful memory sequences
 - [x] deterministic parser/validator mutation robustness corpus
 - [x] initial Wasmtime differential execution corpus in an isolated test workspace
 - [x] deterministic differential module generation and initial exact trap-class normalization
