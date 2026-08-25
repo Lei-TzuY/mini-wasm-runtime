@@ -55,11 +55,7 @@ fn push_body(payload: &mut Vec<u8>, instructions: &[u8]) {
 
 fn single_memory_function_module(instructions: &[u8]) -> Vec<u8> {
     let mut module = vec![0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00];
-    push_section(
-        &mut module,
-        1,
-        &[0x01, 0x60, 0x01, I32, 0x01, I32],
-    );
+    push_section(&mut module, 1, &[0x01, 0x60, 0x01, I32, 0x01, I32]);
     push_section(&mut module, 3, &[0x01, 0x00]);
     push_section(&mut module, 5, &[0x01, 0x00, 0x01]);
     push_section(&mut module, 7, &[0x01, 0x03, b'r', b'u', b'n', 0x00, 0x00]);
@@ -97,8 +93,7 @@ fn size_and_grow_module() -> Vec<u8> {
         7,
         &[
             0x02, // two exports
-            0x04, b's', b'i', b'z', b'e', 0x00, 0x00,
-            0x04, b'g', b'r', b'o', b'w', 0x00, 0x01,
+            0x04, b's', b'i', b'z', b'e', 0x00, 0x00, 0x04, b'g', b'r', b'o', b'w', 0x00, 0x01,
         ],
     );
 
@@ -136,7 +131,10 @@ fn upstream_i32_narrow_load_vectors_truncate_then_extend() {
         (0x3b, 0x2f, 0x01, 0x3456_cdef, 0xcdef),
     ] {
         let module = roundtrip_module(8, store, load, alignment);
-        assert_eq!(invoke_i32(&mut instance(&module), "run", &[Value::I32(input)]), expected);
+        assert_eq!(
+            invoke_i32(&mut instance(&module), "run", &[Value::I32(input)]),
+            expected
+        );
     }
 }
 
@@ -145,11 +143,7 @@ fn unaligned_i32_access_with_natural_alignment_is_legal() {
     // Alignment is a validation hint; the effective address itself need not be aligned.
     let module = roundtrip_module(1, 0x36, 0x28, 0x02);
     assert_eq!(
-        invoke_i32(
-            &mut instance(&module),
-            "run",
-            &[Value::I32(0x1234_5678)],
-        ),
+        invoke_i32(&mut instance(&module), "run", &[Value::I32(0x1234_5678)],),
         0x1234_5678
     );
 }
@@ -164,11 +158,7 @@ fn memarg_offsets_participate_in_the_effective_address() {
 
     let module = single_memory_function_module(&instructions);
     assert_eq!(
-        invoke_i32(
-            &mut instance(&module),
-            "run",
-            &[Value::I32(0x1020_3040)],
-        ),
+        invoke_i32(&mut instance(&module), "run", &[Value::I32(0x1020_3040)],),
         0x1020_3040
     );
 }
