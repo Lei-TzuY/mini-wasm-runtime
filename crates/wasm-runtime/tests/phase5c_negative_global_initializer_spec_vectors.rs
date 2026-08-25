@@ -28,8 +28,7 @@ fn module_with_global(value_type: u8, initializer: &[u8]) -> Vec<u8> {
     let mut module = vec![0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00];
     let mut globals = vec![
         0x01, // one global
-        value_type,
-        0x00, // immutable
+        value_type, 0x00, // immutable
     ];
     globals.extend_from_slice(initializer);
     push_section(&mut module, 6, &globals);
