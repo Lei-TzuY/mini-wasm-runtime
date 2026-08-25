@@ -67,7 +67,10 @@ fn validation_error(module: &[u8], expectation: &str) -> ValidationError {
 fn global_get_index_must_exist() {
     let module = module_with_function(&[0x23, 0x00], None, None, None);
     assert!(matches!(
-        validation_error(&module, "global.get must stay inside the global index space"),
+        validation_error(
+            &module,
+            "global.get must stay inside the global index space"
+        ),
         ValidationError::GlobalIndexOutOfBounds {
             function: 0,
             global_index: 0,
