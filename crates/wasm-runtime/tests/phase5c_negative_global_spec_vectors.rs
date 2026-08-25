@@ -92,7 +92,8 @@ fn module_with_function(
 }
 
 fn validation_error(module: &[u8], expectation: &str) -> ValidationError {
-    let parsed = parse_module(module).expect("negative global vector must remain structurally valid");
+    let parsed =
+        parse_module(module).expect("negative global vector must remain structurally valid");
     validate(&parsed).expect_err(expectation)
 }
 
@@ -126,12 +127,7 @@ fn upstream_global_get_rejects_missing_indices_across_global_index_space() {
             1,
         ),
         (
-            module_with_function(
-                Some(I32),
-                Some(&imported),
-                Some(&defined),
-                &[0x23, 0x02],
-            ),
+            module_with_function(Some(I32), Some(&imported), Some(&defined), &[0x23, 0x02]),
             2,
         ),
     ];
@@ -152,21 +148,11 @@ fn upstream_global_set_rejects_missing_indices_across_global_index_space() {
             0,
         ),
         (
-            module_with_function(
-                None,
-                None,
-                Some(&defined),
-                &[0x41, 0x00, 0x24, 0x01],
-            ),
+            module_with_function(None, None, Some(&defined), &[0x41, 0x00, 0x24, 0x01]),
             1,
         ),
         (
-            module_with_function(
-                None,
-                Some(&imported),
-                None,
-                &[0x41, 0x00, 0x24, 0x01],
-            ),
+            module_with_function(None, Some(&imported), None, &[0x41, 0x00, 0x24, 0x01]),
             1,
         ),
         (
