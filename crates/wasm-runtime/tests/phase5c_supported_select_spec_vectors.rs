@@ -208,10 +208,7 @@ fn typed_select_remains_explicitly_fail_closed() {
     .expect("typed-select boundary vector must parse");
     assert!(matches!(
         validate(&module),
-        Err(ValidationError::UnsupportedOpcode {
-            opcode: 0x1c,
-            ..
-        })
+        Err(ValidationError::UnsupportedOpcode { opcode: 0x1c, .. })
     ));
 }
 
