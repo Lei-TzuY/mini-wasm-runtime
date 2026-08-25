@@ -69,7 +69,8 @@ fn runaway_module() -> Vec<u8> {
 }
 
 fn instance(max_call_depth: usize) -> Instance {
-    let module = parse_module(&runaway_module()).expect("call_indirect exhaustion vector must parse");
+    let module =
+        parse_module(&runaway_module()).expect("call_indirect exhaustion vector must parse");
     let limits = RuntimeLimits {
         max_call_depth,
         ..RuntimeLimits::default()
