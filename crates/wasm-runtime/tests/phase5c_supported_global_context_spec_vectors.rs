@@ -157,7 +157,7 @@ fn global_context_module() -> Vec<u8> {
             0x10, 0x00, // call $dummy
             0x10, 0x00, // call $dummy
             0x23, X_GLOBAL, // global.get $x
-            0x0b, // end loop
+            0x0b,     // end loop
         ],
     );
 
@@ -180,7 +180,7 @@ fn global_context_module() -> Vec<u8> {
             0x41, 0x01, // i32.const 1
             0x04, I32, // if (result i32)
             0x23, X_GLOBAL, // global.get $x
-            0x05, // else
+            0x05,     // else
             0x41, 0x02, // i32.const 2
             0x0b, // end if
         ],
@@ -193,7 +193,7 @@ fn global_context_module() -> Vec<u8> {
             0x41, 0x02, // i32.const 2
             0x05, // else
             0x23, X_GLOBAL, // global.get $x
-            0x0b, // end if
+            0x0b,     // end if
         ],
     );
 
@@ -233,7 +233,7 @@ fn global_context_module() -> Vec<u8> {
         &mut code,
         &[
             0x23, X_GLOBAL, // global.get $x
-            0x0f, // return
+            0x0f,     // return
         ],
     );
     push_body(
@@ -274,7 +274,7 @@ fn global_context_module() -> Vec<u8> {
         &mut code,
         &[
             0x23, X_GLOBAL, // global.get $x
-            0x45, // i32.eqz
+            0x45,     // i32.eqz
         ],
     );
     push_body(
@@ -282,14 +282,16 @@ fn global_context_module() -> Vec<u8> {
         &[
             0x23, X_GLOBAL, // global.get $x
             0x23, X_GLOBAL, // global.get $x
-            0x6c, // i32.mul
+            0x6c,     // i32.mul
         ],
     );
     push_body(
         &mut code,
         &[
-            0x23, IMPORTED_GLOBAL, // global.get 0 (spectest.global_i32 = 666)
-            0x41, 0x01, // i32.const 1
+            0x23,
+            IMPORTED_GLOBAL, // global.get 0 (spectest.global_i32 = 666)
+            0x41,
+            0x01, // i32.const 1
             0x4b, // i32.gt_u
         ],
     );
