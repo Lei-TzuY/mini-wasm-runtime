@@ -58,7 +58,10 @@ fn validation_error(module: &[u8], expectation: &str) -> ValidationError {
 fn operand_stack_underflow_is_rejected() {
     let module = build_module(None, &[0x6a]); // i32.add with no operands
     assert!(matches!(
-        validation_error(&module, "typed operators must not read below the operand stack"),
+        validation_error(
+            &module,
+            "typed operators must not read below the operand stack"
+        ),
         ValidationError::OperandStackUnderflow { function: 0, .. }
     ));
 }
@@ -87,7 +90,7 @@ fn block_result_requires_exact_stack_height() {
     let module = build_module(
         Some(I32),
         &[
-            0x02, I32, // block (result i32)
+            0x02, I32,  // block (result i32)
             0x0b, // end without producing the result
         ],
     );
