@@ -1,7 +1,7 @@
 use std::{
-    env, fs,
+    env,
     fmt::Write as _,
-    io,
+    fs, io,
     path::{Path, PathBuf},
 };
 
@@ -62,7 +62,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut args = env::args_os();
     let program = args.next().unwrap_or_default();
     let Some(directory) = args.next() else {
-        eprintln!("usage: {} <corpus-directory>", PathBuf::from(program).display());
+        eprintln!(
+            "usage: {} <corpus-directory>",
+            PathBuf::from(program).display()
+        );
         std::process::exit(2);
     };
     if args.next().is_some() {
