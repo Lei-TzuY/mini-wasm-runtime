@@ -122,7 +122,9 @@ fn narrow_memarg_offsets_reach_the_last_legal_bytes() {
     assert_eq!(UPSTREAM_SPEC_COMMIT.len(), 40);
 
     for (base, store, load, alignment, offset, input, expected) in [
+        ((WASM_PAGE_SIZE - 8) as i32, 0x3a, 0x2c, 0x00, 7, -1, -1),
         ((WASM_PAGE_SIZE - 8) as i32, 0x3a, 0x2d, 0x00, 7, -1, 255),
+        ((WASM_PAGE_SIZE - 9) as i32, 0x3b, 0x2e, 0x01, 7, -1, -1),
         ((WASM_PAGE_SIZE - 9) as i32, 0x3b, 0x2f, 0x01, 7, -1, 65_535),
     ] {
         let module = roundtrip_with_offset(base, store, load, alignment, offset);
@@ -138,7 +140,16 @@ fn narrow_memarg_offsets_reach_the_last_legal_bytes() {
 #[test]
 fn narrow_memarg_offsets_trap_at_the_first_invalid_effective_address() {
     for (opcode, alignment, base, offset, effective, width) in [
+        (0x2c, 0x00, WASM_PAGE_SIZE - 7, 7, WASM_PAGE_SIZE, 1usize),
         (0x2d, 0x00, WASM_PAGE_SIZE - 7, 7, WASM_PAGE_SIZE, 1usize),
+        (
+            0x2e,
+            0x01,
+            WASM_PAGE_SIZE - 8,
+            7,
+            WASM_PAGE_SIZE - 1,
+            2usize,
+        ),
         (
             0x2f,
             0x01,
@@ -189,9 +200,13 @@ fn failed_narrow_offset_stores_are_atomic() {
 #[test]
 fn narrow_memarg_effective_addresses_never_wrap_at_u32() {
     for (opcode, alignment, base, offset, width) in [
+        (0x2c, 0x00, -1, 1, 1usize),
         (0x2d, 0x00, -1, 1, 1usize),
+        (0x2e, 0x01, -1, 1, 2usize),
         (0x2f, 0x01, -1, 1, 2usize),
+        (0x2c, 0x00, 1, u32::MAX, 1usize),
         (0x2d, 0x00, 1, u32::MAX, 1usize),
+        (0x2e, 0x01, 1, u32::MAX, 2usize),
         (0x2f, 0x01, 1, u32::MAX, 2usize),
     ] {
         let module = load_with_offset(opcode, alignment, offset);
