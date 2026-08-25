@@ -286,14 +286,7 @@ fn br_if_condition_must_be_i32() {
         0x0d, 0x00, // br_if 0
         0x0b, // end block
     ];
-    let module = build_module(
-        &[(&[], &[])],
-        &[0],
-        &[&instructions],
-        None,
-        None,
-        None,
-    );
+    let module = build_module(&[(&[], &[])], &[0], &[&instructions], None, None, None);
 
     assert!(matches!(
         validation_error(&module, "br_if condition must be i32"),
