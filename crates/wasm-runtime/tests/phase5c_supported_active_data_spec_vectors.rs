@@ -107,7 +107,14 @@ fn upstream_overlapping_active_data_segments_apply_in_declaration_order() {
     let module = parse_module(&overlapping_data_module()).expect("active data vector must parse");
     let mut vm = Instance::new(module).expect("active data vector must instantiate");
 
-    for (address, expected) in [(0, b'a'), (1, b'h'), (2, b'g'), (3, b'f'), (4, b'e'), (5, 0)] {
+    for (address, expected) in [
+        (0, b'a'),
+        (1, b'h'),
+        (2, b'g'),
+        (3, b'f'),
+        (4, b'e'),
+        (5, 0),
+    ] {
         assert_eq!(
             vm.invoke_export("load8", &[Value::I32(address)]).unwrap(),
             Some(Value::I32(i32::from(expected))),
