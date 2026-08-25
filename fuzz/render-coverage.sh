@@ -19,7 +19,7 @@ fi
 sysroot="$(rustc +nightly --print sysroot)"
 llvm_cov="$sysroot/lib/rustlib/$host/bin/llvm-cov"
 profile="fuzz/coverage/$target/coverage.profdata"
-binary="fuzz/target/$host/release/$target"
+binary="target/$host/coverage/$host/release/$target"
 report_dir="fuzz/coverage/$target/report"
 html_dir="$report_dir/html"
 ignore_regex='/([.]cargo/registry|rustc)/'
@@ -33,7 +33,7 @@ if [[ ! -s "$profile" ]]; then
   exit 1
 fi
 if [[ ! -x "$binary" ]]; then
-  echo "instrumented fuzz target is missing or not executable: $binary" >&2
+  echo "coverage-instrumented fuzz target is missing or not executable: $binary" >&2
   exit 1
 fi
 
