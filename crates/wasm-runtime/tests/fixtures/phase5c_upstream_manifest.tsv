@@ -5,6 +5,9 @@ fc209c5ed8afc4dfeb9252024d217da3376c7a6f	test/core/memory.wast	phase5c_upstream_
 fc209c5ed8afc4dfeb9252024d217da3376c7a6f	test/core/memory_grow.wast	phase5c_upstream_memory_grow_subset.wast	3	40	0
 fc209c5ed8afc4dfeb9252024d217da3376c7a6f	test/core/br.wast	phase5c_upstream_br_subset.wast	1	25	0
 fc209c5ed8afc4dfeb9252024d217da3376c7a6f	test/core/br_if.wast	phase5c_upstream_br_if_subset.wast	1	57	0
+fc209c5ed8afc4dfeb9252024d217da3376c7a6f	test/core/br_table.wast	phase5c_upstream_br_table_subset.wast	1	52	0
+fc209c5ed8afc4dfeb9252024d217da3376c7a6f	test/core/nop.wast	phase5c_upstream_nop_subset.wast	1	37	0
+fc209c5ed8afc4dfeb9252024d217da3376c7a6f	test/core/select.wast	phase5c_upstream_select_subset.wast	1	72	0
 fc209c5ed8afc4dfeb9252024d217da3376c7a6f	test/core/block.wast	phase5c_upstream_block_subset.wast	1	10	0
 fc209c5ed8afc4dfeb9252024d217da3376c7a6f	test/core/loop.wast	phase5c_upstream_loop_subset.wast	1	8	0
 fc209c5ed8afc4dfeb9252024d217da3376c7a6f	test/core/if.wast	phase5c_upstream_if_subset.wast	1	12	0

@@ -10,6 +10,8 @@ const UPSTREAM_MANIFEST: &str = include_str!("fixtures/phase5c_upstream_manifest
 const UPSTREAM_BLOCK_SUBSET: &str = include_str!("fixtures/phase5c_upstream_block_subset.wast");
 const UPSTREAM_BR_SUBSET: &str = include_str!("fixtures/phase5c_upstream_br_subset.wast");
 const UPSTREAM_BR_IF_SUBSET: &str = include_str!("fixtures/phase5c_upstream_br_if_subset.wast");
+const UPSTREAM_BR_TABLE_SUBSET: &str =
+    include_str!("fixtures/phase5c_upstream_br_table_subset.wast");
 const UPSTREAM_CONVERSIONS_SUBSET: &str =
     include_str!("fixtures/phase5c_upstream_conversions_subset.wast");
 const UPSTREAM_F32_CMP_SUBSET: &str = include_str!("fixtures/phase5c_upstream_f32_cmp_subset.wast");
@@ -24,7 +26,9 @@ const UPSTREAM_LOOP_SUBSET: &str = include_str!("fixtures/phase5c_upstream_loop_
 const UPSTREAM_MEMORY_GROW_SUBSET: &str =
     include_str!("fixtures/phase5c_upstream_memory_grow_subset.wast");
 const UPSTREAM_MEMORY_SUBSET: &str = include_str!("fixtures/phase5c_upstream_memory_subset.wast");
+const UPSTREAM_NOP_SUBSET: &str = include_str!("fixtures/phase5c_upstream_nop_subset.wast");
 const UPSTREAM_RETURN_SUBSET: &str = include_str!("fixtures/phase5c_upstream_return_subset.wast");
+const UPSTREAM_SELECT_SUBSET: &str = include_str!("fixtures/phase5c_upstream_select_subset.wast");
 const PINNED_UPSTREAM_SPEC_COMMIT: &str = "fc209c5ed8afc4dfeb9252024d217da3376c7a6f";
 
 #[derive(Debug, PartialEq, Eq)]
@@ -338,6 +342,7 @@ fn manifest_fixture(name: &str) -> &'static str {
         "phase5c_upstream_block_subset.wast" => UPSTREAM_BLOCK_SUBSET,
         "phase5c_upstream_br_subset.wast" => UPSTREAM_BR_SUBSET,
         "phase5c_upstream_br_if_subset.wast" => UPSTREAM_BR_IF_SUBSET,
+        "phase5c_upstream_br_table_subset.wast" => UPSTREAM_BR_TABLE_SUBSET,
         "phase5c_upstream_conversions_subset.wast" => UPSTREAM_CONVERSIONS_SUBSET,
         "phase5c_upstream_f32_cmp_subset.wast" => UPSTREAM_F32_CMP_SUBSET,
         "phase5c_upstream_f32_subset.wast" => UPSTREAM_F32_SUBSET,
@@ -350,7 +355,9 @@ fn manifest_fixture(name: &str) -> &'static str {
         "phase5c_upstream_loop_subset.wast" => UPSTREAM_LOOP_SUBSET,
         "phase5c_upstream_memory_grow_subset.wast" => UPSTREAM_MEMORY_GROW_SUBSET,
         "phase5c_upstream_memory_subset.wast" => UPSTREAM_MEMORY_SUBSET,
+        "phase5c_upstream_nop_subset.wast" => UPSTREAM_NOP_SUBSET,
         "phase5c_upstream_return_subset.wast" => UPSTREAM_RETURN_SUBSET,
+        "phase5c_upstream_select_subset.wast" => UPSTREAM_SELECT_SUBSET,
         other => panic!("manifest names unregistered fixture {other:?}"),
     }
 }
