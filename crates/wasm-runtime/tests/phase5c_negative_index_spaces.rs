@@ -30,11 +30,7 @@ fn header() -> Vec<u8> {
 fn memory_export_cannot_escape_memory_index_space() {
     let mut module = header();
     push_section(&mut module, 5, &[0x01, 0x00, 0x01]);
-    push_section(
-        &mut module,
-        7,
-        &[0x01, 0x03, b'm', b'e', b'm', 0x02, 0x01],
-    );
+    push_section(&mut module, 7, &[0x01, 0x03, b'm', b'e', b'm', 0x02, 0x01]);
 
     let error = Instance::new(parse_module(&module).unwrap())
         .expect_err("memory export must remain inside the memory index space");
@@ -51,11 +47,7 @@ fn memory_export_cannot_escape_memory_index_space() {
 fn table_export_cannot_escape_table_index_space() {
     let mut module = header();
     push_section(&mut module, 4, &[0x01, 0x70, 0x00, 0x01]);
-    push_section(
-        &mut module,
-        7,
-        &[0x01, 0x03, b't', b'a', b'b', 0x01, 0x01],
-    );
+    push_section(&mut module, 7, &[0x01, 0x03, b't', b'a', b'b', 0x01, 0x01]);
 
     let error = Instance::new(parse_module(&module).unwrap())
         .expect_err("table export must remain inside the table index space");
