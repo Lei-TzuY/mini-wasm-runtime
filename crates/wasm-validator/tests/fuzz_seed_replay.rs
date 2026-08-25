@@ -22,15 +22,23 @@ impl Expectation {
 }
 
 fn decode_hex(seed_id: &str, raw: &str) -> Vec<u8> {
-    let compact: String = raw.chars().filter(|character| !character.is_whitespace()).collect();
-    assert_eq!(compact.len() % 2, 0, "seed {seed_id}: odd-length hex payload");
+    let compact: String = raw
+        .chars()
+        .filter(|character| !character.is_whitespace())
+        .collect();
+    assert_eq!(
+        compact.len() % 2,
+        0,
+        "seed {seed_id}: odd-length hex payload"
+    );
     compact
         .as_bytes()
         .chunks_exact(2)
         .map(|pair| {
             let pair = std::str::from_utf8(pair).expect("hex payload is ASCII");
-            u8::from_str_radix(pair, 16)
-                .unwrap_or_else(|error| panic!("seed {seed_id}: invalid hex byte {pair:?}: {error}"))
+            u8::from_str_radix(pair, 16).unwrap_or_else(|error| {
+                panic!("seed {seed_id}: invalid hex byte {pair:?}: {error}")
+            })
         })
         .collect()
 }
@@ -47,8 +55,7 @@ fn observed(bytes: &[u8]) -> Expectation {
 
 #[test]
 fn reviewed_fuzz_seed_manifest_replays_exact_stage_expectations() {
-    let manifest = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("../../fuzz/seeds/manifest.tsv");
+    let manifest = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../fuzz/seeds/manifest.tsv");
     let text = fs::read_to_string(&manifest).expect("read reviewed fuzz seed manifest");
     let mut lines = text.lines();
     assert_eq!(
@@ -117,11 +124,17 @@ fn reviewed_fuzz_seed_manifest_replays_exact_stage_expectations() {
         count += 1;
     }
 
-    assert!(count >= 10, "reviewed fuzz seed corpus is unexpectedly small");
+    assert!(
+        count >= 10,
+        "reviewed fuzz seed corpus is unexpectedly small"
+    );
     assert!(saw_valid, "seed corpus must reach successful validation");
     assert!(
         saw_validation_error,
         "seed corpus must exercise parser-success/validator-rejection paths"
     );
-    assert!(saw_parse_error, "seed corpus must exercise parser rejection paths");
+    assert!(
+        saw_parse_error,
+        "seed corpus must exercise parser rejection paths"
+    );
 }
