@@ -89,9 +89,9 @@ fn global_module() -> Vec<u8> {
         &mut module,
         1,
         &[
-            0x08, 0x60, 0x00, 0x01, I32, 0x60, 0x00, 0x01, I64, 0x60, 0x00, 0x01, F32, 0x60,
-            0x00, 0x01, F64, 0x60, 0x01, I32, 0x00, 0x60, 0x01, I64, 0x00, 0x60, 0x01, F32,
-            0x00, 0x60, 0x01, F64, 0x00,
+            0x08, 0x60, 0x00, 0x01, I32, 0x60, 0x00, 0x01, I64, 0x60, 0x00, 0x01, F32, 0x60, 0x00,
+            0x01, F64, 0x60, 0x01, I32, 0x00, 0x60, 0x01, I64, 0x00, 0x60, 0x01, F32, 0x00, 0x60,
+            0x01, F64, 0x00,
         ],
     );
 
@@ -107,7 +107,9 @@ fn global_module() -> Vec<u8> {
     push_section(
         &mut module,
         3,
-        &[0x0c, 0x00, 0x01, 0x00, 0x01, 0x02, 0x03, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07],
+        &[
+            0x0c, 0x00, 0x01, 0x00, 0x01, 0x02, 0x03, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07,
+        ],
     );
 
     let mut globals = vec![0x08];
@@ -206,6 +208,12 @@ fn upstream_mutable_numeric_globals_round_trip_all_supported_types() {
 
     assert_eq!(vm.invoke_export("get-x", &[]).unwrap(), Some(Value::I32(6)));
     assert_eq!(vm.invoke_export("get-y", &[]).unwrap(), Some(Value::I64(7)));
-    assert_eq!(vm.invoke_export("get-7", &[]).unwrap(), Some(Value::F32(8.0)));
-    assert_eq!(vm.invoke_export("get-8", &[]).unwrap(), Some(Value::F64(9.0)));
+    assert_eq!(
+        vm.invoke_export("get-7", &[]).unwrap(),
+        Some(Value::F32(8.0))
+    );
+    assert_eq!(
+        vm.invoke_export("get-8", &[]).unwrap(),
+        Some(Value::F64(9.0))
+    );
 }
