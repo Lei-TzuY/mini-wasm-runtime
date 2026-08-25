@@ -93,6 +93,7 @@ The roadmap favors complete vertical slices over a broad but shallow decoder.
 - [x] pinned `i32.wast` arithmetic/trap manifest tranche with duplicate/provenance guards
 - [x] pinned `memory.wast` narrow load/store manifest tranche with exact accounting
 - [x] pinned `load.wast` and `store.wast` instruction-composition manifest tranche with exact accounting
+- [x] pinned `address.wast` and `align.wast` memory-boundary/alignment manifest tranche with exact accounting
 - [x] pinned `block.wast` structured-control/parameter manifest tranche with exact accounting
 - [x] pinned `loop.wast` parameter/label manifest tranche with exact accounting
 - [x] pinned `if.wast` result/parameter/branch manifest tranche with exact accounting
