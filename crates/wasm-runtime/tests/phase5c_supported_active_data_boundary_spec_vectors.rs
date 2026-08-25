@@ -98,12 +98,7 @@ fn last_byte_module() -> Vec<u8> {
     module
 }
 
-fn data_segment_module(
-    minimum: u32,
-    maximum: Option<u32>,
-    offset: i32,
-    bytes: &[u8],
-) -> Vec<u8> {
+fn data_segment_module(minimum: u32, maximum: Option<u32>, offset: i32, bytes: &[u8]) -> Vec<u8> {
     let mut module = vec![0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00];
     push_memory_section(&mut module, minimum, maximum);
     push_active_data(&mut module, offset, bytes);
