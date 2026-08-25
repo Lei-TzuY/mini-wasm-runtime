@@ -60,11 +60,7 @@ fn imported_narrow_module(offset: u32) -> Vec<u8> {
     push_name(&mut imports, "mem");
     imports.extend([0x02, 0x01, 0x01, 0x02]); // memory min=1 max=2
     push_section(&mut module, 2, &imports);
-    push_section(
-        &mut module,
-        3,
-        &[0x06, 0x00, 0x00, 0x00, 0x00, 0x01, 0x01],
-    );
+    push_section(&mut module, 3, &[0x06, 0x00, 0x00, 0x00, 0x00, 0x01, 0x01]);
 
     let mut exports = vec![0x06];
     for (name, index) in [
