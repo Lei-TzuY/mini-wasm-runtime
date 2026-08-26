@@ -32,16 +32,10 @@ fn truncated_segment_mode_leb_fails_at_discriminant_decode() {
 
 #[test]
 fn unterminated_five_byte_segment_mode_leb_is_rejected() {
-    assert_both_segment_sections_fail(
-        &[0x80, 0x80, 0x80, 0x80, 0x80],
-        ParseError::InvalidLeb128,
-    );
+    assert_both_segment_sections_fail(&[0x80, 0x80, 0x80, 0x80, 0x80], ParseError::InvalidLeb128);
 }
 
 #[test]
 fn overflowing_segment_mode_leb_is_rejected() {
-    assert_both_segment_sections_fail(
-        &[0x80, 0x80, 0x80, 0x80, 0x10],
-        ParseError::Leb128Overflow,
-    );
+    assert_both_segment_sections_fail(&[0x80, 0x80, 0x80, 0x80, 0x10], ParseError::Leb128Overflow);
 }
