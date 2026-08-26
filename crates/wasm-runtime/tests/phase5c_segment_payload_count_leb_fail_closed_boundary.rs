@@ -34,13 +34,19 @@ fn active_prefix() -> [u8; 5] {
 fn assert_data_error(count_bytes: &[u8], expected: ParseError) {
     let mut payload = active_prefix().to_vec();
     payload.extend_from_slice(count_bytes);
-    assert_eq!(parse_module(&module_with_section(11, &payload)), Err(expected));
+    assert_eq!(
+        parse_module(&module_with_section(11, &payload)),
+        Err(expected)
+    );
 }
 
 fn assert_element_error(count_bytes: &[u8], expected: ParseError) {
     let mut payload = active_prefix().to_vec();
     payload.extend_from_slice(count_bytes);
-    assert_eq!(parse_module(&module_with_section(9, &payload)), Err(expected));
+    assert_eq!(
+        parse_module(&module_with_section(9, &payload)),
+        Err(expected)
+    );
 }
 
 #[test]
