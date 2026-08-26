@@ -106,6 +106,9 @@ fn reachable_else_arm_must_produce_the_declared_result_type() {
     ]);
     assert!(matches!(
         validation_error(&module, "else result type must match the if signature"),
-        ValidationError::TypeMismatch { function: 0, .. }
+        ValidationError::TypeMismatch {
+            function: 0,
+            ..
+        }
     ));
 }
