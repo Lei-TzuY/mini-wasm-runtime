@@ -25,7 +25,12 @@ fn push_section(module: &mut Vec<u8>, id: u8, payload: &[u8]) {
     module.extend_from_slice(payload);
 }
 
-fn module_with_types(function_result: u8, block_params: &[u8], block_result: u8, body: &[u8]) -> Vec<u8> {
+fn module_with_types(
+    function_result: u8,
+    block_params: &[u8],
+    block_result: u8,
+    body: &[u8],
+) -> Vec<u8> {
     let mut module = vec![0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00];
 
     let mut types = vec![
@@ -39,7 +44,11 @@ fn module_with_types(function_result: u8, block_params: &[u8], block_result: u8,
     push_section(&mut module, 1, &types);
 
     push_section(&mut module, 3, &[0x01, 0x00]);
-    push_section(&mut module, 7, &[0x01, 0x03, b'r', b'u', b'n', 0x00, 0x00]);
+    push_section(
+        &mut module,
+        7,
+        &[0x01, 0x03, b'r', b'u', b'n', 0x00, 0x00],
+    );
 
     let mut code = vec![0x01];
     push_u32(&mut code, body.len() as u32);
@@ -92,9 +101,9 @@ fn type_index_block_branch_uses_result_label_not_parameter_label() {
 
     let body = [
         0x00, // no locals
-        0x41, 0x7b, 0x00, // i32.const 123: block parameter (signed LEB128)
+        0x41, 0xfb, 0x00, // i32.const 123: block parameter (signed LEB128)
         0x02, 0x01, // block type 1: (param i32) (result i64)
-        0x42, 0x4d, // i64.const 77
+        0x42, 0xcd, 0x00, // i64.const 77 (signed LEB128)
         0x0c, 0x00, // br 0 carrying i64 77
         0x7c, // unreachable i64.add: validates stack-polymorphically
         0x0b, // end block
