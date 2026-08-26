@@ -55,10 +55,17 @@ fn assert_malformed(instructions: &[u8], expectation: &str) {
 }
 
 const UNTERMINATED_U32: [u8; 5] = [0x80, 0x80, 0x80, 0x80, 0x80];
+const OVERFLOWING_U32: [u8; 5] = [0x80, 0x80, 0x80, 0x80, 0x10];
 
 fn instruction_with_prefix(prefix: &[u8]) -> Vec<u8> {
     let mut instructions = prefix.to_vec();
     instructions.extend_from_slice(&UNTERMINATED_U32);
+    instructions
+}
+
+fn instruction_with_overflowing_u32(prefix: &[u8]) -> Vec<u8> {
+    let mut instructions = prefix.to_vec();
+    instructions.extend_from_slice(&OVERFLOWING_U32);
     instructions
 }
 
@@ -123,5 +130,69 @@ fn memory_indices_fail_closed() {
     assert_malformed(
         &instruction_with_prefix(&[0x40]),
         "memory.grow index must reject malformed u32 LEB",
+    );
+}
+
+#[test]
+fn overflowing_branch_depth_immediates_fail_closed() {
+    assert_malformed(
+        &instruction_with_overflowing_u32(&[0x0c]),
+        "br depth must reject overflowing u32 LEB",
+    );
+    assert_malformed(
+        &instruction_with_overflowing_u32(&[0x0d]),
+        "br_if depth must reject overflowing u32 LEB",
+    );
+}
+
+#[test]
+fn overflowing_direct_and_indirect_call_immediates_fail_closed() {
+    assert_malformed(
+        &instruction_with_overflowing_u32(&[0x10]),
+        "call target must reject overflowing u32 LEB",
+    );
+    assert_malformed(
+        &instruction_with_overflowing_u32(&[0x11]),
+        "call_indirect type index must reject overflowing u32 LEB",
+    );
+    assert_malformed(
+        &instruction_with_overflowing_u32(&[0x11, 0x00]),
+        "call_indirect table index must reject overflowing u32 LEB",
+    );
+}
+
+#[test]
+fn overflowing_local_and_global_indices_fail_closed() {
+    assert_malformed(
+        &instruction_with_overflowing_u32(&[0x20]),
+        "local.get index must reject overflowing u32 LEB",
+    );
+    assert_malformed(
+        &instruction_with_overflowing_u32(&[0x21]),
+        "local.set index must reject overflowing u32 LEB",
+    );
+    assert_malformed(
+        &instruction_with_overflowing_u32(&[0x22]),
+        "local.tee index must reject overflowing u32 LEB",
+    );
+    assert_malformed(
+        &instruction_with_overflowing_u32(&[0x23]),
+        "global.get index must reject overflowing u32 LEB",
+    );
+    assert_malformed(
+        &instruction_with_overflowing_u32(&[0x24]),
+        "global.set index must reject overflowing u32 LEB",
+    );
+}
+
+#[test]
+fn overflowing_memory_indices_fail_closed() {
+    assert_malformed(
+        &instruction_with_overflowing_u32(&[0x3f]),
+        "memory.size index must reject overflowing u32 LEB",
+    );
+    assert_malformed(
+        &instruction_with_overflowing_u32(&[0x40]),
+        "memory.grow index must reject overflowing u32 LEB",
     );
 }
