@@ -26,6 +26,7 @@ fn build_module(instructions: &[u8]) -> Vec<u8> {
     let mut module = vec![0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00];
     push_section(&mut module, 1, &[0x01, 0x60, 0x00, 0x00]);
     push_section(&mut module, 3, &[0x01, 0x00]);
+    push_section(&mut module, 5, &[0x01, 0x00, 0x01]);
 
     let mut body = vec![0x00];
     body.extend_from_slice(instructions);
