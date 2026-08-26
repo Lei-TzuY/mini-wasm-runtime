@@ -1,6 +1,6 @@
 use std::collections::HashSet;
 use wasm_parser::parse_module;
-use wasm_runtime::{Instance, RuntimeError, Value};
+use wasm_runtime::{HostRegistry, Instance, RuntimeError, Value};
 use wast::core::{NanPattern, WastArgCore, WastRetCore};
 use wast::parser::{self, ParseBuffer};
 use wast::{QuoteWat, Wast, WastArg, WastDirective, WastExecute, WastRet, Wat};
@@ -24,6 +24,7 @@ const UPSTREAM_F32_SUBSET: &str = include_str!("fixtures/phase5c_upstream_f32_su
 const UPSTREAM_F64_CMP_SUBSET: &str = include_str!("fixtures/phase5c_upstream_f64_cmp_subset.wast");
 const UPSTREAM_F64_SUBSET: &str = include_str!("fixtures/phase5c_upstream_f64_subset.wast");
 const UPSTREAM_FUNC_SUBSET: &str = include_str!("fixtures/phase5c_upstream_func_subset.wast");
+const UPSTREAM_GLOBAL_SUBSET: &str = include_str!("fixtures/phase5c_upstream_global_subset.wast");
 const UPSTREAM_I32_SUBSET: &str = include_str!("fixtures/phase5c_upstream_i32_subset.wast");
 const UPSTREAM_I64_SUBSET: &str = include_str!("fixtures/phase5c_upstream_i64_subset.wast");
 const UPSTREAM_IF_SUBSET: &str = include_str!("fixtures/phase5c_upstream_if_subset.wast");
@@ -219,6 +220,17 @@ fn trap_matches(expected: TrapKind, actual: &RuntimeError) -> bool {
     }
 }
 
+fn spectest_hosts() -> HostRegistry {
+    let mut hosts = HostRegistry::new();
+    hosts
+        .register_immutable_global("spectest", "global_i32", Value::I32(666))
+        .expect("register spectest global_i32");
+    hosts
+        .register_immutable_global("spectest", "global_i64", Value::I64(666))
+        .expect("register spectest global_i64");
+    hosts
+}
+
 fn run_fixture(source: &str) -> IngestionReport {
     let buffer = ParseBuffer::new(source).expect("contract WAST must lex");
     let wast = parser::parse::<Wast<'_>>(&buffer).expect("contract WAST must parse");
@@ -236,8 +248,10 @@ fn run_fixture(source: &str) -> IngestionReport {
                 }
                 let bytes = module.encode().expect("supported WAT module must encode");
                 let parsed = parse_module(&bytes).expect("encoded supported module must parse");
-                instance =
-                    Some(Instance::new(parsed).expect("encoded supported module must instantiate"));
+                instance = Some(
+                    Instance::with_hosts(parsed, spectest_hosts())
+                        .expect("encoded supported module must instantiate"),
+                );
                 report.modules += 1;
             }
             WastDirective::AssertReturn { exec, results, .. } => {
@@ -377,6 +391,7 @@ fn manifest_fixture(name: &str) -> &'static str {
         "phase5c_upstream_f64_cmp_subset.wast" => UPSTREAM_F64_CMP_SUBSET,
         "phase5c_upstream_f64_subset.wast" => UPSTREAM_F64_SUBSET,
         "phase5c_upstream_func_subset.wast" => UPSTREAM_FUNC_SUBSET,
+        "phase5c_upstream_global_subset.wast" => UPSTREAM_GLOBAL_SUBSET,
         "phase5c_upstream_i32_subset.wast" => UPSTREAM_I32_SUBSET,
         "phase5c_upstream_i64_subset.wast" => UPSTREAM_I64_SUBSET,
         "phase5c_upstream_if_subset.wast" => UPSTREAM_IF_SUBSET,
