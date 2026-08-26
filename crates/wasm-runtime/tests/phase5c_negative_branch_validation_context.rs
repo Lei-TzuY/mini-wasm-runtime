@@ -119,7 +119,10 @@ fn unreachable_code_still_checks_branch_depth() {
         ],
     );
     assert!(matches!(
-        validation_error(&module, "unreachable code must still validate branch depths"),
+        validation_error(
+            &module,
+            "unreachable code must still validate branch depths"
+        ),
         ValidationError::BranchDepthOutOfBounds {
             function: 0,
             depth: 2,
