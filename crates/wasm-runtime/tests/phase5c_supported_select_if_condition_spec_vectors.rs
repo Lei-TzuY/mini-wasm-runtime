@@ -82,11 +82,10 @@ fn pinned_upstream_select_if_condition_executes_both_nonzero_directions() {
     // WebAssembly/spec test/core/select.wast @ the pinned revision.
     assert_eq!(UPSTREAM_SPEC_COMMIT.len(), 40);
 
-    let module = parse_module(&select_if_condition_module())
-        .expect("select if-condition vector must parse");
+    let module =
+        parse_module(&select_if_condition_module()).expect("select if-condition vector must parse");
     validate(&module).expect("select if-condition vector must validate");
-    let mut instance =
-        Instance::new(module).expect("select if-condition vector must instantiate");
+    let mut instance = Instance::new(module).expect("select if-condition vector must instantiate");
 
     for condition in [0, 1] {
         assert_eq!(
