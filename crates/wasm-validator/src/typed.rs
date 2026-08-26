@@ -48,6 +48,7 @@ pub(super) fn validate_code(
         pc += 1;
 
         match opcode {
+            0x00 => mark_unreachable(&mut stack, &mut controls),
             0x01 => {}
             0x02 | 0x03 => {
                 let signature = read_block_signature(module, code, &mut pc, function, offset)?;

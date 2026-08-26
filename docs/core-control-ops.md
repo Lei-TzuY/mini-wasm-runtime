@@ -1,6 +1,6 @@
 # Core control and parametric instructions
 
-This slice adds four previously fail-closed MVP instructions: `nop`, `drop`, untyped `select` (`0x1b`), and `br_table`.
+This control surface includes `unreachable`, `nop`, `drop`, untyped `select` (`0x1b`), and `br_table`. `unreachable` now validates with stack polymorphism and executes as a dedicated WebAssembly trap instead of being reported as an unsupported opcode.
 
 ## Validation invariants
 
@@ -12,6 +12,7 @@ This slice adds four previously fail-closed MVP instructions: `nop`, `drop`, unt
 
 ## Runtime invariants
 
+- `unreachable` (`0x00`) immediately returns `RuntimeError::Unreachable`; it is a semantic trap, not an unsupported-opcode boundary.
 - every instruction remains fuel-metered, including `nop`.
 - `drop` retains a runtime stack-underflow guard as defense in depth.
 - `select` checks candidate value variants again before choosing the first value for nonzero or the second for zero.
@@ -19,6 +20,8 @@ This slice adds four previously fail-closed MVP instructions: `nop`, `drop`, unt
 - `br_table` decoding streams depths and does not allocate from its target count.
 
 ## Coverage
+
+Pinned `test/core/unreachable.wast` contributes one complete source-faithful module and 63 executable assertions with zero filters, spanning result typing, structured control, branch/select/call contexts, locals/globals, memory operations, numeric operands, and `memory.grow`. Differential coverage maps the local trap to Wasmtime's `UnreachableCodeReached`.
 
 The focused integration corpus covers `nop`/`drop` execution, both `select` branches, mismatched `select` operand types, indexed/default `br_table` dispatch, and mixed-label-signature rejection. Existing fail-closed opcode checks now use typed select (`0x1c`) so newly supported `nop` is not mistaken for an unsupported instruction.
 

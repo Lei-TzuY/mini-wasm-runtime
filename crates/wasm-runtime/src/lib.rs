@@ -727,6 +727,7 @@ pub enum RuntimeError {
         actual: ValueType,
     },
     UnsupportedOpcode(u8),
+    Unreachable,
     IntegerDivisionByZero,
     IntegerOverflow,
     InvalidConversionToInteger,
@@ -898,6 +899,7 @@ impl fmt::Display for RuntimeError {
                 write!(f, "runtime expected {expected:?}, got {actual:?}")
             }
             Self::UnsupportedOpcode(opcode) => write!(f, "unsupported opcode 0x{opcode:02x}"),
+            Self::Unreachable => write!(f, "unreachable instruction executed"),
             Self::IntegerDivisionByZero => write!(f, "integer division by zero"),
             Self::IntegerOverflow => write!(f, "integer overflow"),
             Self::InvalidConversionToInteger => write!(f, "invalid conversion to integer"),
@@ -1933,6 +1935,7 @@ impl Instance {
             pc += 1;
 
             match opcode {
+                0x00 => return Err(RuntimeError::Unreachable),
                 0x01 => {}
                 0x02 | 0x03 => {
                     let signature = read_block_signature(&self.module, code, &mut pc)?;
@@ -2861,7 +2864,15 @@ fn build_control_map(module: &Module, code: &[u8]) -> Result<ControlMap, Runtime
             0x44 => {
                 let _ = read_fixed_u64(code, &mut pc)?;
             }
-            0x01 | 0x0f | 0x1a | 0x1b | 0x45..=0x66 | 0x67..=0x8a | 0x8b..=0xa6 | 0xa7..=0xbf => {}
+            0x00
+            | 0x01
+            | 0x0f
+            | 0x1a
+            | 0x1b
+            | 0x45..=0x66
+            | 0x67..=0x8a
+            | 0x8b..=0xa6
+            | 0xa7..=0xbf => {}
             0xfc => {
                 let subopcode = read_u32_immediate(code, &mut pc)?;
                 if subopcode > 7 {

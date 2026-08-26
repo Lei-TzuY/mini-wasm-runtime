@@ -43,6 +43,8 @@ const UPSTREAM_NOP_SUBSET: &str = include_str!("fixtures/phase5c_upstream_nop_su
 const UPSTREAM_RETURN_SUBSET: &str = include_str!("fixtures/phase5c_upstream_return_subset.wast");
 const UPSTREAM_SELECT_SUBSET: &str = include_str!("fixtures/phase5c_upstream_select_subset.wast");
 const UPSTREAM_STORE_SUBSET: &str = include_str!("fixtures/phase5c_upstream_store_subset.wast");
+const UPSTREAM_UNREACHABLE_SUBSET: &str =
+    include_str!("fixtures/phase5c_upstream_unreachable_subset.wast");
 const PINNED_UPSTREAM_SPEC_COMMIT: &str = "fc209c5ed8afc4dfeb9252024d217da3376c7a6f";
 
 #[derive(Debug, PartialEq, Eq)]
@@ -92,6 +94,7 @@ enum TrapKind {
     MemoryOutOfBounds,
     IndirectCallTypeMismatch,
     UndefinedElement,
+    Unreachable,
 }
 
 fn is_supported_core_module(module: &QuoteWat<'_>) -> bool {
@@ -160,6 +163,7 @@ fn translate_trap(message: &str) -> Result<TrapKind, FilterReason> {
         "out of bounds memory access" => Ok(TrapKind::MemoryOutOfBounds),
         "indirect call type mismatch" => Ok(TrapKind::IndirectCallTypeMismatch),
         "undefined element" => Ok(TrapKind::UndefinedElement),
+        "unreachable" => Ok(TrapKind::Unreachable),
         other => Err(FilterReason::UnsupportedTrapMessage(other.to_string())),
     }
 }
@@ -217,6 +221,7 @@ fn trap_matches(expected: TrapKind, actual: &RuntimeError) -> bool {
             actual,
             RuntimeError::TableElementOutOfBounds(_) | RuntimeError::UninitializedTableElement(_)
         ),
+        TrapKind::Unreachable => matches!(actual, RuntimeError::Unreachable),
     }
 }
 
@@ -406,6 +411,7 @@ fn manifest_fixture(name: &str) -> &'static str {
         "phase5c_upstream_return_subset.wast" => UPSTREAM_RETURN_SUBSET,
         "phase5c_upstream_select_subset.wast" => UPSTREAM_SELECT_SUBSET,
         "phase5c_upstream_store_subset.wast" => UPSTREAM_STORE_SUBSET,
+        "phase5c_upstream_unreachable_subset.wast" => UPSTREAM_UNREACHABLE_SUBSET,
         other => panic!("manifest names unregistered fixture {other:?}"),
     }
 }

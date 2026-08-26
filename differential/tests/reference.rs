@@ -16,6 +16,7 @@ enum TrapClass {
     IntegerOverflow,
     IntegerDivisionByZero,
     BadConversionToInteger,
+    Unreachable,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -38,6 +39,7 @@ fn normalize_mini_error(error: RuntimeError) -> TrapClass {
         RuntimeError::IntegerOverflow => TrapClass::IntegerOverflow,
         RuntimeError::IntegerDivisionByZero => TrapClass::IntegerDivisionByZero,
         RuntimeError::InvalidConversionToInteger => TrapClass::BadConversionToInteger,
+        RuntimeError::Unreachable => TrapClass::Unreachable,
         other => panic!("unmapped mini-runtime differential error: {other:?}"),
     }
 }
@@ -51,6 +53,7 @@ fn normalize_reference_error(error: &wasmtime::Error) -> TrapClass {
         ReferenceTrap::IntegerOverflow => TrapClass::IntegerOverflow,
         ReferenceTrap::IntegerDivisionByZero => TrapClass::IntegerDivisionByZero,
         ReferenceTrap::BadConversionToInteger => TrapClass::BadConversionToInteger,
+        ReferenceTrap::UnreachableCodeReached => TrapClass::Unreachable,
         other => panic!("unmapped Wasmtime differential trap: {other:?}"),
     }
 }
@@ -210,6 +213,14 @@ fn supported_semantics_match_wasmtime_reference() {
                     memory.grow))"#,
             kind: ResultKind::I32,
             expected: Outcome::I32(1),
+        },
+        Case {
+            name: "unreachable traps",
+            wat: r#"(module
+                (func (export "run") (result i32)
+                    unreachable))"#,
+            kind: ResultKind::I32,
+            expected: Outcome::Trap(TrapClass::Unreachable),
         },
         Case {
             name: "integer divide by zero traps",
