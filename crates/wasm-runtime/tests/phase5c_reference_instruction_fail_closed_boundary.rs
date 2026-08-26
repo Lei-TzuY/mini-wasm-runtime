@@ -38,8 +38,7 @@ fn module_with_instructions(instructions: &[u8]) -> Vec<u8> {
 }
 
 fn validator_error(bytes: &[u8], expectation: &str) -> ValidationError {
-    let module =
-        parse_module(bytes).expect("reference instruction boundary fixture must parse");
+    let module = parse_module(bytes).expect("reference instruction boundary fixture must parse");
     match Instance::new(module).expect_err(expectation) {
         RuntimeError::Validation(error) => error,
         other => panic!("expected validator rejection, got {other:?}"),
