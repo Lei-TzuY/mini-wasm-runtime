@@ -100,7 +100,8 @@ fn pinned_upstream_select_if_arm_contexts_execute() {
     let module = parse_module(&select_if_arm_context_module())
         .expect("select if-arm context vector must parse");
     validate(&module).expect("select if-arm context vector must validate");
-    let mut instance = Instance::new(module).expect("select if-arm context vector must instantiate");
+    let mut instance =
+        Instance::new(module).expect("select if-arm context vector must instantiate");
 
     for (name, condition, expected) in [
         ("as-if-then", 0, 3),
