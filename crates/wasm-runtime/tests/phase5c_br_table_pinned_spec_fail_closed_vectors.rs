@@ -44,7 +44,12 @@ fn module_with_body(params: u8, results: u8, body: &[u8]) -> Vec<u8> {
     module
 }
 
-fn assert_br_table_rejected(params: u8, results: u8, body: &[u8], expected_offset: usize) {
+fn assert_br_table_rejected(
+    params: u8,
+    results: u8,
+    body: &[u8],
+    expected_offset: usize,
+) {
     assert_eq!(UPSTREAM_SPEC_COMMIT.len(), 40);
     let module = parse_module(&module_with_body(params, results, body))
         .expect("pinned br_table vector must remain structurally parseable");
@@ -119,17 +124,17 @@ fn pinned_multiple_target_shape_remains_fail_closed() {
             0x02, 0x40, // label depth 0
             0x20, 0x00, // local.get 0 -- selector
             0x0e, 0x04, 0x03, 0x02, 0x01, 0x00, 0x04,
-            0x41, 0x63, 0x0f, // unreachable return 99
+            0x41, 0x63, 0x0f, // unreachable return payload
             0x0b,
-            0x41, 0x64, 0x0f, // return 100
+            0x41, 0x64, 0x0f, // unreachable return payload
             0x0b,
-            0x41, 0x65, 0x0f, // return 101
+            0x41, 0x65, 0x0f, // unreachable return payload
             0x0b,
-            0x41, 0x66, 0x0f, // return 102
+            0x41, 0x66, 0x0f, // unreachable return payload
             0x0b,
-            0x41, 0x67, 0x0f, // return 103
+            0x41, 0x67, 0x0f, // unreachable return payload
             0x0b,
-            0x41, 0x68, // i32.const 104
+            0x41, 0x68, // final payload
             0x0b,
         ],
         12,
