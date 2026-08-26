@@ -2,8 +2,6 @@ use wasm_parser::parse_module;
 use wasm_runtime::{Instance, RuntimeError};
 use wasm_validator::ValidationError;
 
-const I32: u8 = 0x7f;
-const I64: u8 = 0x7e;
 const F32: u8 = 0x7d;
 const F64: u8 = 0x7c;
 
@@ -29,11 +27,7 @@ fn push_section(module: &mut Vec<u8>, id: u8, payload: &[u8]) {
 
 fn conversion_module(result_type: u8, instructions: &[u8]) -> Vec<u8> {
     let mut module = vec![0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00];
-    push_section(
-        &mut module,
-        1,
-        &[0x01, 0x60, 0x00, 0x01, result_type],
-    );
+    push_section(&mut module, 1, &[0x01, 0x60, 0x00, 0x01, result_type]);
     push_section(&mut module, 3, &[0x01, 0x00]);
 
     let mut body = vec![0x00];
@@ -103,9 +97,4 @@ fn unreachable_polymorphism_does_not_admit_integer_to_float_conversion() {
             ..
         }
     ));
-}
-
-#[test]
-fn fixture_source_widths_are_intentional() {
-    assert_eq!((I32, I64, F32, F64), (0x7f, 0x7e, 0x7d, 0x7c));
 }
