@@ -20,6 +20,7 @@ const UPSTREAM_BR_TABLE_SUBSET: &str =
     include_str!("fixtures/phase5c_upstream_br_table_subset.wast");
 const UPSTREAM_CONVERSIONS_SUBSET: &str =
     include_str!("fixtures/phase5c_upstream_conversions_subset.wast");
+const UPSTREAM_DATA_SUBSET: &str = include_str!("fixtures/phase5c_upstream_data_subset.wast");
 const UPSTREAM_F32_CMP_SUBSET: &str = include_str!("fixtures/phase5c_upstream_f32_cmp_subset.wast");
 const UPSTREAM_F32_SUBSET: &str = include_str!("fixtures/phase5c_upstream_f32_subset.wast");
 const UPSTREAM_F64_CMP_SUBSET: &str = include_str!("fixtures/phase5c_upstream_f64_cmp_subset.wast");
@@ -106,6 +107,7 @@ enum TrapKind {
 enum InvalidKind {
     StartFunctionOutOfBounds,
     InvalidStartSignature,
+    DataMemoryOutOfBounds,
 }
 
 fn is_supported_core_module(module: &QuoteWat<'_>) -> bool {
@@ -183,6 +185,7 @@ fn translate_invalid(message: &str) -> Result<InvalidKind, FilterReason> {
     match message {
         "unknown function" => Ok(InvalidKind::StartFunctionOutOfBounds),
         "start function" => Ok(InvalidKind::InvalidStartSignature),
+        "unknown memory" => Ok(InvalidKind::DataMemoryOutOfBounds),
         other => Err(FilterReason::UnsupportedInvalidMessage(other.to_string())),
     }
 }
@@ -194,6 +197,9 @@ fn invalid_matches(expected: InvalidKind, actual: &ValidationError) -> bool {
         }
         InvalidKind::InvalidStartSignature => {
             matches!(actual, ValidationError::InvalidStartSignature { .. })
+        }
+        InvalidKind::DataMemoryOutOfBounds => {
+            matches!(actual, ValidationError::DataMemoryOutOfBounds { .. })
         }
     }
 }
@@ -243,7 +249,10 @@ fn trap_matches(expected: TrapKind, actual: &RuntimeError) -> bool {
         TrapKind::InvalidConversionToInteger => {
             matches!(actual, RuntimeError::InvalidConversionToInteger)
         }
-        TrapKind::MemoryOutOfBounds => matches!(actual, RuntimeError::MemoryOutOfBounds { .. }),
+        TrapKind::MemoryOutOfBounds => matches!(
+            actual,
+            RuntimeError::MemoryOutOfBounds { .. } | RuntimeError::DataSegmentOutOfBounds { .. }
+        ),
         TrapKind::IndirectCallTypeMismatch => {
             matches!(actual, RuntimeError::IndirectCallTypeMismatch { .. })
         }
@@ -502,6 +511,7 @@ fn manifest_fixture(name: &str) -> &'static str {
         "phase5c_upstream_br_if_subset.wast" => UPSTREAM_BR_IF_SUBSET,
         "phase5c_upstream_br_table_subset.wast" => UPSTREAM_BR_TABLE_SUBSET,
         "phase5c_upstream_conversions_subset.wast" => UPSTREAM_CONVERSIONS_SUBSET,
+        "phase5c_upstream_data_subset.wast" => UPSTREAM_DATA_SUBSET,
         "phase5c_upstream_f32_cmp_subset.wast" => UPSTREAM_F32_CMP_SUBSET,
         "phase5c_upstream_f32_subset.wast" => UPSTREAM_F32_SUBSET,
         "phase5c_upstream_f64_cmp_subset.wast" => UPSTREAM_F64_CMP_SUBSET,

@@ -35,7 +35,9 @@ struct Case {
 
 fn normalize_mini_error(error: RuntimeError) -> TrapClass {
     match error {
-        RuntimeError::MemoryOutOfBounds { .. } => TrapClass::MemoryOutOfBounds,
+        RuntimeError::MemoryOutOfBounds { .. } | RuntimeError::DataSegmentOutOfBounds { .. } => {
+            TrapClass::MemoryOutOfBounds
+        }
         RuntimeError::IntegerOverflow => TrapClass::IntegerOverflow,
         RuntimeError::IntegerDivisionByZero => TrapClass::IntegerDivisionByZero,
         RuntimeError::InvalidConversionToInteger => TrapClass::BadConversionToInteger,
@@ -304,6 +306,37 @@ fn supported_semantics_match_wasmtime_reference() {
         );
         assert_eq!(mini, reference, "differential mismatch for {}", case.name);
     }
+}
+
+#[test]
+fn active_data_oob_matches_wasmtime_reference_at_instantiation() {
+    let wat = r#"(module
+        (memory 0)
+        (data (i32.const 0) "a"))"#;
+    let bytes = wat::parse_str(wat).expect("active-data OOB WAT must compile");
+
+    let parsed = parse_module(&bytes).expect("active-data OOB fixture must parse in mini runtime");
+    let mini_error = match MiniInstance::new(parsed) {
+        Ok(_) => panic!("mini runtime unexpectedly instantiated OOB active-data module"),
+        Err(error) => error,
+    };
+    assert_eq!(
+        normalize_mini_error(mini_error),
+        TrapClass::MemoryOutOfBounds
+    );
+
+    let engine = Engine::default();
+    let module =
+        ReferenceModule::new(&engine, &bytes).expect("active-data OOB fixture must compile");
+    let mut store = Store::new(&engine, ());
+    let reference_error = match ReferenceInstance::new(&mut store, &module, &[]) {
+        Ok(_) => panic!("Wasmtime unexpectedly instantiated OOB active-data module"),
+        Err(error) => error,
+    };
+    assert_eq!(
+        normalize_reference_error(&reference_error),
+        TrapClass::MemoryOutOfBounds
+    );
 }
 
 #[test]
