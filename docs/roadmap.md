@@ -99,7 +99,7 @@ The roadmap favors complete vertical slices over a broad but shallow decoder.
 - [x] pinned `local_get.wast`, `local_set.wast`, and `local_tee.wast` local-state/composition manifest tranche with exact accounting
 - [x] pinned `global.wast` numeric-global/imported-state/composition manifest tranche with exact accounting
 - [x] MVP `unreachable` trap execution plus pinned `unreachable.wast` control/composition manifest tranche with exact accounting
-- [x] pinned `start.wast` validation/start-trap/stateful bare-invoke manifest tranche with phase-sensitive exact accounting
+- [x] pinned `start.wast` validation/start-trap/spectest-import/stateful bare-invoke manifest tranche with phase-sensitive exact accounting
 - [x] pinned `data.wast` active-data boundary/instantiation-trap manifest tranche with phase-sensitive exact accounting
 - [x] pinned `elem.wast` active-element boundary/instantiation-trap manifest tranche with phase-sensitive exact accounting
 - [x] pinned `block.wast` structured-control/parameter manifest tranche with exact accounting

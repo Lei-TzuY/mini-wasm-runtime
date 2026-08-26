@@ -1,5 +1,5 @@
 ;; Source: WebAssembly/spec@fc209c5ed8afc4dfeb9252024d217da3376c7a6f test/core/start.wast
-;; Selection: start validation failures + positive stateful starts + trapping start; 0 filters.
+;; Selection: start validation failures + positive stateful starts + spectest-import starts + trapping start; 0 filters.
 
 (assert_invalid
   (module (func) (start 1))
@@ -79,6 +79,23 @@
 (assert_return (invoke "get") (i32.const 69))
 (invoke "inc")
 (assert_return (invoke "get") (i32.const 70))
+
+(module
+  (func $print_i32 (import "spectest" "print_i32") (param i32))
+  (func $main (call $print_i32 (i32.const 1)))
+  (start 1)
+)
+
+(module
+  (func $print_i32 (import "spectest" "print_i32") (param i32))
+  (func $main (call $print_i32 (i32.const 2)))
+  (start $main)
+)
+
+(module
+  (func $print (import "spectest" "print"))
+  (start $print)
+)
 
 (assert_trap
   (module (func $main (unreachable)) (start $main))

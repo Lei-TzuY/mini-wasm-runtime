@@ -361,3 +361,87 @@ fn multi_result_imported_function_matches_wasmtime() {
     assert_eq!(mini_values[2].as_f32().to_bits(), reference.2.to_bits());
     assert_eq!(mini_values[3].as_f64().to_bits(), reference.3.to_bits());
 }
+
+#[test]
+fn imported_start_callbacks_match_wasmtime_during_instantiation() {
+    const PRINT_SENTINEL: i64 = i64::MIN;
+    let wat = r#"(module
+        (import "spectest" "print_i32" (func $print_i32 (param i32)))
+        (import "spectest" "print" (func $print))
+        (func $start
+            i32.const 7
+            call $print_i32
+            call $print)
+        (start $start))"#;
+    let bytes = wat::parse_str(wat).expect("compile imported-start WAT");
+
+    let mini_trace = Arc::new(Mutex::new(Vec::<i64>::new()));
+    let mini_i32_trace = Arc::clone(&mini_trace);
+    let mini_print_trace = Arc::clone(&mini_trace);
+    let mut hosts = HostRegistry::new();
+    hosts
+        .register(
+            "spectest",
+            "print_i32",
+            vec![ValueType::I32],
+            vec![],
+            HostCapabilities::NONE,
+            move |_ctx, args| {
+                mini_i32_trace
+                    .lock()
+                    .expect("mini imported-start trace mutex poisoned")
+                    .push(i64::from(args[0].as_i32()));
+                Ok(None)
+            },
+        )
+        .unwrap();
+    hosts
+        .register(
+            "spectest",
+            "print",
+            vec![],
+            vec![],
+            HostCapabilities::NONE,
+            move |_ctx, _args| {
+                mini_print_trace
+                    .lock()
+                    .expect("mini imported-start trace mutex poisoned")
+                    .push(PRINT_SENTINEL);
+                Ok(None)
+            },
+        )
+        .unwrap();
+    let module = parse_module(&bytes).expect("parse mini imported-start fixture");
+    MiniInstance::with_hosts(module, hosts).expect("instantiate mini imported-start fixture");
+    let mini_observed = mini_trace.lock().unwrap().clone();
+    assert_eq!(mini_observed, vec![7, PRINT_SENTINEL]);
+
+    let engine = Engine::default();
+    let module =
+        ReferenceModule::new(&engine, &bytes).expect("compile Wasmtime imported-start fixture");
+    let mut store = Store::new(&engine, ());
+    let reference_trace = Arc::new(Mutex::new(Vec::<i64>::new()));
+    let reference_i32_trace = Arc::clone(&reference_trace);
+    let reference_print_trace = Arc::clone(&reference_trace);
+    let print_i32 = Func::wrap(&mut store, move |input: i32| {
+        reference_i32_trace
+            .lock()
+            .expect("Wasmtime imported-start trace mutex poisoned")
+            .push(i64::from(input));
+    });
+    let print = Func::wrap(&mut store, move || {
+        reference_print_trace
+            .lock()
+            .expect("Wasmtime imported-start trace mutex poisoned")
+            .push(PRINT_SENTINEL);
+    });
+    ReferenceInstance::new(
+        &mut store,
+        &module,
+        &[Extern::Func(print_i32), Extern::Func(print)],
+    )
+    .expect("instantiate Wasmtime imported-start fixture");
+    let reference_observed = reference_trace.lock().unwrap().clone();
+    assert_eq!(reference_observed, vec![7, PRINT_SENTINEL]);
+    assert_eq!(mini_observed, reference_observed);
+}

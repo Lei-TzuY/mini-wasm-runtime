@@ -1,6 +1,6 @@
 use std::collections::HashSet;
-use wasm_parser::parse_module;
-use wasm_runtime::{HostRegistry, Instance, RuntimeError, Value};
+use wasm_parser::{parse_module, ValueType};
+use wasm_runtime::{HostCapabilities, HostRegistry, Instance, RuntimeError, Value};
 use wasm_validator::{validate, ValidationError};
 use wast::core::{NanPattern, WastArgCore, WastRetCore};
 use wast::parser::{self, ParseBuffer};
@@ -283,6 +283,26 @@ fn spectest_hosts() -> HostRegistry {
     hosts
         .register_immutable_global("spectest", "global_i64", Value::I64(666))
         .expect("register spectest global_i64");
+    hosts
+        .register(
+            "spectest",
+            "print_i32",
+            vec![ValueType::I32],
+            vec![],
+            HostCapabilities::NONE,
+            |_context, _args| Ok(None),
+        )
+        .expect("register spectest print_i32");
+    hosts
+        .register(
+            "spectest",
+            "print",
+            vec![],
+            vec![],
+            HostCapabilities::NONE,
+            |_context, _args| Ok(None),
+        )
+        .expect("register spectest print");
     hosts
 }
 

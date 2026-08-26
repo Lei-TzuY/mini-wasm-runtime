@@ -8,7 +8,7 @@
 
 ## Selected source-faithful directives
 
-The fixture now covers three distinct start-function phases without filtering unsupported directives into apparent success.
+The fixture covers validation-time rejection, successful start execution (including standard `spectest` function imports), stateful post-instantiation execution, and instantiation-time trapping without filtering unsupported directives into apparent success.
 
 Validation-time coverage keeps the first three upstream `assert_invalid` directives:
 
@@ -18,16 +18,18 @@ Validation-time coverage keeps the first three upstream `assert_invalid` directi
 
 The positive stateful region contains two live modules. The first names the start function symbolically with `(start $main)`; the second selects the same function by numeric index with `(start 2)`. Each initializes memory byte zero to ASCII `A` (65), runs three increments during instantiation, then preserves the same live instance across bare invokes so observations progress 68 -> 69 -> 70.
 
+The next three upstream positive modules exercise imported start calls through the standard test harness. Two import `spectest.print_i32` with signature `[i32] -> []` and call it from symbolic/numeric start functions with values 1 and 2; the third imports zero-argument `spectest.print` and uses that import itself as the start function. The harness binds both functions as typed no-op callbacks, so successful module instantiation proves import resolution and start-time host invocation are admitted without inventing observable output semantics.
+
 Finally, the upstream trapping-start directive validates successfully and must fail specifically during instantiation/start execution with the `unreachable` runtime trap.
 
 Exact accounting:
 
-- 2 live module directives
+- 5 live module directives: 2 stateful memory modules + 3 `spectest` imported-start modules
 - 10 executed assertions: 3 invalid + 6 return + 1 trap
 - 4 stateful bare `invoke` directives
 - 0 filters
 
-The spectest-import modules and malformed multiple-start directive remain outside this tranche because they require separate host-import/script-malformed capabilities; they are not counted as filters.
+The final malformed multiple-start quoted-module directive remains outside this tranche because it requires script-level `assert_malformed`/quoted-module handling; it is not counted as a filter.
 
 ## Runner contract
 
@@ -39,4 +41,4 @@ Bare invokes remain separately accounted stateful actions against the current li
 
 ## Reference checks
 
-The differential workspace retains the successful-start memory-side-effect case and adds an instantiation-time trapping-start case. Both mini-wasm-runtime and Wasmtime must normalize the latter to the unreachable trap class.
+The differential workspace retains the successful-start memory-side-effect and trapping-start cases. It also instantiates a module whose start function calls imported `print_i32` and `print` callbacks, recording a shared trace on both mini-wasm-runtime and Wasmtime. Both engines must execute the callbacks during instantiation in the same order and with the same i32 argument.
