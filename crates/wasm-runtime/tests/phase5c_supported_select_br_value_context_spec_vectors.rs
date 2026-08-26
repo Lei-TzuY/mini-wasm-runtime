@@ -34,8 +34,8 @@ fn select_br_value_context_module() -> Vec<u8> {
         &mut module,
         7,
         &[
-            0x01, 0x0b, b'a', b's', b'-', b'b', b'r', b'-', b'v', b'a', b'l', b'u', b'e',
-            0x00, 0x00,
+            0x01, 0x0b, b'a', b's', b'-', b'b', b'r', b'-', b'v', b'a', b'l', b'u', b'e', 0x00,
+            0x00,
         ],
     );
 
