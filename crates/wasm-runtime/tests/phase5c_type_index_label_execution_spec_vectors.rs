@@ -112,3 +112,44 @@ fn type_index_block_branch_uses_result_label_not_parameter_label() {
 
     assert_eq!(invoke(&module), Value::I64(77));
 }
+
+#[test]
+fn type_index_if_branch_uses_result_label_and_else_retains_parameter() {
+    // Like blocks, if labels use the result type rather than the parameter
+    // type. The taken arm branches with i64 77 and must discard the i32 block
+    // parameter. The false arm receives that parameter and converts it to the
+    // declared i64 result, pinning both branch-label and else-entry semantics.
+    assert_eq!(UPSTREAM_SPEC_COMMIT.len(), 40);
+
+    let taken_body = [
+        0x00, // no locals
+        0x41, 0xfb, 0x00, // i32.const 123: if parameter (signed LEB128)
+        0x41, 0x01, // i32.const 1: condition
+        0x04, 0x01, // if type 1: (param i32) (result i64)
+        0x42, 0xcd, 0x00, // i64.const 77 (signed LEB128)
+        0x0c, 0x00, // br 0 carrying the i64 if-label result
+        0x7c, // unreachable i64.add: stack-polymorphic tail
+        0x05, // else
+        0xac, // i64.extend_i32_s: consume restored i32 parameter
+        0x0b, // end if
+        0x0b, // end function
+    ];
+    let taken = module_with_types(I64, &[I32], I64, &taken_body);
+    assert_eq!(invoke(&taken), Value::I64(77));
+
+    let false_body = [
+        0x00, // no locals
+        0x41, 0xfb, 0x00, // i32.const 123: if parameter (signed LEB128)
+        0x41, 0x00, // i32.const 0: condition
+        0x04, 0x01, // if type 1: (param i32) (result i64)
+        0x42, 0xcd, 0x00, // i64.const 77
+        0x0c, 0x00, // branch is not executed on this path
+        0x7c, // unreachable in the then arm only
+        0x05, // else
+        0xac, // consume else-entry i32 parameter as i64 result
+        0x0b, // end if
+        0x0b, // end function
+    ];
+    let not_taken = module_with_types(I64, &[I32], I64, &false_body);
+    assert_eq!(invoke(&not_taken), Value::I64(123));
+}
