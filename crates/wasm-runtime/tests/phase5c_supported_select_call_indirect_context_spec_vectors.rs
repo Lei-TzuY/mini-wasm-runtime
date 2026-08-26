@@ -158,10 +158,11 @@ fn pinned_upstream_select_call_indirect_table_index_context_traps() {
     let mut vm = instance();
 
     for (condition, expected_index) in [(0, 3), (1, 2)] {
-        assert_eq!(
-            vm.invoke_export("as-call_indirect-last", &[Value::I32(condition)]),
-            Err(RuntimeError::TableElementOutOfBounds(expected_index)),
-            "unexpected trap for selected table index with condition {condition}"
-        );
+        match vm.invoke_export("as-call_indirect-last", &[Value::I32(condition)]) {
+            Err(RuntimeError::TableElementOutOfBounds(index)) => assert_eq!(index, expected_index),
+            other => panic!(
+                "unexpected trap for selected table index with condition {condition}: {other:?}"
+            ),
+        }
     }
 }
