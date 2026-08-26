@@ -46,7 +46,9 @@ fn reinterpret_module(result_type: u8, instructions: &[u8]) -> Vec<u8> {
 
 fn validator_error(bytes: &[u8]) -> ValidationError {
     let module = parse_module(bytes).expect("reinterpret boundary fixture must parse");
-    match Instance::new(module).expect_err("reinterpret must remain outside the admitted surface") {
+    match Instance::new(module)
+        .expect_err("reinterpret must remain outside the admitted surface")
+    {
         RuntimeError::Validation(error) => error,
         other => panic!("expected validator rejection, got {other:?}"),
     }
