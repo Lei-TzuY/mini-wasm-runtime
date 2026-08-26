@@ -79,9 +79,9 @@ fn truncated_bodies_fail_before_signed_33_blocktype_decoding() {
             .expect("truncated function body fixture must remain structurally parseable");
         assert!(matches!(
             Instance::new(module),
-            Err(RuntimeError::Validation(ValidationError::MissingFunctionEnd {
-                function: 0,
-            }))
+            Err(RuntimeError::Validation(
+                ValidationError::MissingFunctionEnd { function: 0 }
+            ))
         ));
     }
 }
