@@ -121,8 +121,8 @@ fn pinned_upstream_select_loop_positions_execute() {
     // WebAssembly/spec test/core/select.wast @ the pinned revision.
     assert_eq!(UPSTREAM_SPEC_COMMIT.len(), 40);
 
-    let module = parse_module(&select_loop_context_module())
-        .expect("select loop context vector must parse");
+    let module =
+        parse_module(&select_loop_context_module()).expect("select loop context vector must parse");
     validate(&module).expect("select loop context vector must validate");
     let mut instance = Instance::new(module).expect("select loop context vector must instantiate");
 
