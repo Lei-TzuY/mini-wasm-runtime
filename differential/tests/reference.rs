@@ -13,6 +13,7 @@ enum ResultKind {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum TrapClass {
     MemoryOutOfBounds,
+    TableOutOfBounds,
     IntegerOverflow,
     IntegerDivisionByZero,
     BadConversionToInteger,
@@ -38,6 +39,7 @@ fn normalize_mini_error(error: RuntimeError) -> TrapClass {
         RuntimeError::MemoryOutOfBounds { .. } | RuntimeError::DataSegmentOutOfBounds { .. } => {
             TrapClass::MemoryOutOfBounds
         }
+        RuntimeError::ElementSegmentOutOfBounds { .. } => TrapClass::TableOutOfBounds,
         RuntimeError::IntegerOverflow => TrapClass::IntegerOverflow,
         RuntimeError::IntegerDivisionByZero => TrapClass::IntegerDivisionByZero,
         RuntimeError::InvalidConversionToInteger => TrapClass::BadConversionToInteger,
@@ -52,6 +54,7 @@ fn normalize_reference_error(error: &wasmtime::Error) -> TrapClass {
         .unwrap_or_else(|| panic!("Wasmtime execution error was not a trap: {error:?}"));
     match *trap {
         ReferenceTrap::MemoryOutOfBounds => TrapClass::MemoryOutOfBounds,
+        ReferenceTrap::TableOutOfBounds => TrapClass::TableOutOfBounds,
         ReferenceTrap::IntegerOverflow => TrapClass::IntegerOverflow,
         ReferenceTrap::IntegerDivisionByZero => TrapClass::IntegerDivisionByZero,
         ReferenceTrap::BadConversionToInteger => TrapClass::BadConversionToInteger,
@@ -306,6 +309,39 @@ fn supported_semantics_match_wasmtime_reference() {
         );
         assert_eq!(mini, reference, "differential mismatch for {}", case.name);
     }
+}
+
+#[test]
+fn active_element_oob_matches_wasmtime_reference_at_instantiation() {
+    let wat = r#"(module
+        (table 0 funcref)
+        (func $f)
+        (elem (i32.const 0) $f))"#;
+    let bytes = wat::parse_str(wat).expect("active-element OOB WAT must compile");
+
+    let parsed =
+        parse_module(&bytes).expect("active-element OOB fixture must parse in mini runtime");
+    let mini_error = match MiniInstance::new(parsed) {
+        Ok(_) => panic!("mini runtime unexpectedly instantiated OOB active-element module"),
+        Err(error) => error,
+    };
+    assert_eq!(
+        normalize_mini_error(mini_error),
+        TrapClass::TableOutOfBounds
+    );
+
+    let engine = Engine::default();
+    let module =
+        ReferenceModule::new(&engine, &bytes).expect("active-element OOB fixture must compile");
+    let mut store = Store::new(&engine, ());
+    let reference_error = match ReferenceInstance::new(&mut store, &module, &[]) {
+        Ok(_) => panic!("Wasmtime unexpectedly instantiated OOB active-element module"),
+        Err(error) => error,
+    };
+    assert_eq!(
+        normalize_reference_error(&reference_error),
+        TrapClass::TableOutOfBounds
+    );
 }
 
 #[test]

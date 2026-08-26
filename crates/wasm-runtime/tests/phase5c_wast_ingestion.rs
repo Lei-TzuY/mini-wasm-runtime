@@ -21,6 +21,7 @@ const UPSTREAM_BR_TABLE_SUBSET: &str =
 const UPSTREAM_CONVERSIONS_SUBSET: &str =
     include_str!("fixtures/phase5c_upstream_conversions_subset.wast");
 const UPSTREAM_DATA_SUBSET: &str = include_str!("fixtures/phase5c_upstream_data_subset.wast");
+const UPSTREAM_ELEM_SUBSET: &str = include_str!("fixtures/phase5c_upstream_elem_subset.wast");
 const UPSTREAM_F32_CMP_SUBSET: &str = include_str!("fixtures/phase5c_upstream_f32_cmp_subset.wast");
 const UPSTREAM_F32_SUBSET: &str = include_str!("fixtures/phase5c_upstream_f32_subset.wast");
 const UPSTREAM_F64_CMP_SUBSET: &str = include_str!("fixtures/phase5c_upstream_f64_cmp_subset.wast");
@@ -98,6 +99,7 @@ enum TrapKind {
     IntegerOverflow,
     InvalidConversionToInteger,
     MemoryOutOfBounds,
+    TableOutOfBounds,
     IndirectCallTypeMismatch,
     UndefinedElement,
     Unreachable,
@@ -108,6 +110,7 @@ enum InvalidKind {
     StartFunctionOutOfBounds,
     InvalidStartSignature,
     DataMemoryOutOfBounds,
+    ElementTableOutOfBounds,
 }
 
 fn is_supported_core_module(module: &QuoteWat<'_>) -> bool {
@@ -174,6 +177,7 @@ fn translate_trap(message: &str) -> Result<TrapKind, FilterReason> {
         "integer overflow" => Ok(TrapKind::IntegerOverflow),
         "invalid conversion to integer" => Ok(TrapKind::InvalidConversionToInteger),
         "out of bounds memory access" => Ok(TrapKind::MemoryOutOfBounds),
+        "out of bounds table access" => Ok(TrapKind::TableOutOfBounds),
         "indirect call type mismatch" => Ok(TrapKind::IndirectCallTypeMismatch),
         "undefined element" => Ok(TrapKind::UndefinedElement),
         "unreachable" => Ok(TrapKind::Unreachable),
@@ -186,6 +190,7 @@ fn translate_invalid(message: &str) -> Result<InvalidKind, FilterReason> {
         "unknown function" => Ok(InvalidKind::StartFunctionOutOfBounds),
         "start function" => Ok(InvalidKind::InvalidStartSignature),
         "unknown memory" => Ok(InvalidKind::DataMemoryOutOfBounds),
+        "unknown table" => Ok(InvalidKind::ElementTableOutOfBounds),
         other => Err(FilterReason::UnsupportedInvalidMessage(other.to_string())),
     }
 }
@@ -200,6 +205,9 @@ fn invalid_matches(expected: InvalidKind, actual: &ValidationError) -> bool {
         }
         InvalidKind::DataMemoryOutOfBounds => {
             matches!(actual, ValidationError::DataMemoryOutOfBounds { .. })
+        }
+        InvalidKind::ElementTableOutOfBounds => {
+            matches!(actual, ValidationError::ElementTableOutOfBounds { .. })
         }
     }
 }
@@ -253,6 +261,9 @@ fn trap_matches(expected: TrapKind, actual: &RuntimeError) -> bool {
             actual,
             RuntimeError::MemoryOutOfBounds { .. } | RuntimeError::DataSegmentOutOfBounds { .. }
         ),
+        TrapKind::TableOutOfBounds => {
+            matches!(actual, RuntimeError::ElementSegmentOutOfBounds { .. })
+        }
         TrapKind::IndirectCallTypeMismatch => {
             matches!(actual, RuntimeError::IndirectCallTypeMismatch { .. })
         }
@@ -512,6 +523,7 @@ fn manifest_fixture(name: &str) -> &'static str {
         "phase5c_upstream_br_table_subset.wast" => UPSTREAM_BR_TABLE_SUBSET,
         "phase5c_upstream_conversions_subset.wast" => UPSTREAM_CONVERSIONS_SUBSET,
         "phase5c_upstream_data_subset.wast" => UPSTREAM_DATA_SUBSET,
+        "phase5c_upstream_elem_subset.wast" => UPSTREAM_ELEM_SUBSET,
         "phase5c_upstream_f32_cmp_subset.wast" => UPSTREAM_F32_CMP_SUBSET,
         "phase5c_upstream_f32_subset.wast" => UPSTREAM_F32_SUBSET,
         "phase5c_upstream_f64_cmp_subset.wast" => UPSTREAM_F64_CMP_SUBSET,

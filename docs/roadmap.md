@@ -101,6 +101,7 @@ The roadmap favors complete vertical slices over a broad but shallow decoder.
 - [x] MVP `unreachable` trap execution plus pinned `unreachable.wast` control/composition manifest tranche with exact accounting
 - [x] pinned `start.wast` validation/start-trap/stateful bare-invoke manifest tranche with phase-sensitive exact accounting
 - [x] pinned `data.wast` active-data boundary/instantiation-trap manifest tranche with phase-sensitive exact accounting
+- [x] pinned `elem.wast` active-element boundary/instantiation-trap manifest tranche with phase-sensitive exact accounting
 - [x] pinned `block.wast` structured-control/parameter manifest tranche with exact accounting
 - [x] pinned `loop.wast` parameter/label manifest tranche with exact accounting
 - [x] pinned `if.wast` result/parameter/branch manifest tranche with exact accounting
