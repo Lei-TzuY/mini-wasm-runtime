@@ -29,7 +29,10 @@ fn reinterpret_module(result_type: u8, instructions: &[u8]) -> Vec<u8> {
         1,
         &[
             0x01, // one type
-            0x60, 0x00, 0x01, result_type, // () -> result_type
+            0x60,
+            0x00,
+            0x01,
+            result_type, // () -> result_type
         ],
     );
     push_section(&mut module, 3, &[0x01, 0x00]);
@@ -46,9 +49,7 @@ fn reinterpret_module(result_type: u8, instructions: &[u8]) -> Vec<u8> {
 
 fn validator_error(bytes: &[u8]) -> ValidationError {
     let module = parse_module(bytes).expect("reinterpret boundary fixture must parse");
-    match Instance::new(module)
-        .expect_err("reinterpret must remain outside the admitted surface")
-    {
+    match Instance::new(module).expect_err("reinterpret must remain outside the admitted surface") {
         RuntimeError::Validation(error) => error,
         other => panic!("expected validator rejection, got {other:?}"),
     }
@@ -65,9 +66,7 @@ fn all_four_reinterpret_directions_remain_fail_closed() {
         (
             0xbd,
             0x7e,
-            &[
-                0x44, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xbd,
-            ], // f64.const 0; i64.reinterpret_f64
+            &[0x44, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xbd], // f64.const 0; i64.reinterpret_f64
         ),
         (
             0xbe,
