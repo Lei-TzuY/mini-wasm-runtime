@@ -306,6 +306,34 @@ fn supported_semantics_match_wasmtime_reference() {
     }
 }
 
+#[test]
+fn trapping_start_matches_wasmtime_reference_at_instantiation() {
+    let wat = r#"(module
+        (func $start
+            unreachable)
+        (start $start))"#;
+    let bytes = wat::parse_str(wat).expect("start-trap WAT must compile");
+
+    let parsed = parse_module(&bytes).expect("start-trap fixture must parse in mini runtime");
+    let mini_error = match MiniInstance::new(parsed) {
+        Ok(_) => panic!("mini runtime unexpectedly instantiated trapping start module"),
+        Err(error) => error,
+    };
+    assert_eq!(normalize_mini_error(mini_error), TrapClass::Unreachable);
+
+    let engine = Engine::default();
+    let module = ReferenceModule::new(&engine, &bytes).expect("start-trap fixture must compile");
+    let mut store = Store::new(&engine, ());
+    let reference_error = match ReferenceInstance::new(&mut store, &module, &[]) {
+        Ok(_) => panic!("Wasmtime unexpectedly instantiated trapping start module"),
+        Err(error) => error,
+    };
+    assert_eq!(
+        normalize_reference_error(&reference_error),
+        TrapClass::Unreachable
+    );
+}
+
 struct XorShift64 {
     state: u64,
 }

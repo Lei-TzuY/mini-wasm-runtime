@@ -1,6 +1,7 @@
 use std::collections::HashSet;
 use wasm_parser::parse_module;
 use wasm_runtime::{HostRegistry, Instance, RuntimeError, Value};
+use wasm_validator::{validate, ValidationError};
 use wast::core::{NanPattern, WastArgCore, WastRetCore};
 use wast::parser::{self, ParseBuffer};
 use wast::{QuoteWat, Wast, WastArg, WastDirective, WastExecute, WastRet, Wat};
@@ -57,6 +58,7 @@ enum FilterReason {
     UnsupportedArgument(String),
     UnsupportedExpectedValue(String),
     UnsupportedTrapMessage(String),
+    UnsupportedInvalidMessage(String),
 }
 
 #[derive(Debug, Default)]
@@ -98,6 +100,12 @@ enum TrapKind {
     IndirectCallTypeMismatch,
     UndefinedElement,
     Unreachable,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum InvalidKind {
+    StartFunctionOutOfBounds,
+    InvalidStartSignature,
 }
 
 fn is_supported_core_module(module: &QuoteWat<'_>) -> bool {
@@ -168,6 +176,25 @@ fn translate_trap(message: &str) -> Result<TrapKind, FilterReason> {
         "undefined element" => Ok(TrapKind::UndefinedElement),
         "unreachable" => Ok(TrapKind::Unreachable),
         other => Err(FilterReason::UnsupportedTrapMessage(other.to_string())),
+    }
+}
+
+fn translate_invalid(message: &str) -> Result<InvalidKind, FilterReason> {
+    match message {
+        "unknown function" => Ok(InvalidKind::StartFunctionOutOfBounds),
+        "start function" => Ok(InvalidKind::InvalidStartSignature),
+        other => Err(FilterReason::UnsupportedInvalidMessage(other.to_string())),
+    }
+}
+
+fn invalid_matches(expected: InvalidKind, actual: &ValidationError) -> bool {
+    match expected {
+        InvalidKind::StartFunctionOutOfBounds => {
+            matches!(actual, ValidationError::StartFunctionOutOfBounds { .. })
+        }
+        InvalidKind::InvalidStartSignature => {
+            matches!(actual, ValidationError::InvalidStartSignature { .. })
+        }
     }
 }
 
@@ -314,6 +341,37 @@ fn run_fixture(source: &str) -> IngestionReport {
                 }
                 report.executed_assertions += 1;
             }
+            WastDirective::AssertInvalid {
+                mut module,
+                message,
+                ..
+            } => {
+                if !is_supported_core_module(&module) {
+                    report
+                        .skipped
+                        .push(FilterReason::UnsupportedModule(format!("{module:?}")));
+                    continue;
+                }
+                let expected_invalid = match translate_invalid(message) {
+                    Ok(expected) => expected,
+                    Err(reason) => {
+                        report.skipped.push(reason);
+                        continue;
+                    }
+                };
+                let bytes = module
+                    .encode()
+                    .expect("supported assert_invalid WAT module must encode");
+                let parsed = parse_module(&bytes)
+                    .expect("assert_invalid module must be structurally parseable");
+                let error = validate(&parsed)
+                    .expect_err("assert_invalid module unexpectedly passed validation");
+                assert!(
+                    invalid_matches(expected_invalid, &error),
+                    "assert_invalid mismatch: message={message:?}, validation={error:?}"
+                );
+                report.executed_assertions += 1;
+            }
             WastDirective::AssertTrap { exec, message, .. } => {
                 let expected_trap = match translate_trap(message) {
                     Ok(trap) => trap,
@@ -322,22 +380,56 @@ fn run_fixture(source: &str) -> IngestionReport {
                         continue;
                     }
                 };
-                let (name, args) = match translate_invoke(exec) {
-                    Ok(invoke) => invoke,
-                    Err(reason) => {
-                        report.skipped.push(reason);
+                match exec {
+                    WastExecute::Invoke(invoke) => {
+                        let (name, args) = match translate_invoke(WastExecute::Invoke(invoke)) {
+                            Ok(invoke) => invoke,
+                            Err(reason) => {
+                                report.skipped.push(reason);
+                                continue;
+                            }
+                        };
+                        let error = instance
+                            .as_mut()
+                            .expect("assert_trap invoke requires a preceding supported module")
+                            .invoke_export_values(name, &args)
+                            .expect_err("assert_trap invocation unexpectedly succeeded");
+                        assert!(
+                            trap_matches(expected_trap, &error),
+                            "assert_trap mismatch for export {name}: message={message:?}, runtime={error:?}"
+                        );
+                    }
+                    WastExecute::Wat(module) => {
+                        let mut module = QuoteWat::Wat(module);
+                        if !is_supported_core_module(&module) {
+                            report
+                                .skipped
+                                .push(FilterReason::UnsupportedModule(format!("{module:?}")));
+                            continue;
+                        }
+                        let bytes = module
+                            .encode()
+                            .expect("supported assert_trap WAT module must encode");
+                        let parsed = parse_module(&bytes)
+                            .expect("assert_trap module must be structurally parseable");
+                        validate(&parsed)
+                            .expect("assert_trap inline module must pass static validation");
+                        let error = match Instance::with_hosts(parsed, spectest_hosts()) {
+                            Ok(_) => panic!("assert_trap inline module unexpectedly instantiated"),
+                            Err(error) => error,
+                        };
+                        assert!(
+                            trap_matches(expected_trap, &error),
+                            "assert_trap inline-module mismatch: message={message:?}, runtime={error:?}"
+                        );
+                    }
+                    other => {
+                        report
+                            .skipped
+                            .push(FilterReason::UnsupportedExecution(format!("{other:?}")));
                         continue;
                     }
-                };
-                let error = instance
-                    .as_mut()
-                    .expect("assert_trap requires a preceding supported module")
-                    .invoke_export_values(name, &args)
-                    .expect_err("assert_trap invocation unexpectedly succeeded");
-                assert!(
-                    trap_matches(expected_trap, &error),
-                    "assert_trap mismatch for export {name}: message={message:?}, runtime={error:?}"
-                );
+                }
                 report.executed_assertions += 1;
             }
             other => report
@@ -523,6 +615,16 @@ fn unsupported_trap_messages_are_explicit_filter_results() {
         translate_trap("future trap wording"),
         Err(FilterReason::UnsupportedTrapMessage(
             "future trap wording".to_string()
+        ))
+    );
+}
+
+#[test]
+fn unsupported_invalid_messages_are_explicit_filter_results() {
+    assert_eq!(
+        translate_invalid("future validation wording"),
+        Err(FilterReason::UnsupportedInvalidMessage(
+            "future validation wording".to_string()
         ))
     );
 }
