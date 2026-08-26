@@ -24,10 +24,7 @@ fn truncated_segment_section_lengths_fail_closed() {
 
 #[test]
 fn unterminated_segment_section_lengths_fail_closed() {
-    assert_segment_section_lengths_fail(
-        &[0x80, 0x80, 0x80, 0x80, 0x80],
-        ParseError::InvalidLeb128,
-    );
+    assert_segment_section_lengths_fail(&[0x80, 0x80, 0x80, 0x80, 0x80], ParseError::InvalidLeb128);
 }
 
 #[test]
