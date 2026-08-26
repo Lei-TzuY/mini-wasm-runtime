@@ -65,6 +65,11 @@ fn assert_all_structured_openers_fail(immediate: &[u8]) {
 }
 
 #[test]
+fn truncated_signed_33_blocktypes_fail_closed() {
+    assert_all_structured_openers_fail(&[0x80]);
+}
+
+#[test]
 fn unterminated_signed_33_blocktypes_fail_closed() {
     assert_all_structured_openers_fail(&[0x80, 0x80, 0x80, 0x80, 0x80]);
 }
