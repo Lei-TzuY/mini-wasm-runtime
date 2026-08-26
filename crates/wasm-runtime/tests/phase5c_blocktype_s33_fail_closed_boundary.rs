@@ -1,4 +1,4 @@
-use wasm_parser::parse_module;
+use wasm_parser::{parse_module, ParseError};
 use wasm_runtime::{Instance, RuntimeError};
 use wasm_validator::ValidationError;
 
@@ -75,14 +75,10 @@ fn truncated_bodies_fail_before_signed_33_blocktype_decoding() {
         }
         body.extend([opener, 0x80]); // continuation byte followed by body EOF
 
-        let module = parse_module(&module_with_body(&body, false))
-            .expect("truncated function body fixture must remain structurally parseable");
-        assert!(matches!(
-            Instance::new(module),
-            Err(RuntimeError::Validation(
-                ValidationError::MissingFunctionEnd { function: 0 }
-            ))
-        ));
+        assert_eq!(
+            parse_module(&module_with_body(&body, false)),
+            Err(ParseError::FunctionBodyMissingEnd)
+        );
     }
 }
 
