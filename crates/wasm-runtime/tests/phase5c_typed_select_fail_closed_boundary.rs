@@ -40,14 +40,17 @@ fn build_module(instructions: &[u8]) -> Vec<u8> {
 
 fn assert_typed_select_rejected(instructions: &[u8], expectation: &str) {
     let module = parse_module(&build_module(instructions)).expect("fixture must remain parseable");
-    assert!(matches!(
-        validate(&module),
-        Err(ValidationError::UnsupportedOpcode {
-            function: 0,
-            opcode: 0x1c,
-            ..
-        })
-    ), "{expectation}");
+    assert!(
+        matches!(
+            validate(&module),
+            Err(ValidationError::UnsupportedOpcode {
+                function: 0,
+                opcode: 0x1c,
+                ..
+            })
+        ),
+        "{expectation}"
+    );
 }
 
 #[test]
