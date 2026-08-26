@@ -10,6 +10,8 @@ const UPSTREAM_MANIFEST: &str = include_str!("fixtures/phase5c_upstream_manifest
 const UPSTREAM_ADDRESS_SUBSET: &str = include_str!("fixtures/phase5c_upstream_address_subset.wast");
 const UPSTREAM_ALIGN_SUBSET: &str = include_str!("fixtures/phase5c_upstream_align_subset.wast");
 const UPSTREAM_CALL_SUBSET: &str = include_str!("fixtures/phase5c_upstream_call_subset.wast");
+const UPSTREAM_CALL_INDIRECT_SUBSET: &str =
+    include_str!("fixtures/phase5c_upstream_call_indirect_subset.wast");
 const UPSTREAM_BLOCK_SUBSET: &str = include_str!("fixtures/phase5c_upstream_block_subset.wast");
 const UPSTREAM_BR_SUBSET: &str = include_str!("fixtures/phase5c_upstream_br_subset.wast");
 const UPSTREAM_BR_IF_SUBSET: &str = include_str!("fixtures/phase5c_upstream_br_if_subset.wast");
@@ -87,6 +89,7 @@ enum TrapKind {
     IntegerOverflow,
     InvalidConversionToInteger,
     MemoryOutOfBounds,
+    IndirectCallTypeMismatch,
     UndefinedElement,
 }
 
@@ -154,6 +157,7 @@ fn translate_trap(message: &str) -> Result<TrapKind, FilterReason> {
         "integer overflow" => Ok(TrapKind::IntegerOverflow),
         "invalid conversion to integer" => Ok(TrapKind::InvalidConversionToInteger),
         "out of bounds memory access" => Ok(TrapKind::MemoryOutOfBounds),
+        "indirect call type mismatch" => Ok(TrapKind::IndirectCallTypeMismatch),
         "undefined element" => Ok(TrapKind::UndefinedElement),
         other => Err(FilterReason::UnsupportedTrapMessage(other.to_string())),
     }
@@ -205,6 +209,9 @@ fn trap_matches(expected: TrapKind, actual: &RuntimeError) -> bool {
             matches!(actual, RuntimeError::InvalidConversionToInteger)
         }
         TrapKind::MemoryOutOfBounds => matches!(actual, RuntimeError::MemoryOutOfBounds { .. }),
+        TrapKind::IndirectCallTypeMismatch => {
+            matches!(actual, RuntimeError::IndirectCallTypeMismatch { .. })
+        }
         TrapKind::UndefinedElement => matches!(
             actual,
             RuntimeError::TableElementOutOfBounds(_) | RuntimeError::UninitializedTableElement(_)
@@ -359,6 +366,7 @@ fn manifest_fixture(name: &str) -> &'static str {
         "phase5c_upstream_address_subset.wast" => UPSTREAM_ADDRESS_SUBSET,
         "phase5c_upstream_align_subset.wast" => UPSTREAM_ALIGN_SUBSET,
         "phase5c_upstream_call_subset.wast" => UPSTREAM_CALL_SUBSET,
+        "phase5c_upstream_call_indirect_subset.wast" => UPSTREAM_CALL_INDIRECT_SUBSET,
         "phase5c_upstream_block_subset.wast" => UPSTREAM_BLOCK_SUBSET,
         "phase5c_upstream_br_subset.wast" => UPSTREAM_BR_SUBSET,
         "phase5c_upstream_br_if_subset.wast" => UPSTREAM_BR_IF_SUBSET,

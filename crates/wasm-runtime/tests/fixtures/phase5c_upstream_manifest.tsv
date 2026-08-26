@@ -26,3 +26,4 @@ fc209c5ed8afc4dfeb9252024d217da3376c7a6f	test/core/call.wast	phase5c_upstream_ca
 fc209c5ed8afc4dfeb9252024d217da3376c7a6f	test/core/local_get.wast	phase5c_upstream_local_get_subset.wast	1	19	0
 fc209c5ed8afc4dfeb9252024d217da3376c7a6f	test/core/local_set.wast	phase5c_upstream_local_set_subset.wast	1	19	0
 fc209c5ed8afc4dfeb9252024d217da3376c7a6f	test/core/local_tee.wast	phase5c_upstream_local_tee_subset.wast	1	55	0
+fc209c5ed8afc4dfeb9252024d217da3376c7a6f	test/core/call_indirect.wast	phase5c_upstream_call_indirect_subset.wast	1	51	0

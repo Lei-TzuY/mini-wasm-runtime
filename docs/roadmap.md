@@ -95,6 +95,7 @@ The roadmap favors complete vertical slices over a broad but shallow decoder.
 - [x] pinned `load.wast` and `store.wast` instruction-composition manifest tranche with exact accounting
 - [x] pinned `address.wast` and `align.wast` memory-boundary/alignment manifest tranche with exact accounting
 - [x] pinned `call.wast` direct-call/recursion/composition manifest tranche with exact accounting
+- [x] pinned `call_indirect.wast` typing/dispatch/structural-equivalence manifest tranche with exact accounting
 - [x] pinned `local_get.wast`, `local_set.wast`, and `local_tee.wast` local-state/composition manifest tranche with exact accounting
 - [x] pinned `block.wast` structured-control/parameter manifest tranche with exact accounting
 - [x] pinned `loop.wast` parameter/label manifest tranche with exact accounting
