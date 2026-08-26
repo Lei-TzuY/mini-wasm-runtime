@@ -74,7 +74,7 @@ The roadmap favors complete vertical slices over a broad but shallow decoder.
 - [x] shared backing for mutable global imports
 - [x] shared backing for table imports with instance-bound function references
 - [x] shared backing for memory imports with runtime-limit-safe shared linear-memory state
-- [ ] non-i32 host function import ABI
+- [ ] non-i32 host function import ABI — admit all numeric parameter/result types and verify callback result value types at the host boundary in the same zero-or-one-result vertical slice
 - [x] block parameters and type-index block signatures with zero-or-one result
 - [ ] broader data/element modes
 - [ ] multi-value results
@@ -82,6 +82,8 @@ The roadmap favors complete vertical slices over a broad but shallow decoder.
 - [ ] i64/f32/f64 memory instruction families
 - [ ] WebAssembly spec tests for supported features
 - [ ] negative conformance corpus
+
+`br_table` and typed `select` remain outside the admitted Phase-5C control surface until their validator, runtime, immediate-decoding/control-map, and conformance semantics land as complete slices. Unsupported forms stay fail closed rather than being filtered into apparent support.
 
 ## Phase 6 — engineering hardening
 
