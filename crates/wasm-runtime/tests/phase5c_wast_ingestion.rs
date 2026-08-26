@@ -42,6 +42,7 @@ const UPSTREAM_MEMORY_SUBSET: &str = include_str!("fixtures/phase5c_upstream_mem
 const UPSTREAM_NOP_SUBSET: &str = include_str!("fixtures/phase5c_upstream_nop_subset.wast");
 const UPSTREAM_RETURN_SUBSET: &str = include_str!("fixtures/phase5c_upstream_return_subset.wast");
 const UPSTREAM_SELECT_SUBSET: &str = include_str!("fixtures/phase5c_upstream_select_subset.wast");
+const UPSTREAM_START_SUBSET: &str = include_str!("fixtures/phase5c_upstream_start_subset.wast");
 const UPSTREAM_STORE_SUBSET: &str = include_str!("fixtures/phase5c_upstream_store_subset.wast");
 const UPSTREAM_UNREACHABLE_SUBSET: &str =
     include_str!("fixtures/phase5c_upstream_unreachable_subset.wast");
@@ -62,6 +63,7 @@ enum FilterReason {
 struct IngestionReport {
     modules: usize,
     executed_assertions: usize,
+    executed_invokes: usize,
     skipped: Vec<FilterReason>,
 }
 
@@ -71,6 +73,7 @@ struct ManifestEntry<'a> {
     fixture: &'a str,
     expected_modules: usize,
     expected_executed_assertions: usize,
+    expected_executed_invokes: usize,
     expected_filtered: usize,
 }
 
@@ -259,6 +262,21 @@ fn run_fixture(source: &str) -> IngestionReport {
                 );
                 report.modules += 1;
             }
+            WastDirective::Invoke(invoke) => {
+                let (name, args) = match translate_invoke(WastExecute::Invoke(invoke)) {
+                    Ok(invoke) => invoke,
+                    Err(reason) => {
+                        report.skipped.push(reason);
+                        continue;
+                    }
+                };
+                let _ = instance
+                    .as_mut()
+                    .expect("bare invoke requires a preceding supported module")
+                    .invoke_export_values(name, &args)
+                    .expect("bare invoke must not trap");
+                report.executed_invokes += 1;
+            }
             WastDirective::AssertReturn { exec, results, .. } => {
                 let (name, args) = match translate_invoke(exec) {
                     Ok(invoke) => invoke,
@@ -344,8 +362,8 @@ fn parse_manifest(source: &str) -> Vec<ManifestEntry<'_>> {
             let fields = line.split('\t').collect::<Vec<_>>();
             assert_eq!(
                 fields.len(),
-                6,
-                "manifest line {} must contain exactly six tab-separated fields",
+                7,
+                "manifest line {} must contain exactly seven tab-separated fields",
                 line_index + 1
             );
             assert_eq!(
@@ -374,7 +392,8 @@ fn parse_manifest(source: &str) -> Vec<ManifestEntry<'_>> {
                 fixture: fields[2],
                 expected_modules: parse_count(fields[3], "module"),
                 expected_executed_assertions: parse_count(fields[4], "executed assertion"),
-                expected_filtered: parse_count(fields[5], "filtered directive"),
+                expected_executed_invokes: parse_count(fields[5], "executed invoke"),
+                expected_filtered: parse_count(fields[6], "filtered directive"),
             })
         })
         .collect()
@@ -410,6 +429,7 @@ fn manifest_fixture(name: &str) -> &'static str {
         "phase5c_upstream_nop_subset.wast" => UPSTREAM_NOP_SUBSET,
         "phase5c_upstream_return_subset.wast" => UPSTREAM_RETURN_SUBSET,
         "phase5c_upstream_select_subset.wast" => UPSTREAM_SELECT_SUBSET,
+        "phase5c_upstream_start_subset.wast" => UPSTREAM_START_SUBSET,
         "phase5c_upstream_store_subset.wast" => UPSTREAM_STORE_SUBSET,
         "phase5c_upstream_unreachable_subset.wast" => UPSTREAM_UNREACHABLE_SUBSET,
         other => panic!("manifest names unregistered fixture {other:?}"),
@@ -422,6 +442,7 @@ fn systematic_wast_ingestion_executes_supported_subset_and_reports_filters() {
 
     assert_eq!(report.modules, 1);
     assert_eq!(report.executed_assertions, 4);
+    assert_eq!(report.executed_invokes, 0);
     assert_eq!(report.skipped.len(), 2);
     assert!(matches!(
         &report.skipped[0],
@@ -479,6 +500,11 @@ fn pinned_upstream_manifest_executes_with_exact_accounting() {
         assert_eq!(
             report.executed_assertions, entry.expected_executed_assertions,
             "upstream source {} executed-assertion accounting drifted",
+            entry.source
+        );
+        assert_eq!(
+            report.executed_invokes, entry.expected_executed_invokes,
+            "upstream source {} executed-invoke accounting drifted",
             entry.source
         );
         assert_eq!(
