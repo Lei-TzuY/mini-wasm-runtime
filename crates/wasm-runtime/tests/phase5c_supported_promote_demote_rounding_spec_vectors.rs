@@ -97,8 +97,8 @@ fn pinned_upstream_demote_f64_rounding_boundaries_match_spec() {
     let cases = [
         (0x0000_0000_0000_0001u64, 0x0000_0000u32), // min f64 subnormal -> +0
         (0x8000_0000_0000_0001, 0x8000_0000),       // -min f64 subnormal -> -0
-        (0x380f_fffe_0000_0000, 0x0080_0000),       // normal/subnormal boundary rounds up
-        (0x380f_fffd_ffff_ffff, 0x007f_ffff),       // just below boundary stays subnormal
+        (0x380f_ffff_e000_0000, 0x0080_0000),       // normal/subnormal boundary rounds up
+        (0x380f_ffff_dfff_ffff, 0x007f_ffff),       // just below boundary stays subnormal
         (0x36a0_0000_0000_0000, 0x0000_0001),       // exact +min f32 subnormal
         (0xb6a0_0000_0000_0000, 0x8000_0001),       // exact -min f32 subnormal
         (0x47ef_ffff_d000_0000, 0x7f7f_fffe),       // below max-finite midpoint
