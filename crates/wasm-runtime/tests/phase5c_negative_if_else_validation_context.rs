@@ -56,7 +56,10 @@ fn result_if_without_else_is_rejected_even_when_then_produces_result() {
     ]);
     assert!(matches!(
         validation_error(&module, "result-typed if must have an else arm"),
-        ValidationError::MissingElseForResult { function: 0, .. }
+        ValidationError::MissingElseForResult {
+            function: 0,
+            ..
+        }
     ));
 }
 
@@ -71,7 +74,10 @@ fn duplicate_else_is_rejected_before_the_second_arm_is_admitted() {
     ]);
     assert!(matches!(
         validation_error(&module, "an if may contain at most one else marker"),
-        ValidationError::DuplicateElse { function: 0, .. }
+        ValidationError::DuplicateElse {
+            function: 0,
+            ..
+        }
     ));
 }
 
@@ -80,7 +86,10 @@ fn else_without_matching_if_is_rejected() {
     let module = build_module(&[0x05]);
     assert!(matches!(
         validation_error(&module, "else outside an if must fail closed"),
-        ValidationError::UnexpectedElse { function: 0, .. }
+        ValidationError::UnexpectedElse {
+            function: 0,
+            ..
+        }
     ));
 }
 
