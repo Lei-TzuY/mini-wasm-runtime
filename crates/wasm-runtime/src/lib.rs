@@ -2001,7 +2001,9 @@ impl Instance {
                 0xa1 => numeric::binary_f64(&mut stack, |a, b| a - b)?,
                 0xa2 => numeric::binary_f64(&mut stack, |a, b| a * b)?,
                 0xa3 => numeric::binary_f64(&mut stack, |a, b| a / b)?,
-                0xa7 | 0xac | 0xad | 0xb6 | 0xbb => numeric::convert(&mut stack, opcode)?,
+                0xa7 | 0xac | 0xad | 0xb6 | 0xbb | 0xbc..=0xbf => {
+                    numeric::convert(&mut stack, opcode)?
+                }
                 other => return Err(RuntimeError::UnsupportedOpcode(other)),
             }
         }
@@ -2537,7 +2539,8 @@ fn build_control_map(module: &Module, code: &[u8]) -> Result<ControlMap, Runtime
             | 0xac
             | 0xad
             | 0xb6
-            | 0xbb => {}
+            | 0xbb
+            | 0xbc..=0xbf => {}
             other => return Err(RuntimeError::UnsupportedOpcode(other)),
         }
     }

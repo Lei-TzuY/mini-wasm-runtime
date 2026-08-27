@@ -351,6 +351,46 @@ pub(super) fn validate_code(
                     offset,
                 )?;
             }
+            0xbc => {
+                unary(
+                    &mut stack,
+                    &controls,
+                    ValueType::F32,
+                    ValueType::I32,
+                    function,
+                    offset,
+                )?;
+            }
+            0xbd => {
+                unary(
+                    &mut stack,
+                    &controls,
+                    ValueType::F64,
+                    ValueType::I64,
+                    function,
+                    offset,
+                )?;
+            }
+            0xbe => {
+                unary(
+                    &mut stack,
+                    &controls,
+                    ValueType::I32,
+                    ValueType::F32,
+                    function,
+                    offset,
+                )?;
+            }
+            0xbf => {
+                unary(
+                    &mut stack,
+                    &controls,
+                    ValueType::I64,
+                    ValueType::F64,
+                    function,
+                    offset,
+                )?;
+            }
             other => {
                 return Err(ValidationError::UnsupportedOpcode {
                     function,

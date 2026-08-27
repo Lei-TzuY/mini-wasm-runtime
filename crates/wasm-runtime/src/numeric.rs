@@ -267,6 +267,28 @@ pub(super) fn convert(stack: &mut Vec<Value>, opcode: u8) -> Result<(), RuntimeE
             };
             Value::F64(f64::from(value))
         }
+        0xbc => {
+            let value = match pop_typed(stack, ValueType::F32)? {
+                Value::F32(value) => value,
+                _ => unreachable!("pop_typed established f32"),
+            };
+            Value::I32(value.to_bits() as i32)
+        }
+        0xbd => {
+            let value = match pop_typed(stack, ValueType::F64)? {
+                Value::F64(value) => value,
+                _ => unreachable!("pop_typed established f64"),
+            };
+            Value::I64(value.to_bits() as i64)
+        }
+        0xbe => Value::F32(f32::from_bits(i32_from_stack(stack)? as u32)),
+        0xbf => {
+            let value = match pop_typed(stack, ValueType::I64)? {
+                Value::I64(value) => value,
+                _ => unreachable!("pop_typed established i64"),
+            };
+            Value::F64(f64::from_bits(value as u64))
+        }
         _ => return Err(RuntimeError::UnsupportedOpcode(opcode)),
     };
     stack.push(value);
