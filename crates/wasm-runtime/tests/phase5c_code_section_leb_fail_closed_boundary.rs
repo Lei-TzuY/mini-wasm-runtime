@@ -70,3 +70,35 @@ fn unterminated_code_section_immediates_fail_closed() {
 fn overflowing_code_section_immediates_fail_closed() {
     assert_code_framing_error(&[0x80, 0x80, 0x80, 0x80, 0x10], ParseError::Leb128Overflow);
 }
+
+#[test]
+fn noncanonical_code_section_immediates_remain_accepted() {
+    let section_count = module_with_code_payload(&[0x80, 0x00]);
+    assert!(parse_module(&section_count).is_ok());
+
+    let body_length = module_with_code_payload(&[
+        0x01, // one body
+        0x82, 0x00, // noncanonical body length 2
+        0x00, // zero local groups
+        0x0b, // end
+    ]);
+    assert!(parse_module(&body_length).is_ok());
+
+    let local_group_count = module_with_code_payload(&[
+        0x01, // one body
+        0x03, // body length 3
+        0x80, 0x00, // noncanonical zero local groups
+        0x0b, // end
+    ]);
+    assert!(parse_module(&local_group_count).is_ok());
+
+    let local_declaration_count = module_with_code_payload(&[
+        0x01, // one body
+        0x05, // body length 5
+        0x01, // one local group
+        0x80, 0x00, // noncanonical zero locals in the group
+        0x7f, // i32
+        0x0b, // end
+    ]);
+    assert!(parse_module(&local_declaration_count).is_ok());
+}
