@@ -29,6 +29,6 @@ fc209c5ed8afc4dfeb9252024d217da3376c7a6f	test/core/local_tee.wast	phase5c_upstre
 fc209c5ed8afc4dfeb9252024d217da3376c7a6f	test/core/call_indirect.wast	phase5c_upstream_call_indirect_subset.wast	1	51	0	0
 fc209c5ed8afc4dfeb9252024d217da3376c7a6f	test/core/global.wast	phase5c_upstream_global_subset.wast	3	52	0	0
 fc209c5ed8afc4dfeb9252024d217da3376c7a6f	test/core/unreachable.wast	phase5c_upstream_unreachable_subset.wast	1	63	0	0
-fc209c5ed8afc4dfeb9252024d217da3376c7a6f	test/core/start.wast	phase5c_upstream_start_subset.wast	5	10	4	0
+fc209c5ed8afc4dfeb9252024d217da3376c7a6f	test/core/start.wast	phase5c_upstream_start_subset.wast	5	11	4	0
 fc209c5ed8afc4dfeb9252024d217da3376c7a6f	test/core/data.wast	phase5c_upstream_data_subset.wast	7	11	0	0
 fc209c5ed8afc4dfeb9252024d217da3376c7a6f	test/core/elem.wast	phase5c_upstream_elem_subset.wast	7	11	0	0

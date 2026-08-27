@@ -58,6 +58,15 @@ fn duplicate_standard_section_is_rejected_by_parser() {
 }
 
 #[test]
+fn duplicate_start_section_is_rejected_by_binary_parser() {
+    let mut module = header();
+    push_section(&mut module, 8, &[0x00]);
+    push_section(&mut module, 8, &[0x00]);
+
+    assert_eq!(parse_module(&module), Err(ParseError::DuplicateSection(8)));
+}
+
+#[test]
 fn standard_sections_must_remain_in_canonical_order() {
     let mut module = header();
     push_section(&mut module, 3, &[0x00]);

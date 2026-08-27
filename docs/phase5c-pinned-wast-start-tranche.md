@@ -8,7 +8,7 @@
 
 ## Selected source-faithful directives
 
-The fixture covers validation-time rejection, successful start execution (including standard `spectest` function imports), stateful post-instantiation execution, and instantiation-time trapping without filtering unsupported directives into apparent success.
+The fixture now covers the complete pinned `start.wast` source: validation-time rejection, successful start execution (including standard `spectest` function imports), stateful post-instantiation execution, instantiation-time trapping, and the final quoted malformed duplicate-start directive, with zero filters.
 
 Validation-time coverage keeps the first three upstream `assert_invalid` directives:
 
@@ -20,25 +20,25 @@ The positive stateful region contains two live modules. The first names the star
 
 The next three upstream positive modules exercise imported start calls through the standard test harness. Two import `spectest.print_i32` with signature `[i32] -> []` and call it from symbolic/numeric start functions with values 1 and 2; the third imports zero-argument `spectest.print` and uses that import itself as the start function. The harness binds both functions as typed no-op callbacks, so successful module instantiation proves import resolution and start-time host invocation are admitted without inventing observable output semantics.
 
-Finally, the upstream trapping-start directive validates successfully and must fail specifically during instantiation/start execution with the `unreachable` runtime trap.
+The upstream trapping-start directive validates successfully and must fail specifically during instantiation/start execution with the `unreachable` runtime trap. The final `assert_malformed` keeps the source-faithful quoted module with two start declarations. Its upstream canonical wording `multiple start sections` maps to `MalformedKind::MultipleStartSections`; the pinned `wast = 217.0.0` text parser must then fail during quoted-text WAT/encode with the exact internal message `multiple start sections found`. No binary module is produced for mini-wasm-runtime to parse.
 
 Exact accounting:
 
 - 5 live module directives: 2 stateful memory modules + 3 `spectest` imported-start modules
-- 10 executed assertions: 3 invalid + 6 return + 1 trap
+- 11 executed assertions: 3 invalid + 6 return + 1 trap + 1 malformed
 - 4 stateful bare `invoke` directives
 - 0 filters
 
-The final malformed multiple-start quoted-module directive remains outside this tranche because it requires script-level `assert_malformed`/quoted-module handling; it is not counted as a filter.
+This accounts for every directive in the pinned upstream `test/core/start.wast` source.
 
 ## Runner contract
 
 `assert_invalid` is phase-sensitive: selected directives must encode and parse structurally, then fail static validation with the expected `ValidationError` class. A later linking or runtime failure cannot satisfy an invalid assertion.
 
-`assert_trap` now supports both exported invocations and inline core modules. Inline modules must parse and validate first; only instantiation/start execution may produce the expected `RuntimeError`. The current unnamed live module is not replaced by an inline trapping assertion.
+`assert_trap` supports both exported invocations and inline core modules. Inline modules must parse and validate first; only instantiation/start execution may produce the expected `RuntimeError`. The current unnamed live module is not replaced by an inline trapping assertion.
 
-Bare invokes remain separately accounted stateful actions against the current live module.
+`assert_malformed` is also phase-sensitive: this slice accepts only quoted core modules, translates the pinned upstream wording into a typed malformed class, requires WAT/text encoding to fail before any mini binary parse or validation can occur, and then matches that class to the exact pinned `wast` parser message. Bare invokes remain separately accounted stateful actions against the current live module.
 
 ## Reference checks
 
-The differential workspace retains the successful-start memory-side-effect and trapping-start cases. It also instantiates a module whose start function calls imported `print_i32` and `print` callbacks, recording a shared trace on both mini-wasm-runtime and Wasmtime. Both engines must execute the callbacks during instantiation in the same order and with the same i32 argument.
+The differential workspace retains the successful-start memory-side-effect and trapping-start cases. It also instantiates a module whose start function calls imported `print_i32` and `print` callbacks, recording a shared trace on both mini-wasm-runtime and Wasmtime. Both engines must execute the callbacks during instantiation in the same order and with the same i32 argument. Separately, the binary negative-conformance corpus constructs two physical start sections and requires mini-wasm-runtime's binary parser to return `ParseError::DuplicateSection(8)`, keeping the text-malformed and binary-malformed layers independently typed.

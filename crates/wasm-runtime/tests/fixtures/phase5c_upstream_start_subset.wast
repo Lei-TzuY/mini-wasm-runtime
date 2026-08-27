@@ -1,5 +1,5 @@
 ;; Source: WebAssembly/spec@fc209c5ed8afc4dfeb9252024d217da3376c7a6f test/core/start.wast
-;; Selection: start validation failures + positive stateful starts + spectest-import starts + trapping start; 0 filters.
+;; Selection: complete pinned start.wast coverage: validation failures + positive/stateful/spectest starts + trap + malformed duplicate start; 0 filters.
 
 (assert_invalid
   (module (func) (start 1))
@@ -100,4 +100,9 @@
 (assert_trap
   (module (func $main (unreachable)) (start $main))
   "unreachable"
+)
+
+(assert_malformed
+  (module quote "(module (func $a (unreachable)) (func $b (unreachable)) (start $a) (start $b))")
+  "multiple start sections"
 )

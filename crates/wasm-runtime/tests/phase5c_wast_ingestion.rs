@@ -61,6 +61,7 @@ enum FilterReason {
     UnsupportedExpectedValue(String),
     UnsupportedTrapMessage(String),
     UnsupportedInvalidMessage(String),
+    UnsupportedMalformedMessage(String),
 }
 
 #[derive(Debug, Default)]
@@ -111,6 +112,11 @@ enum InvalidKind {
     InvalidStartSignature,
     DataMemoryOutOfBounds,
     ElementTableOutOfBounds,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum MalformedKind {
+    MultipleStartSections,
 }
 
 fn is_supported_core_module(module: &QuoteWat<'_>) -> bool {
@@ -209,6 +215,19 @@ fn invalid_matches(expected: InvalidKind, actual: &ValidationError) -> bool {
         InvalidKind::ElementTableOutOfBounds => {
             matches!(actual, ValidationError::ElementTableOutOfBounds { .. })
         }
+    }
+}
+
+fn translate_malformed(message: &str) -> Result<MalformedKind, FilterReason> {
+    match message {
+        "multiple start sections" => Ok(MalformedKind::MultipleStartSections),
+        other => Err(FilterReason::UnsupportedMalformedMessage(other.to_string())),
+    }
+}
+
+fn malformed_matches(expected: MalformedKind, actual: &wast::Error) -> bool {
+    match expected {
+        MalformedKind::MultipleStartSections => actual.message() == "multiple start sections found",
     }
 }
 
@@ -379,6 +398,34 @@ fn run_fixture(source: &str) -> IngestionReport {
                         "assert_return mismatch for export {name} result {index}: expected {expected:?}, actual {actual:?}"
                     );
                 }
+                report.executed_assertions += 1;
+            }
+            WastDirective::AssertMalformed {
+                mut module,
+                message,
+                ..
+            } => {
+                let expected_malformed = match translate_malformed(message) {
+                    Ok(expected) => expected,
+                    Err(reason) => {
+                        report.skipped.push(reason);
+                        continue;
+                    }
+                };
+                if !matches!(&module, QuoteWat::QuoteModule(..)) {
+                    report
+                        .skipped
+                        .push(FilterReason::UnsupportedModule(format!("{module:?}")));
+                    continue;
+                }
+                let error = module
+                    .encode()
+                    .expect_err("assert_malformed quoted module unexpectedly encoded");
+                assert!(
+                    malformed_matches(expected_malformed, &error),
+                    "assert_malformed mismatch: message={message:?}, text-parser={:?}",
+                    error.message()
+                );
                 report.executed_assertions += 1;
             }
             WastDirective::AssertInvalid {
@@ -667,6 +714,16 @@ fn unsupported_invalid_messages_are_explicit_filter_results() {
         translate_invalid("future validation wording"),
         Err(FilterReason::UnsupportedInvalidMessage(
             "future validation wording".to_string()
+        ))
+    );
+}
+
+#[test]
+fn unsupported_malformed_messages_are_explicit_filter_results() {
+    assert_eq!(
+        translate_malformed("future malformed wording"),
+        Err(FilterReason::UnsupportedMalformedMessage(
+            "future malformed wording".to_string()
         ))
     );
 }
