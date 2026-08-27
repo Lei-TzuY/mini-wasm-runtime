@@ -44,17 +44,11 @@ fn missing_function_result_type_fails_closed() {
 #[test]
 fn unsupported_numeric_signature_types_fail_closed() {
     assert_eq!(
-        parse_module(&module_with_section(
-            1,
-            &[0x01, 0x60, 0x01, 0x7b, 0x00]
-        )),
+        parse_module(&module_with_section(1, &[0x01, 0x60, 0x01, 0x7b, 0x00])),
         Err(ParseError::UnsupportedValueType(0x7b))
     );
     assert_eq!(
-        parse_module(&module_with_section(
-            1,
-            &[0x01, 0x60, 0x00, 0x01, 0x7b]
-        )),
+        parse_module(&module_with_section(1, &[0x01, 0x60, 0x00, 0x01, 0x7b])),
         Err(ParseError::UnsupportedValueType(0x7b))
     );
 }
