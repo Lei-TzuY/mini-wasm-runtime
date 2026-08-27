@@ -32,9 +32,7 @@ fn comparison_module(value_type: u8, opcode: u8) -> Vec<u8> {
     push_section(
         &mut module,
         1,
-        &[
-            0x01, 0x60, 0x02, value_type, value_type, 0x01, I32,
-        ],
+        &[0x01, 0x60, 0x02, value_type, value_type, 0x01, I32],
     );
     push_section(&mut module, 3, &[0x01, 0x00]);
     push_section(&mut module, 7, &[0x01, 0x03, b'r', b'u', b'n', 0x00, 0x00]);
