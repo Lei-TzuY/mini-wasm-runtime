@@ -27,7 +27,10 @@ fn module_with_section(id: u8, payload: &[u8]) -> Vec<u8> {
 }
 
 fn assert_limit_error(id: u8, payload: &[u8], expected: ParseError) {
-    assert_eq!(parse_module(&module_with_section(id, payload)), Err(expected));
+    assert_eq!(
+        parse_module(&module_with_section(id, payload)),
+        Err(expected)
+    );
 }
 
 fn table_min_payload(encoded: &[u8]) -> Vec<u8> {
