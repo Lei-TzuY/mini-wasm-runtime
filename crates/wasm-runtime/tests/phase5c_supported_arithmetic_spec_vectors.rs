@@ -136,6 +136,27 @@ fn pinned_upstream_f32_add_sub_mul_signed_zero_and_subnormal_vectors_match_spec(
 }
 
 #[test]
+fn pinned_upstream_f32_div_signed_zero_infinity_and_rounding_vectors_match_spec() {
+    // WebAssembly/spec test/core/f32.wast @ the pinned revision.
+    assert_eq!(UPSTREAM_SPEC_COMMIT.len(), 40);
+
+    for (lhs_bits, rhs_bits, expected_bits) in [
+        (0x3f80_0000, 0x0000_0000, 0x7f80_0000), // +1 / +0 = +inf
+        (0x3f80_0000, 0x8000_0000, 0xff80_0000), // +1 / -0 = -inf
+        (0x8000_0000, 0x3f80_0000, 0x8000_0000), // -0 / +1 = -0
+        (0x0000_0000, 0xbf80_0000, 0x8000_0000), // +0 / -1 = -0
+        (0x40c0_0000, 0x4000_0000, 0x4040_0000), // +6 / +2 = +3
+        (0x0000_0001, 0x4000_0000, 0x0000_0000), // min subnormal / +2 rounds to +0
+    ] {
+        assert_eq!(
+            invoke_f32_bits(0x95, lhs_bits, rhs_bits),
+            expected_bits,
+            "unexpected f32.div result"
+        );
+    }
+}
+
+#[test]
 fn pinned_upstream_f64_add_sub_mul_signed_zero_and_subnormal_vectors_match_spec() {
     // WebAssembly/spec test/core/f64.wast @ the pinned revision.
     assert_eq!(UPSTREAM_SPEC_COMMIT.len(), 40);
@@ -182,6 +203,51 @@ fn pinned_upstream_f64_add_sub_mul_signed_zero_and_subnormal_vectors_match_spec(
             invoke_f64_bits(opcode, lhs_bits, rhs_bits),
             expected_bits,
             "unexpected f64 result for opcode 0x{opcode:02x}"
+        );
+    }
+}
+
+#[test]
+fn pinned_upstream_f64_div_signed_zero_infinity_and_rounding_vectors_match_spec() {
+    // WebAssembly/spec test/core/f64.wast @ the pinned revision.
+    assert_eq!(UPSTREAM_SPEC_COMMIT.len(), 40);
+
+    for (lhs_bits, rhs_bits, expected_bits) in [
+        (
+            0x3ff0_0000_0000_0000,
+            0x0000_0000_0000_0000,
+            0x7ff0_0000_0000_0000,
+        ), // +1 / +0 = +inf
+        (
+            0x3ff0_0000_0000_0000,
+            0x8000_0000_0000_0000,
+            0xfff0_0000_0000_0000,
+        ), // +1 / -0 = -inf
+        (
+            0x8000_0000_0000_0000,
+            0x3ff0_0000_0000_0000,
+            0x8000_0000_0000_0000,
+        ), // -0 / +1 = -0
+        (
+            0x0000_0000_0000_0000,
+            0xbff0_0000_0000_0000,
+            0x8000_0000_0000_0000,
+        ), // +0 / -1 = -0
+        (
+            0x4018_0000_0000_0000,
+            0x4000_0000_0000_0000,
+            0x4008_0000_0000_0000,
+        ), // +6 / +2 = +3
+        (
+            0x0000_0000_0000_0001,
+            0x4000_0000_0000_0000,
+            0x0000_0000_0000_0000,
+        ), // min subnormal / +2 rounds to +0
+    ] {
+        assert_eq!(
+            invoke_f64_bits(0xa3, lhs_bits, rhs_bits),
+            expected_bits,
+            "unexpected f64.div result"
         );
     }
 }
