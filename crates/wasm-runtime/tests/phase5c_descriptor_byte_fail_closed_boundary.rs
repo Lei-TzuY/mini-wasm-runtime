@@ -60,11 +60,7 @@ fn imported_global_mutability_byte_is_required_and_invalid_values_fail_closed() 
     assert_eq!(parse_module(&truncated), Err(ParseError::UnexpectedEof));
 
     let mut invalid = header();
-    push_section(
-        &mut invalid,
-        2,
-        &[0x01, 0x00, 0x00, 0x03, 0x7f, 0x02],
-    );
+    push_section(&mut invalid, 2, &[0x01, 0x00, 0x00, 0x03, 0x7f, 0x02]);
     assert_eq!(
         parse_module(&invalid),
         Err(ParseError::InvalidMutability(0x02))
@@ -120,11 +116,7 @@ fn imported_table_limits_flags_are_required_and_invalid_flags_fail_closed() {
     assert_eq!(parse_module(&truncated), Err(ParseError::UnexpectedEof));
 
     let mut invalid = header();
-    push_section(
-        &mut invalid,
-        2,
-        &[0x01, 0x00, 0x00, 0x01, 0x70, 0x02, 0x00],
-    );
+    push_section(&mut invalid, 2, &[0x01, 0x00, 0x00, 0x01, 0x70, 0x02, 0x00]);
     assert_eq!(
         parse_module(&invalid),
         Err(ParseError::InvalidLimitsFlags(0x02))
