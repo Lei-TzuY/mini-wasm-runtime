@@ -2,6 +2,7 @@ use wasm_parser::parse_module;
 use wasm_runtime::{Instance, Value};
 use wasm_validator::validate;
 
+const I32: u8 = 0x7f;
 const I64: u8 = 0x7e;
 const F32: u8 = 0x7d;
 const F64: u8 = 0x7c;
@@ -56,6 +57,13 @@ fn invoke(opcode: u8, value_type: u8, args: &[Value]) -> Value {
         .expect("pinned arithmetic vector must return one value")
 }
 
+fn invoke_i32(opcode: u8, lhs: i32, rhs: i32) -> i32 {
+    match invoke(opcode, I32, &[Value::I32(lhs), Value::I32(rhs)]) {
+        Value::I32(value) => value,
+        other => panic!("expected i32 result, got {other:?}"),
+    }
+}
+
 fn invoke_i64(opcode: u8, lhs: i64, rhs: i64) -> i64 {
     match invoke(opcode, I64, &[Value::I64(lhs), Value::I64(rhs)]) {
         Value::I64(value) => value,
@@ -88,6 +96,24 @@ fn invoke_f64_bits(opcode: u8, lhs_bits: u64, rhs_bits: u64) -> u64 {
     ) {
         Value::F64(value) => value.to_bits(),
         other => panic!("expected f64 result, got {other:?}"),
+    }
+}
+
+#[test]
+fn pinned_upstream_i32_add_sub_mul_wrap_vectors_match_spec() {
+    // WebAssembly/spec test/core/i32.wast @ the pinned revision.
+    assert_eq!(UPSTREAM_SPEC_COMMIT.len(), 40);
+
+    for (opcode, lhs, rhs, expected) in [
+        (0x6a, i32::MAX, 1, i32::MIN),
+        (0x6a, i32::MIN, -1, i32::MAX),
+        (0x6b, i32::MAX, -1, i32::MIN),
+        (0x6b, i32::MIN, 1, i32::MAX),
+        (0x6c, 0x0001_0000, 0x0001_0000, 0),
+        (0x6c, i32::MIN, -1, i32::MIN),
+        (0x6c, i32::MAX, 2, -2),
+    ] {
+        assert_eq!(invoke_i32(opcode, lhs, rhs), expected);
     }
 }
 
