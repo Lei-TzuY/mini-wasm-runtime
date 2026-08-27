@@ -76,14 +76,18 @@ The roadmap favors complete vertical slices over a broad but shallow decoder.
 - [x] shared backing for memory imports with runtime-limit-safe shared linear-memory state
 - [ ] non-i32 host function import ABI — admit all numeric parameter/result types and verify callback result value types at the host boundary in the same zero-or-one-result vertical slice
 - [x] block parameters and type-index block signatures with zero-or-one result
+- [x] untyped numeric `select` (`0x1b`) across validator/runtime/control-map
+- [x] bit-exact reinterpret (`0xbc..0xbf`) with NaN-payload and signed-zero preservation
+- [x] MVP `drop` (`0x1a`) across validator/runtime/control-map
+- [ ] `nop` (`0x01`), MVP `unreachable` (`0x00`), `br_table` (`0x0e`), and typed select (`0x1c`) as complete validator/runtime/control-map slices
 - [ ] broader data/element modes
 - [ ] multi-value results
-- [ ] broader numeric operators, reinterpret, and trapping conversions
+- [ ] remaining numeric operators plus trapping float-to-integer and integer-to-float execution semantics
 - [ ] i64/f32/f64 memory instruction families
 - [ ] WebAssembly spec tests for supported features
 - [ ] negative conformance corpus
 
-`br_table` and typed `select` remain outside the admitted Phase-5C control surface until their validator, runtime, immediate-decoding/control-map, and conformance semantics land as complete slices. Unsupported forms stay fail closed rather than being filtered into apparent support.
+`nop`, MVP `unreachable`, `br_table`, and typed `select` remain outside the admitted Phase-5C control surface until their validator, runtime, immediate-decoding/control-map where applicable, and conformance semantics land as complete slices. Unsupported forms stay fail closed rather than being filtered into apparent support.
 
 ## Phase 6 — engineering hardening
 
