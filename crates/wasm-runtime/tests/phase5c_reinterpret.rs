@@ -215,8 +215,7 @@ fn reinterpret_obeys_unreachable_stack_polymorphism() {
         let mut instructions = vec![
             0x02, 0x40, // block
             0x0c, 0x00, // br 0: the reinterpret below is unreachable
-            opcode,
-            0x0b, // end block
+            opcode, 0x0b, // end block
         ];
         instructions.extend_from_slice(final_value);
         let bytes = module(param, result, &instructions);
