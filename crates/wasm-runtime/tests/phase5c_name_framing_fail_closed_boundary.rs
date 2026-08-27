@@ -29,19 +29,28 @@ fn module_with_section(id: u8, payload: &[u8]) -> Vec<u8> {
 fn assert_import_module_name_error(encoded_name: &[u8], expected: ParseError) {
     let mut payload = vec![0x01];
     payload.extend_from_slice(encoded_name);
-    assert_eq!(parse_module(&module_with_section(2, &payload)), Err(expected));
+    assert_eq!(
+        parse_module(&module_with_section(2, &payload)),
+        Err(expected)
+    );
 }
 
 fn assert_import_field_name_error(encoded_name: &[u8], expected: ParseError) {
     let mut payload = vec![0x01, 0x00];
     payload.extend_from_slice(encoded_name);
-    assert_eq!(parse_module(&module_with_section(2, &payload)), Err(expected));
+    assert_eq!(
+        parse_module(&module_with_section(2, &payload)),
+        Err(expected)
+    );
 }
 
 fn assert_export_name_error(encoded_name: &[u8], expected: ParseError) {
     let mut payload = vec![0x01];
     payload.extend_from_slice(encoded_name);
-    assert_eq!(parse_module(&module_with_section(7, &payload)), Err(expected));
+    assert_eq!(
+        parse_module(&module_with_section(7, &payload)),
+        Err(expected)
+    );
 }
 
 fn assert_all_name_positions(encoded_name: &[u8], expected: ParseError) {
@@ -87,7 +96,10 @@ fn noncanonical_name_lengths_remain_accepted() {
         .expect("width-valid noncanonical import name length must remain accepted");
     assert_eq!(import_module.imports.len(), 1);
     assert_eq!(import_module.imports[0].module, "m");
-    assert!(matches!(import_module.imports[0].desc, ImportDesc::Function(0)));
+    assert!(matches!(
+        import_module.imports[0].desc,
+        ImportDesc::Function(0)
+    ));
 
     let export_payload = [
         0x01, // one export
