@@ -56,6 +56,28 @@ fn validation_error(param: u8, result: u8, instructions: &[u8]) -> ValidationErr
     }
 }
 
+fn assert_unreachable_stack_polymorphism(
+    opcode: u8,
+    param: u8,
+    result: u8,
+    final_value: &[u8],
+    argument: Value,
+    expected: Value,
+) {
+    let mut instructions = vec![
+        0x02, 0x40, // block
+        0x0c, 0x00, // br 0: the reinterpret below is unreachable
+        opcode, 0x0b, // end block
+    ];
+    instructions.extend_from_slice(final_value);
+    let bytes = module(param, result, &instructions);
+    let mut instance = Instance::new(parse_module(&bytes).unwrap()).unwrap();
+    assert_eq!(
+        instance.invoke_export("run", &[argument]).unwrap(),
+        Some(expected)
+    );
+}
+
 #[test]
 fn f32_to_i32_reinterpret_preserves_every_bit() {
     for bits in [
@@ -176,53 +198,36 @@ fn validator_rejects_reachable_reinterpret_underflow() {
 
 #[test]
 fn reinterpret_obeys_unreachable_stack_polymorphism() {
-    let cases: [(u8, u8, u8, &[u8], Value, Value); 4] = [
-        (
-            0xbc,
-            F32,
-            I32,
-            &[0x41, 0x00],
-            Value::F32(1.0),
-            Value::I32(0),
-        ),
-        (
-            0xbd,
-            F64,
-            I64,
-            &[0x42, 0x00],
-            Value::F64(1.0),
-            Value::I64(0),
-        ),
-        (
-            0xbe,
-            I32,
-            F32,
-            &[0x43, 0x00, 0x00, 0x00, 0x00],
-            Value::I32(1),
-            Value::F32(0.0),
-        ),
-        (
-            0xbf,
-            I64,
-            F64,
-            &[0x44, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00],
-            Value::I64(1),
-            Value::F64(0.0),
-        ),
-    ];
-
-    for (opcode, param, result, final_value, argument, expected) in cases {
-        let mut instructions = vec![
-            0x02, 0x40, // block
-            0x0c, 0x00, // br 0: the reinterpret below is unreachable
-            opcode, 0x0b, // end block
-        ];
-        instructions.extend_from_slice(final_value);
-        let bytes = module(param, result, &instructions);
-        let mut instance = Instance::new(parse_module(&bytes).unwrap()).unwrap();
-        assert_eq!(
-            instance.invoke_export("run", &[argument]).unwrap(),
-            Some(expected)
-        );
-    }
+    assert_unreachable_stack_polymorphism(
+        0xbc,
+        F32,
+        I32,
+        &[0x41, 0x00],
+        Value::F32(1.0),
+        Value::I32(0),
+    );
+    assert_unreachable_stack_polymorphism(
+        0xbd,
+        F64,
+        I64,
+        &[0x42, 0x00],
+        Value::F64(1.0),
+        Value::I64(0),
+    );
+    assert_unreachable_stack_polymorphism(
+        0xbe,
+        I32,
+        F32,
+        &[0x43, 0x00, 0x00, 0x00, 0x00],
+        Value::I32(1),
+        Value::F32(0.0),
+    );
+    assert_unreachable_stack_polymorphism(
+        0xbf,
+        I64,
+        F64,
+        &[0x44, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00],
+        Value::I64(1),
+        Value::F64(0.0),
+    );
 }
