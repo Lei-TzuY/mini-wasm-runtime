@@ -6,14 +6,20 @@ const VERSION_1: [u8; 4] = [0x01, 0x00, 0x00, 0x00];
 #[test]
 fn truncated_magic_fails_closed_before_version_parsing() {
     for length in 0..MAGIC.len() {
-        assert_eq!(parse_module(&MAGIC[..length]), Err(ParseError::UnexpectedEof));
+        assert_eq!(
+            parse_module(&MAGIC[..length]),
+            Err(ParseError::UnexpectedEof)
+        );
     }
 }
 
 #[test]
 fn invalid_magic_is_reported_before_version_parsing() {
     let invalid = [0xff, 0x61, 0x73, 0x6d];
-    assert_eq!(parse_module(&invalid), Err(ParseError::InvalidMagic(invalid)));
+    assert_eq!(
+        parse_module(&invalid),
+        Err(ParseError::InvalidMagic(invalid))
+    );
 }
 
 #[test]
@@ -30,7 +36,10 @@ fn unsupported_version_preserves_exact_version_bytes() {
     for version in [[0x02, 0x00, 0x00, 0x00], [0x01, 0x00, 0x00, 0x01]] {
         let mut bytes = MAGIC.to_vec();
         bytes.extend_from_slice(&version);
-        assert_eq!(parse_module(&bytes), Err(ParseError::UnsupportedVersion(version)));
+        assert_eq!(
+            parse_module(&bytes),
+            Err(ParseError::UnsupportedVersion(version))
+        );
     }
 }
 
