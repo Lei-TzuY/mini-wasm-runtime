@@ -62,7 +62,10 @@ fn memory_max_descriptor(encoded: &[u8]) -> Vec<u8> {
 }
 
 fn assert_import_error(kind: u8, descriptor: &[u8], expected: ParseError) {
-    assert_eq!(parse_module(&import_module(kind, descriptor)), Err(expected));
+    assert_eq!(
+        parse_module(&import_module(kind, descriptor)),
+        Err(expected)
+    );
 }
 
 fn assert_min_error(encoded: &[u8], expected: ParseError) {
@@ -91,11 +94,8 @@ fn imported_limit_maximums_fail_closed_on_malformed_leb() {
 
 #[test]
 fn imported_limits_accept_noncanonical_width_valid_leb() {
-    let table = parse_module(&import_module(
-        0x01,
-        &[0x70, 0x01, 0x81, 0x00, 0x82, 0x00],
-    ))
-    .expect("noncanonical table limits remain valid");
+    let table = parse_module(&import_module(0x01, &[0x70, 0x01, 0x81, 0x00, 0x82, 0x00]))
+        .expect("noncanonical table limits remain valid");
     assert!(matches!(
         table.imports[0].desc,
         ImportDesc::Table(ty)
@@ -105,11 +105,8 @@ fn imported_limits_accept_noncanonical_width_valid_leb() {
             }
     ));
 
-    let memory = parse_module(&import_module(
-        0x02,
-        &[0x01, 0x81, 0x00, 0x82, 0x00],
-    ))
-    .expect("noncanonical memory limits remain valid");
+    let memory = parse_module(&import_module(0x02, &[0x01, 0x81, 0x00, 0x82, 0x00]))
+        .expect("noncanonical memory limits remain valid");
     assert!(matches!(
         memory.imports[0].desc,
         ImportDesc::Memory(ty)
