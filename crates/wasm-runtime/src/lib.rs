@@ -940,32 +940,32 @@ impl fmt::Display for RuntimeError {
                 write!(f, "unresolved host immutable global import {module}.{name}")
             }
             Self::UnresolvedTableImport { module, name } => {
-            write!(f, "unresolved host table import {module}.{name}")
-        }
-        Self::UnresolvedMemoryImport { module, name } => {
-            write!(f, "unresolved host memory import {module}.{name}")
-        }
-        Self::HostMemoryLimitsMismatch {
-            module,
-            name,
-            expected_minimum,
-            expected_maximum,
-            actual_minimum,
-            actual_maximum,
-        } => write!(
-            f,
-            "host memory {module}.{name} has limits min={actual_minimum} max={actual_maximum:?}, which do not satisfy imported min={expected_minimum} max={expected_maximum:?}"
-        ),
-        Self::HostMemoryRuntimeLimitMismatch {
-            module,
-            name,
-            memory_limit,
-            runtime_limit,
-        } => write!(
-            f,
-            "host memory {module}.{name} can reach {memory_limit} pages, exceeding runtime limit {runtime_limit}"
-        ),
-        Self::HostTableLimitsMismatch {
+                write!(f, "unresolved host table import {module}.{name}")
+            }
+            Self::UnresolvedMemoryImport { module, name } => {
+                write!(f, "unresolved host memory import {module}.{name}")
+            }
+            Self::HostMemoryLimitsMismatch {
+                module,
+                name,
+                expected_minimum,
+                expected_maximum,
+                actual_minimum,
+                actual_maximum,
+            } => write!(
+                f,
+                "host memory {module}.{name} has limits min={actual_minimum} max={actual_maximum:?}, which do not satisfy imported min={expected_minimum} max={expected_maximum:?}"
+            ),
+            Self::HostMemoryRuntimeLimitMismatch {
+                module,
+                name,
+                memory_limit,
+                runtime_limit,
+            } => write!(
+                f,
+                "host memory {module}.{name} can reach {memory_limit} pages, exceeding runtime limit {runtime_limit}"
+            ),
+            Self::HostTableLimitsMismatch {
                 module,
                 name,
                 expected_minimum,
@@ -1844,6 +1844,9 @@ impl Instance {
                         stack.push(result);
                     }
                 }
+                0x1a => {
+                    let _ = stack.pop().ok_or(RuntimeError::StackUnderflow)?;
+                }
                 0x1b => {
                     let condition = numeric::i32_from_stack(&mut stack)?;
                     let rhs = stack.pop().ok_or(RuntimeError::StackUnderflow)?;
@@ -2529,6 +2532,7 @@ fn build_control_map(module: &Module, code: &[u8]) -> Result<ControlMap, Runtime
                 let _ = read_fixed_u64(code, &mut pc)?;
             }
             0x0f
+            | 0x1a
             | 0x1b
             | 0x45..=0x66
             | 0x6a..=0x6c

@@ -169,6 +169,9 @@ pub(super) fn validate_code(
                 pop_expect(&mut stack, &controls, ValueType::I32, function, offset)?;
                 apply_call_signature(&mut stack, &controls, ty, function, offset)?;
             }
+            0x1a => {
+                let _ = pop_any(&mut stack, &controls, function, offset)?;
+            }
             0x1b => select(&mut stack, &controls, function, offset)?,
             0x20 => {
                 let index = read_local(code, &mut pc, function, offset, local_types)?;
