@@ -20,7 +20,7 @@ wasm-validator ---- proves typed stack, control, signature, and independent inde
 validated Module + explicit HostRegistry + RuntimeLimits
    |
    v
-Instance ---- resolves supported imports; attaches shared globals/tables; allocates owned memory; applies segments; runs start
+Instance ---- resolves supported imports; attaches shared globals/tables/memory or owned defined state; applies segments; runs start
    |
    v
 wasm-runtime ---- typed numeric interpreter / scoped host callbacks / trap checks
@@ -70,7 +70,7 @@ The operand stack stores one `ValueType` per reachable value. Defined code may u
 - unreachable/polymorphic state;
 - whether an `if` has crossed an `else` boundary.
 
-Every instruction is validated as an exact typed stack transform. Locals and globals use declared types. Direct calls consume target parameters and push the optional result. `call_indirect` validates table/type indices before applying the selected signature.
+Every admitted instruction is validated as an exact typed stack transform. Locals and globals use declared types. Direct calls consume target parameters and push the optional result. `call_indirect` validates table/type indices before applying the selected signature. Untyped numeric `select` requires an i32 condition plus same-typed numeric candidates; `drop` consumes one polymorphic current-frame operand. Bit reinterpret instructions apply exact source/destination numeric types without numeric conversion.
 
 ### Type-index block signatures
 
@@ -100,11 +100,11 @@ Validation currently enforces, among other invariants:
 - start functions have exact signature `[] -> []`;
 - active element/data segments target existing objects and valid indices.
 
-Unreachable code follows WebAssembly-style stack polymorphism while still checking concrete opcodes and immediates.
+Unreachable code follows WebAssembly-style stack polymorphism while still checking concrete opcodes and immediates. That validator state is distinct from the MVP `unreachable` instruction (`0x00`), which is still outside this Phase-5C branch's admitted opcode surface and therefore remains explicitly fail closed.
 
 ## `wasm-runtime`
 
-Each `Instance` owns the validated module, a private instance identity, precomputed control maps, optional owned `LinearMemory`, an optional `TableHandle`, a combined vector of global handles, resolved `HostRegistry`, and `RuntimeLimits`.
+Each `Instance` owns the validated module, a private instance identity, precomputed control maps, its resolved memory/table/global state, resolved `HostRegistry`, and `RuntimeLimits`. Imported mutable objects retain shared host-visible backing rather than being copied into shadow state.
 
 ### Numeric value model
 
@@ -119,11 +119,13 @@ F64(f64)
 
 Locals are zero-initialized by declared type. Invocation checks argument variants before execution. Runtime stack helpers preserve type checks as defense in depth behind validation.
 
-The numeric slice includes i32/i64 wrapping add/sub/mul, f32/f64 add/sub/mul/div, integer signed/unsigned comparisons, IEEE floating comparisons, and selected non-trapping conversions.
+The numeric slice includes i32/i64 wrapping add/sub/mul, f32/f64 add/sub/mul/div, integer signed/unsigned comparisons, IEEE floating comparisons, selected non-trapping conversions, and all four bit reinterpret directions. Reinterpret execution uses the exact 32/64-bit representation so NaN payloads and signed zero are preserved.
 
-### Typed control execution
+### Typed control and parametric execution
 
 `ControlMap` stores each structured opener's full supported block signature. Runtime frames retain block parameters and optional result types. Entry, frame exit, branch unwinding, loop backedges, and if/else transitions repeat the validator's typed invariants instead of reverting to arity-only assumptions.
+
+Untyped `select` pops an i32 condition and two same-typed numeric candidates and returns one candidate without numeric conversion. `drop` removes exactly one top value. Both are admitted across validator, runtime dispatch, and control-map scanning together. `nop`, MVP `unreachable`, `br_table`, and typed select remain outside the admitted surface on this stack until each corresponding vertical slice is complete.
 
 ### Globals and shared imported state
 
@@ -152,7 +154,7 @@ For mutable imports, the host and instance clone the same handle rather than cop
 
 ### Tables, elements, and `call_indirect`
 
-Defined and imported tables now use the same `TableHandle` abstraction. A handle stores a shared vector of optional opaque `FunctionRef` values plus the table's optional maximum:
+Defined and imported tables use the same `TableHandle` abstraction. A handle stores a shared vector of optional opaque `FunctionRef` values plus the table's optional maximum:
 
 ```text
 Rc<RefCell<Vec<Option<FunctionRef>>>> + maximum + live-instance binding
@@ -175,17 +177,22 @@ Host mutations to table slots are immediately visible to `call_indirect`. Indire
 
 ### Linear memory
 
-The owned linear-memory implementation uses 64-KiB pages, widened effective-address checks, little-endian i32/narrow loads and stores, fallible growth, and whole-range data initialization.
+The linear-memory implementation uses 64-KiB pages, widened effective-address checks, little-endian i32/narrow loads and stores, fallible growth, and whole-range data initialization.
 
-Memory imports participate in validation and the memory index space, but instantiation still rejects them. A copy of host bytes would not preserve imported-memory identity, growth visibility, or mutation aliasing.
+Defined memory is instance-owned. Imported memory is supplied through `HostRegistry::register_memory` as a retained `MemoryHandle`; the host and Wasm instance observe the same backing bytes, current page count, growth, and maximum. Import limit matching and `RuntimeLimits::max_memory_pages` are checked before instantiation.
+
+Active data initialization is transactional for both owned and imported backing: every active segment range is preflighted before any payload is copied. A later failing segment therefore cannot leave an earlier partial host-visible mutation. Host byte writes are visible to later Wasm loads, Wasm stores are visible through the retained handle, and `memory.size` / `memory.grow` operate on the same imported backing.
+
+For the supported i32 full-width and narrow load/store family, effective addresses widen the unsigned i32 base plus unsigned memarg offset before bounds checks, so 32-bit wraparound cannot turn an out-of-bounds address into an in-bounds access. Failed stores preflight the whole range before mutation.
 
 ### Host binding and capability boundary
 
-`HostRegistry` currently holds three executable binding classes:
+`HostRegistry` currently holds four executable binding classes:
 
 1. host functions, with i32-only signatures and zero-or-one result;
 2. numeric `GlobalHandle` bindings, immutable or mutable, supporting all four current numeric `Value` variants;
-3. `TableHandle` bindings for the current single-table `funcref` subset.
+3. `TableHandle` bindings for the current single-table `funcref` subset;
+4. `MemoryHandle` bindings for the current single-memory subset.
 
 Host functions receive a `HostContext`, not the `Instance`. Memory access requires explicit `NONE`, `MEMORY_READ`, or `MEMORY_READ_WRITE` capabilities. Runtime arguments are type-checked before callbacks run.
 
@@ -199,17 +206,17 @@ After supported imports are resolved and state/segments are initialized, an opti
 
 ## Current non-goals
 
-- memory imports until shared backing exists
 - multiple live instances sharing one `TableHandle`
 - cross-instance function-reference dispatch
-- thread-safe/shared-memory global or table handles
+- thread-safe/shared-memory global, table, or memory handles
 - non-i32 host function callbacks
 - multiple tables or memories
 - passive/declarative element modes
 - passive or explicit-memory-index data modes
 - multi-value results
+- `nop`, MVP `unreachable`, `br_table`, and typed select until their complete vertical slices land
 - i64/f32/f64 memory load/store families
-- trapping float-to-integer conversions and reinterpret instructions
+- trapping float-to-integer and integer-to-float conversions
 - complete numeric opcode coverage
 - complete WebAssembly spec-test conformance
 - host re-entrancy into the same `Instance`
