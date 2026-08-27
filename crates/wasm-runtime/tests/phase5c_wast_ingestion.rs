@@ -1,6 +1,6 @@
 use std::collections::HashSet;
 use wasm_parser::{parse_module, ValueType};
-use wasm_runtime::{HostCapabilities, HostRegistry, Instance, RuntimeError, Value};
+use wasm_runtime::{HostCapabilities, HostRegistry, Instance, RuntimeError, TableHandle, Value};
 use wasm_validator::{validate, ValidationError};
 use wast::core::{NanPattern, WastArgCore, WastRetCore};
 use wast::parser::{self, ParseBuffer};
@@ -322,6 +322,13 @@ fn spectest_hosts() -> HostRegistry {
             |_context, _args| Ok(None),
         )
         .expect("register spectest print");
+    hosts
+        .register_table(
+            "spectest",
+            "table",
+            TableHandle::new(10, Some(20)).expect("create spectest table"),
+        )
+        .expect("register spectest table");
     hosts
 }
 

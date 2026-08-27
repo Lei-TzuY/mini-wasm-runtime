@@ -1,9 +1,15 @@
 ;; Pinned source-faithful subset from WebAssembly/spec@fc209c5ed8afc4dfeb9252024d217da3376c7a6f
 ;; Source: test/core/elem.wast
-;; Selected supported defined-table active-element boundaries and phase-sensitive failures only.
+;; Selected supported defined/imported-table active-element boundaries and phase-sensitive failures only.
 
 (module
   (table 10 funcref)
+  (func $f)
+  (elem (i32.const 0) $f)
+)
+
+(module
+  (import "spectest" "table" (table 10 funcref))
   (func $f)
   (elem (i32.const 0) $f)
 )
@@ -16,6 +22,16 @@
   (elem (i32.const 7) $f)
   (elem (i32.const 5) $f)
   (elem (i32.const 3) $f)
+)
+
+(module
+  (import "spectest" "table" (table 10 funcref))
+  (func $f)
+  (elem (i32.const 9) $f)
+  (elem (i32.const 3) $f)
+  (elem (i32.const 7) $f)
+  (elem (i32.const 3) $f)
+  (elem (i32.const 5) $f)
 )
 
 (module
@@ -42,7 +58,18 @@
 )
 
 (module
+  (import "spectest" "table" (table 10 funcref))
+  (func $f)
+  (elem (i32.const 9) $f)
+)
+
+(module
   (table 0 funcref)
+  (elem (i32.const 0))
+)
+
+(module
+  (import "spectest" "table" (table 0 funcref))
   (elem (i32.const 0))
 )
 
@@ -54,6 +81,30 @@
 (module
   (table 20 funcref)
   (elem (i32.const 20))
+)
+
+(module
+  (import "spectest" "table" (table 0 funcref))
+  (func $f)
+  (elem (i32.const 0) $f)
+)
+
+(module
+  (import "spectest" "table" (table 0 100 funcref))
+  (func $f)
+  (elem (i32.const 0) $f)
+)
+
+(module
+  (import "spectest" "table" (table 0 funcref))
+  (func $f)
+  (elem (i32.const 1) $f)
+)
+
+(module
+  (import "spectest" "table" (table 0 30 funcref))
+  (func $f)
+  (elem (i32.const 1) $f)
 )
 
 (assert_trap
