@@ -99,11 +99,7 @@ fn validator_rejects_extend_wrap_type_confusion() {
 
 #[test]
 fn validator_rejects_reachable_extend_wrap_underflow() {
-    for (opcode, param, result) in [
-        (0xa7, I64, I32),
-        (0xac, I32, I64),
-        (0xad, I32, I64),
-    ] {
+    for (opcode, param, result) in [(0xa7, I64, I32), (0xac, I32, I64), (0xad, I32, I64)] {
         assert!(matches!(
             validation_error(param, result, &[opcode]),
             ValidationError::OperandStackUnderflow { .. }
