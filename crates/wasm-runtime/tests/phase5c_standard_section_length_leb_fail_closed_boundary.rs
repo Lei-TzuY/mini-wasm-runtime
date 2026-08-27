@@ -25,18 +25,12 @@ fn truncated_standard_section_lengths_fail_closed() {
 
 #[test]
 fn unterminated_standard_section_lengths_fail_closed() {
-    assert_section_lengths_fail(
-        &[0x80, 0x80, 0x80, 0x80, 0x80],
-        ParseError::InvalidLeb128,
-    );
+    assert_section_lengths_fail(&[0x80, 0x80, 0x80, 0x80, 0x80], ParseError::InvalidLeb128);
 }
 
 #[test]
 fn overflowing_standard_section_lengths_fail_closed() {
-    assert_section_lengths_fail(
-        &[0x80, 0x80, 0x80, 0x80, 0x10],
-        ParseError::Leb128Overflow,
-    );
+    assert_section_lengths_fail(&[0x80, 0x80, 0x80, 0x80, 0x10], ParseError::Leb128Overflow);
 }
 
 #[test]
