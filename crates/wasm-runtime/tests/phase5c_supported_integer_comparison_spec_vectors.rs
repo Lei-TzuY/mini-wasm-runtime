@@ -106,18 +106,18 @@ fn pinned_upstream_i64_eqz_eq_ne_vectors_match_spec() {
 fn pinned_upstream_i32_signed_unsigned_relational_boundaries_match_spec() {
     // The same bit patterns intentionally reverse ordering between signed and unsigned compares.
     for (opcode, lhs, rhs, expected) in [
-        (0x48, -1, 0, 1),        // lt_s
-        (0x49, -1, 0, 0),        // lt_u: 0xffff_ffff is greater than zero
-        (0x49, 0, -1, 1),        // lt_u, reversed operands
-        (0x4a, -1, 0, 0),        // gt_s
-        (0x4b, -1, 0, 1),        // gt_u
-        (0x4b, 0, -1, 0),        // gt_u, reversed operands
-        (0x4c, i32::MIN, 0, 1),  // le_s
-        (0x4d, i32::MIN, 0, 0),  // le_u: 0x8000_0000 is greater than zero
-        (0x4d, 0, i32::MIN, 1),  // le_u, reversed operands
-        (0x4e, -1, 0, 0),        // ge_s
-        (0x4f, -1, 0, 1),        // ge_u
-        (0x4f, 0, -1, 0),        // ge_u, reversed operands
+        (0x48, -1, 0, 1),       // lt_s
+        (0x49, -1, 0, 0),       // lt_u: 0xffff_ffff is greater than zero
+        (0x49, 0, -1, 1),       // lt_u, reversed operands
+        (0x4a, -1, 0, 0),       // gt_s
+        (0x4b, -1, 0, 1),       // gt_u
+        (0x4b, 0, -1, 0),       // gt_u, reversed operands
+        (0x4c, i32::MIN, 0, 1), // le_s
+        (0x4d, i32::MIN, 0, 0), // le_u: 0x8000_0000 is greater than zero
+        (0x4d, 0, i32::MIN, 1), // le_u, reversed operands
+        (0x4e, -1, 0, 0),       // ge_s
+        (0x4f, -1, 0, 1),       // ge_u
+        (0x4f, 0, -1, 0),       // ge_u, reversed operands
     ] {
         assert_eq!(
             invoke(opcode, I32, &[Value::I32(lhs), Value::I32(rhs)]),
@@ -131,18 +131,18 @@ fn pinned_upstream_i32_signed_unsigned_relational_boundaries_match_spec() {
 fn pinned_upstream_i64_signed_unsigned_relational_boundaries_match_spec() {
     // WebAssembly integer relational operators interpret identical bits according to the opcode.
     for (opcode, lhs, rhs, expected) in [
-        (0x53, -1, 0, 1),        // lt_s
-        (0x54, -1, 0, 0),        // lt_u: 0xffff_ffff_ffff_ffff is greater than zero
-        (0x54, 0, -1, 1),        // lt_u, reversed operands
-        (0x55, -1, 0, 0),        // gt_s
-        (0x56, -1, 0, 1),        // gt_u
-        (0x56, 0, -1, 0),        // gt_u, reversed operands
-        (0x57, i64::MIN, 0, 1),  // le_s
-        (0x58, i64::MIN, 0, 0),  // le_u: 0x8000... is greater than zero
-        (0x58, 0, i64::MIN, 1),  // le_u, reversed operands
-        (0x59, -1, 0, 0),        // ge_s
-        (0x5a, -1, 0, 1),        // ge_u
-        (0x5a, 0, -1, 0),        // ge_u, reversed operands
+        (0x53, -1, 0, 1),       // lt_s
+        (0x54, -1, 0, 0),       // lt_u: 0xffff_ffff_ffff_ffff is greater than zero
+        (0x54, 0, -1, 1),       // lt_u, reversed operands
+        (0x55, -1, 0, 0),       // gt_s
+        (0x56, -1, 0, 1),       // gt_u
+        (0x56, 0, -1, 0),       // gt_u, reversed operands
+        (0x57, i64::MIN, 0, 1), // le_s
+        (0x58, i64::MIN, 0, 0), // le_u: 0x8000... is greater than zero
+        (0x58, 0, i64::MIN, 1), // le_u, reversed operands
+        (0x59, -1, 0, 0),       // ge_s
+        (0x5a, -1, 0, 1),       // ge_u
+        (0x5a, 0, -1, 0),       // ge_u, reversed operands
     ] {
         assert_eq!(
             invoke(opcode, I64, &[Value::I64(lhs), Value::I64(rhs)]),
