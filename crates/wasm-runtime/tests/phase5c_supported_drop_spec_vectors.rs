@@ -78,21 +78,22 @@ fn drop_discards_each_numeric_type_and_preserves_lower_result() {
     execute(&f32_case, Some(Value::I32(42)));
 
     let mut f64_case = vec![0x41, 0x2a, 0x44];
-    f64_case.extend_from_slice(&f64::from_bits(0x7ff8_0000_0000_4321).to_bits().to_le_bytes());
+    f64_case.extend_from_slice(
+        &f64::from_bits(0x7ff8_0000_0000_4321)
+            .to_bits()
+            .to_le_bytes(),
+    );
     f64_case.push(0x1a);
     execute(&f64_case, Some(Value::I32(42)));
 }
 
 #[test]
 fn reachable_empty_stack_is_rejected_as_operand_underflow() {
-    let module = parse_module(&module_with_result(None, &[0x1a]))
-        .expect("underflow vector must parse");
+    let module =
+        parse_module(&module_with_result(None, &[0x1a])).expect("underflow vector must parse");
     assert!(matches!(
         validate(&module),
-        Err(ValidationError::OperandStackUnderflow {
-            function: 0,
-            ..
-        })
+        Err(ValidationError::OperandStackUnderflow { function: 0, .. })
     ));
 }
 
