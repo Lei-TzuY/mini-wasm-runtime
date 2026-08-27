@@ -24,13 +24,19 @@ fn module_with_type_payload(payload: &[u8]) -> Vec<u8> {
 fn assert_param_count_error(count_bytes: &[u8], expected: ParseError) {
     let mut payload = vec![0x01, 0x60];
     payload.extend_from_slice(count_bytes);
-    assert_eq!(parse_module(&module_with_type_payload(&payload)), Err(expected));
+    assert_eq!(
+        parse_module(&module_with_type_payload(&payload)),
+        Err(expected)
+    );
 }
 
 fn assert_result_count_error(count_bytes: &[u8], expected: ParseError) {
     let mut payload = vec![0x01, 0x60, 0x00];
     payload.extend_from_slice(count_bytes);
-    assert_eq!(parse_module(&module_with_type_payload(&payload)), Err(expected));
+    assert_eq!(
+        parse_module(&module_with_type_payload(&payload)),
+        Err(expected)
+    );
 }
 
 #[test]
