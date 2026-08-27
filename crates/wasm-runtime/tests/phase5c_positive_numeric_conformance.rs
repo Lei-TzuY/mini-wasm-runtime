@@ -149,6 +149,45 @@ fn zero_divided_by_zero_produces_nan() {
 }
 
 #[test]
+fn invalid_float_arithmetic_operations_produce_nan_without_payload_assumptions() {
+    for (opcode, lhs, rhs) in [
+        (0x92, f32::INFINITY, f32::NEG_INFINITY), // add
+        (0x93, f32::INFINITY, f32::INFINITY),     // sub
+        (0x94, 0.0, f32::INFINITY),               // mul
+        (0x95, f32::INFINITY, f32::INFINITY),     // div
+    ] {
+        let mut instructions = f32_const(lhs);
+        instructions.extend(f32_const(rhs));
+        instructions.push(opcode);
+        match invoke(&single_result_module(F32, &instructions)) {
+            Value::F32(value) => assert!(
+                value.is_nan(),
+                "f32 opcode 0x{opcode:02x} must produce NaN for invalid operands"
+            ),
+            other => panic!("expected f32 result, got {other:?}"),
+        }
+    }
+
+    for (opcode, lhs, rhs) in [
+        (0xa0, f64::INFINITY, f64::NEG_INFINITY), // add
+        (0xa1, f64::INFINITY, f64::INFINITY),     // sub
+        (0xa2, 0.0, f64::INFINITY),               // mul
+        (0xa3, f64::INFINITY, f64::INFINITY),     // div
+    ] {
+        let mut instructions = f64_const(lhs);
+        instructions.extend(f64_const(rhs));
+        instructions.push(opcode);
+        match invoke(&single_result_module(F64, &instructions)) {
+            Value::F64(value) => assert!(
+                value.is_nan(),
+                "f64 opcode 0x{opcode:02x} must produce NaN for invalid operands"
+            ),
+            other => panic!("expected f64 result, got {other:?}"),
+        }
+    }
+}
+
+#[test]
 fn promote_and_demote_preserve_negative_zero() {
     let mut promote = f32_const(-0.0);
     promote.push(0xbb); // f64.promote_f32
