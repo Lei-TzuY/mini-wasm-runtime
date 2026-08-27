@@ -23,7 +23,10 @@ fn module_with_start_payload(payload: &[u8]) -> Vec<u8> {
 }
 
 fn assert_start_error(payload: &[u8], expected: ParseError) {
-    assert_eq!(parse_module(&module_with_start_payload(payload)), Err(expected));
+    assert_eq!(
+        parse_module(&module_with_start_payload(payload)),
+        Err(expected)
+    );
 }
 
 #[test]
