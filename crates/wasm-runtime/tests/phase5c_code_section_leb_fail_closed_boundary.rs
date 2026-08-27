@@ -63,16 +63,10 @@ fn truncated_code_section_immediates_fail_closed() {
 
 #[test]
 fn unterminated_code_section_immediates_fail_closed() {
-    assert_code_framing_error(
-        &[0x80, 0x80, 0x80, 0x80, 0x80],
-        ParseError::InvalidLeb128,
-    );
+    assert_code_framing_error(&[0x80, 0x80, 0x80, 0x80, 0x80], ParseError::InvalidLeb128);
 }
 
 #[test]
 fn overflowing_code_section_immediates_fail_closed() {
-    assert_code_framing_error(
-        &[0x80, 0x80, 0x80, 0x80, 0x10],
-        ParseError::Leb128Overflow,
-    );
+    assert_code_framing_error(&[0x80, 0x80, 0x80, 0x80, 0x10], ParseError::Leb128Overflow);
 }
