@@ -1,4 +1,4 @@
-use wasm_parser::{parse_module, ParseError};
+use wasm_parser::{parse_module, ParseError, ValueType};
 
 fn push_u32(bytes: &mut Vec<u8>, mut value: u32) {
     loop {
@@ -101,4 +101,21 @@ fn noncanonical_code_section_immediates_remain_accepted() {
         0x0b, // end
     ]);
     assert!(parse_module(&local_declaration_count).is_ok());
+}
+
+#[test]
+fn noncanonical_positive_local_counts_preserve_declared_locals() {
+    let module = module_with_code_payload(&[
+        0x01, // one body
+        0x06, // body length 6
+        0x81, 0x00, // noncanonical one local group
+        0x82, 0x00, // noncanonical two locals in the group
+        0x7f, // i32
+        0x0b, // end
+    ]);
+
+    let parsed = parse_module(&module).expect("noncanonical positive local counts must parse");
+    assert_eq!(parsed.code.len(), 1);
+    assert_eq!(parsed.code[0].locals, vec![(2, ValueType::I32)]);
+    assert_eq!(parsed.code[0].code, vec![0x0b]);
 }
