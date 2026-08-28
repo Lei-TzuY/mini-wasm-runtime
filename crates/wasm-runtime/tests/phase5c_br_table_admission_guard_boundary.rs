@@ -95,3 +95,31 @@ fn unreachable_context_cannot_hide_unsupported_br_table() {
         4,
     );
 }
+
+#[test]
+fn else_arm_cannot_hide_unsupported_br_table() {
+    assert_br_table_rejected(
+        &[
+            0x41, 0x01, // i32.const true
+            0x04, 0x40, // if
+            0x05, // else
+            0x41, 0x00, // i32.const selector
+            0x0e, 0x00, 0x00, // br_table [] default 0 must still be rejected
+            0x0b, // end if
+            0x0b,
+        ],
+        7,
+    );
+}
+
+#[test]
+fn return_unreachable_context_cannot_hide_unsupported_br_table() {
+    assert_br_table_rejected(
+        &[
+            0x0f, // return makes the rest of the function validator-unreachable
+            0x0e, 0x00, 0x00, // br_table [] default 0 must still be rejected
+            0x0b,
+        ],
+        1,
+    );
+}
