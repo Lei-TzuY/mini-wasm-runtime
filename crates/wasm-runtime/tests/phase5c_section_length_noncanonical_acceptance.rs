@@ -29,8 +29,10 @@ fn noncanonical_standard_section_lengths_remain_accepted() {
 }
 
 #[test]
-fn noncanonical_custom_section_length_remains_accepted_with_payload() {
-    let module = module_with_noncanonical_one_byte_section(0, 0xaa);
+fn noncanonical_custom_section_length_remains_accepted_with_well_formed_name() {
+    // A custom-section payload begins with a name. Keep this positive fixture
+    // structurally valid: the single payload byte encodes an empty name.
+    let module = module_with_noncanonical_one_byte_section(0, 0x00);
     parse_module(&module)
         .expect("custom sections must accept width-valid noncanonical payload lengths");
 }
