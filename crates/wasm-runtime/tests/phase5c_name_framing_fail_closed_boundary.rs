@@ -89,13 +89,14 @@ fn noncanonical_name_lengths_remain_accepted() {
     let import_payload = [
         0x01, // one import
         0x81, 0x00, b'm', // module name "m" with noncanonical length 1
-        0x00, // empty field name
+        0x81, 0x00, b'f', // field name "f" with noncanonical length 1
         0x00, 0x00, // function import, type index 0
     ];
     let import_module = parse_module(&module_with_section(2, &import_payload))
-        .expect("width-valid noncanonical import name length must remain accepted");
+        .expect("width-valid noncanonical import name lengths must remain accepted");
     assert_eq!(import_module.imports.len(), 1);
     assert_eq!(import_module.imports[0].module, "m");
+    assert_eq!(import_module.imports[0].name, "f");
     assert!(matches!(
         import_module.imports[0].desc,
         ImportDesc::Function(0)
