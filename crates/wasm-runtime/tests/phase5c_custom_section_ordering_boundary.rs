@@ -25,7 +25,8 @@ fn repeated_custom_sections_are_allowed_around_standard_sections() {
     push_section(&mut module, 3, &[0x00]); // empty function vector
     push_custom(&mut module, b'd');
 
-    let parsed = parse_module(&module).expect("custom sections may repeat between standard sections");
+    let parsed =
+        parse_module(&module).expect("custom sections may repeat between standard sections");
     assert!(parsed.types.is_empty());
     assert!(parsed.imports.is_empty());
     assert!(parsed.function_type_indices.is_empty());
