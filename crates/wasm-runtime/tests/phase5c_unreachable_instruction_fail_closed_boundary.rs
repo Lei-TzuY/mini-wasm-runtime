@@ -86,3 +86,28 @@ fn validator_unreachable_frame_does_not_hide_unsupported_unreachable_opcode() {
         "stack polymorphism must not partially admit the unreachable instruction opcode",
     );
 }
+
+#[test]
+fn else_arm_does_not_partially_admit_unreachable_instruction() {
+    assert_unreachable_instruction_rejected(
+        &[
+            0x41, 0x00, // false condition
+            0x04, 0x40, // if
+            0x05, // else
+            0x00, // unreachable instruction in else arm
+            0x0b, // end if
+        ],
+        "an else transition must not hide an unsupported unreachable instruction",
+    );
+}
+
+#[test]
+fn return_induced_unreachable_frame_does_not_hide_unsupported_unreachable_opcode() {
+    assert_unreachable_instruction_rejected(
+        &[
+            0x0f, // return makes the function frame validator-unreachable
+            0x00, // unreachable instruction itself is still unsupported
+        ],
+        "return-induced stack polymorphism must not admit the unsupported unreachable opcode",
+    );
+}
