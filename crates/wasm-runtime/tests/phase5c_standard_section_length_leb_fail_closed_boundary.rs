@@ -34,7 +34,8 @@ fn overflowing_standard_section_lengths_fail_closed() {
 }
 
 #[test]
-fn noncanonical_zero_custom_section_length_remains_accepted() {
-    let module = module_with_raw_section_length(0, &[0x80, 0x00]);
+fn noncanonical_custom_section_length_with_empty_name_remains_accepted() {
+    let mut module = module_with_raw_section_length(0, &[0x81, 0x00]);
+    module.push(0x00); // empty custom-section name
     parse_module(&module).expect("width-valid noncanonical section lengths must remain accepted");
 }
