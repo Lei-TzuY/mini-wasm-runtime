@@ -104,6 +104,21 @@ fn noncanonical_code_section_immediates_remain_accepted() {
 }
 
 #[test]
+fn noncanonical_positive_code_count_preserves_function_body() {
+    let module = module_with_code_payload(&[
+        0x81, 0x00, // noncanonical one function body
+        0x02, // body length 2
+        0x00, // zero local groups
+        0x0b, // end
+    ]);
+
+    let parsed = parse_module(&module).expect("noncanonical positive code count must parse");
+    assert_eq!(parsed.code.len(), 1);
+    assert!(parsed.code[0].locals.is_empty());
+    assert_eq!(parsed.code[0].code, vec![0x0b]);
+}
+
+#[test]
 fn noncanonical_positive_local_counts_preserve_declared_locals() {
     let module = module_with_code_payload(&[
         0x01, // one body
