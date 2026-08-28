@@ -84,15 +84,32 @@ fn ref_func_remains_fail_closed_before_reference_values_are_admitted() {
 }
 
 #[test]
-fn unreachable_polymorphism_does_not_hide_unsupported_reference_opcode() {
-    assert_unsupported(
-        &[
+fn unreachable_polymorphism_does_not_hide_any_unsupported_reference_opcode() {
+    let cases: &[(&[u8], u8, &str)] = &[
+        (
+            &[0xd0, 0x70],
+            0xd0,
+            "unreachable code must still reject ref.null",
+        ),
+        (
+            &[0xd1],
+            0xd1,
+            "unreachable code must still reject ref.is_null",
+        ),
+        (
+            &[0xd2, 0x00],
+            0xd2,
+            "unreachable code must still reject ref.func",
+        ),
+    ];
+
+    for (reference_instruction, opcode, expectation) in cases {
+        let mut instructions = vec![
             0x02, 0x40, // block
             0x0c, 0x00, // br 0: remainder of this frame is unreachable
-            0xd0, 0x70, // ref.null funcref must still fail closed
-            0x0b,
-        ],
-        0xd0,
-        "unreachable code must still reject unsupported reference instructions",
-    );
+        ];
+        instructions.extend_from_slice(reference_instruction);
+        instructions.push(0x0b);
+        assert_unsupported(&instructions, *opcode, expectation);
+    }
 }
