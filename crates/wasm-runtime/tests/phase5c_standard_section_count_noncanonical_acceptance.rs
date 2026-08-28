@@ -26,11 +26,8 @@ fn noncanonical_zero_standard_section_counts_remain_accepted() {
 
 #[test]
 fn noncanonical_positive_standard_section_counts_preserve_entries() {
-    let type_section = parse_module(&module_with_section(
-        1,
-        &[0x81, 0x00, 0x60, 0x00, 0x00],
-    ))
-    .expect("noncanonical positive type count must remain accepted");
+    let type_section = parse_module(&module_with_section(1, &[0x81, 0x00, 0x60, 0x00, 0x00]))
+        .expect("noncanonical positive type count must remain accepted");
     assert_eq!(type_section.types.len(), 1);
     assert!(type_section.types[0].params.is_empty());
     assert!(type_section.types[0].results.is_empty());
@@ -50,11 +47,8 @@ fn noncanonical_positive_standard_section_counts_preserve_entries() {
         .expect("noncanonical positive function count must remain accepted");
     assert_eq!(function_section.function_type_indices, vec![0]);
 
-    let table_section = parse_module(&module_with_section(
-        4,
-        &[0x81, 0x00, 0x70, 0x00, 0x00],
-    ))
-    .expect("noncanonical positive table count must remain accepted");
+    let table_section = parse_module(&module_with_section(4, &[0x81, 0x00, 0x70, 0x00, 0x00]))
+        .expect("noncanonical positive table count must remain accepted");
     assert_eq!(table_section.tables.len(), 1);
     assert_eq!(table_section.tables[0].limits.min, 0);
     assert_eq!(table_section.tables[0].limits.max, None);
@@ -74,11 +68,8 @@ fn noncanonical_positive_standard_section_counts_preserve_entries() {
     assert_eq!(global_section.globals[0].ty.value_type, ValueType::I32);
     assert!(!global_section.globals[0].ty.mutable);
 
-    let export_section = parse_module(&module_with_section(
-        7,
-        &[0x81, 0x00, 0x00, 0x00, 0x00],
-    ))
-    .expect("noncanonical positive export count must remain accepted");
+    let export_section = parse_module(&module_with_section(7, &[0x81, 0x00, 0x00, 0x00, 0x00]))
+        .expect("noncanonical positive export count must remain accepted");
     assert_eq!(export_section.exports.len(), 1);
     assert_eq!(export_section.exports[0].kind, ExportKind::Function);
     assert_eq!(export_section.exports[0].index, 0);
