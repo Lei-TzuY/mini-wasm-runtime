@@ -33,6 +33,26 @@ fn repeated_custom_sections_are_allowed_around_standard_sections() {
 }
 
 #[test]
+fn custom_section_opaque_payload_cannot_desynchronize_standard_section_framing() {
+    let mut module = module_header();
+    push_section(
+        &mut module,
+        0,
+        &[
+            0x01, b'x', // valid one-byte custom-section name
+            0x01, 0xff, 0x02, 0x00, 0x03, 0x00, // opaque bytes that resemble section framing
+        ],
+    );
+    push_section(&mut module, 1, &[0x00]); // empty type vector
+    push_section(&mut module, 2, &[0x00]); // empty import vector
+
+    let parsed = parse_module(&module)
+        .expect("opaque custom payload must remain bounded by its declared section length");
+    assert!(parsed.types.is_empty());
+    assert!(parsed.imports.is_empty());
+}
+
+#[test]
 fn custom_section_does_not_hide_standard_section_ordering_error() {
     let mut module = module_header();
     push_section(&mut module, 3, &[0x00]); // function section
