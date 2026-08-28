@@ -71,10 +71,7 @@ fn noncanonical_positive_standard_section_counts_preserve_entries() {
     ))
     .expect("noncanonical positive global count must remain accepted");
     assert_eq!(global_section.globals.len(), 1);
-    assert_eq!(
-        global_section.globals[0].ty.value_type,
-        ValueType::I32
-    );
+    assert_eq!(global_section.globals[0].ty.value_type, ValueType::I32);
     assert!(!global_section.globals[0].ty.mutable);
 
     let export_section = parse_module(&module_with_section(
