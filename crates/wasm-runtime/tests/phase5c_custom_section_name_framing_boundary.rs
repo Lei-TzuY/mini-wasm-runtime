@@ -53,7 +53,8 @@ fn valid_noncanonical_custom_name_keeps_trailing_payload_opaque() {
     ]);
     module.extend_from_slice(&[0x01, 0x04, 0x01, 0x60, 0x00, 0x00]);
 
-    let parsed = parse_module(&module).expect("valid custom section must not desynchronize parsing");
+    let parsed =
+        parse_module(&module).expect("valid custom section must not desynchronize parsing");
     assert_eq!(parsed.types.len(), 1);
     assert!(parsed.types[0].params.is_empty());
     assert!(parsed.types[0].results.is_empty());
