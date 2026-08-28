@@ -4,8 +4,7 @@ fn module_with_noncanonical_one_byte_section(section_id: u8, payload: u8) -> Vec
     let mut module = vec![
         0x00, 0x61, 0x73, 0x6d, // magic
         0x01, 0x00, 0x00, 0x00, // version
-        section_id,
-        0x81, 0x00, // noncanonical u32 LEB encoding of payload length 1
+        section_id, 0x81, 0x00, // noncanonical u32 LEB encoding of payload length 1
         payload,
     ];
     module.shrink_to_fit();
