@@ -72,6 +72,20 @@ fn structured_control_does_not_partially_admit_nop() {
 }
 
 #[test]
+fn if_else_control_does_not_partially_admit_nop() {
+    assert_nop_rejected(
+        &[
+            0x41, 0x00, // i32.const 0
+            0x04, 0x40, // if
+            0x05, // else
+            0x01, // nop
+            0x0b,
+        ],
+        "an else arm must not partially admit unsupported nop",
+    );
+}
+
+#[test]
 fn unreachable_polymorphism_does_not_hide_unsupported_nop() {
     assert_nop_rejected(
         &[
@@ -81,5 +95,16 @@ fn unreachable_polymorphism_does_not_hide_unsupported_nop() {
             0x0b,
         ],
         "unreachable code must still reject unsupported nop",
+    );
+}
+
+#[test]
+fn function_level_unreachable_does_not_hide_unsupported_nop() {
+    assert_nop_rejected(
+        &[
+            0x0f, // return makes the rest of the function unreachable
+            0x01, // nop must still be opcode-checked
+        ],
+        "function-level unreachable code must still reject unsupported nop",
     );
 }
