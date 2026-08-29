@@ -39,3 +39,28 @@ fn unterminated_five_byte_segment_mode_leb_is_rejected() {
 fn overflowing_segment_mode_leb_is_rejected() {
     assert_both_segment_sections_fail(&[0x80, 0x80, 0x80, 0x80, 0x10], ParseError::Leb128Overflow);
 }
+
+#[test]
+fn canonical_unknown_segment_modes_fail_closed_without_payload_bytes() {
+    let cases: &[(u32, &[u8])] = &[
+        (8, &[0x08]),
+        (128, &[0x80, 0x01]),
+        (u32::MAX, &[0xff, 0xff, 0xff, 0xff, 0x0f]),
+    ];
+
+    for &(mode, mode_bytes) in cases {
+        let element = module_with_segment_mode(9, mode_bytes);
+        assert_eq!(
+            parse_module(&element),
+            Err(ParseError::UnsupportedElementSegmentMode(mode)),
+            "canonical unknown element mode {mode} must fail at the discriminant"
+        );
+
+        let data = module_with_segment_mode(11, mode_bytes);
+        assert_eq!(
+            parse_module(&data),
+            Err(ParseError::UnsupportedDataSegmentMode(mode)),
+            "canonical unknown data mode {mode} must fail at the discriminant"
+        );
+    }
+}
