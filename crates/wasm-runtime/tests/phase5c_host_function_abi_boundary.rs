@@ -1,3 +1,5 @@
+use std::{cell::Cell, rc::Rc};
+
 use wasm_parser::{Export, ExportKind, FuncType, Import, ImportDesc, Module, ValueType};
 use wasm_runtime::{
     HostCapabilities, HostRegistry, HostRegistryError, Instance, RuntimeError, Value,
@@ -216,5 +218,51 @@ fn host_callback_wrong_result_type_fails_closed_for_every_other_numeric_type() {
                 actual: observed,
             } if observed == actual
         ));
+    }
+}
+
+#[test]
+fn host_callback_is_not_invoked_when_argument_type_mismatches() {
+    for (value, actual) in [
+        (Value::I64(7), ValueType::I64),
+        (Value::F32(f32::from_bits(0x7fc0_0001)), ValueType::F32),
+        (
+            Value::F64(f64::from_bits(0x7ff8_0000_0000_0001)),
+            ValueType::F64,
+        ),
+    ] {
+        let module = exported_import_module(vec![ValueType::I32], vec![]);
+        let callback_called = Rc::new(Cell::new(false));
+        let callback_called_from_host = Rc::clone(&callback_called);
+        let mut hosts = HostRegistry::new();
+        hosts
+            .register(
+                "env",
+                "host",
+                vec![ValueType::I32],
+                vec![],
+                HostCapabilities::NONE,
+                move |_context, _args| {
+                    callback_called_from_host.set(true);
+                    Ok(None)
+                },
+            )
+            .expect("i32 host signature remains admitted");
+
+        let mut instance = Instance::with_hosts(module, hosts).expect("host binding is valid");
+        let error = instance
+            .invoke_export("run", &[value])
+            .expect_err("mismatched host argument type must fail before callback execution");
+        assert!(matches!(
+            error,
+            RuntimeError::ValueTypeMismatch {
+                expected: ValueType::I32,
+                actual: observed,
+            } if observed == actual
+        ));
+        assert!(
+            !callback_called.get(),
+            "host callback must not observe arguments rejected by the declared ABI"
+        );
     }
 }
