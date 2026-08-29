@@ -64,3 +64,28 @@ fn canonical_unknown_segment_modes_fail_closed_without_payload_bytes() {
         );
     }
 }
+
+#[test]
+fn noncanonical_unknown_segment_modes_decode_then_fail_semantically() {
+    let cases: &[(u32, &[u8])] = &[
+        (2, &[0x82, 0x00]),
+        (8, &[0x88, 0x00]),
+        (128, &[0x80, 0x81, 0x00]),
+    ];
+
+    for &(mode, mode_bytes) in cases {
+        let element = module_with_segment_mode(9, mode_bytes);
+        assert_eq!(
+            parse_module(&element),
+            Err(ParseError::UnsupportedElementSegmentMode(mode)),
+            "noncanonical element mode {mode} must decode before semantic rejection"
+        );
+
+        let data = module_with_segment_mode(11, mode_bytes);
+        assert_eq!(
+            parse_module(&data),
+            Err(ParseError::UnsupportedDataSegmentMode(mode)),
+            "noncanonical data mode {mode} must decode before semantic rejection"
+        );
+    }
+}
