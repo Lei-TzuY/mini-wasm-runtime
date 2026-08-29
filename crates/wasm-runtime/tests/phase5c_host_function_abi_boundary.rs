@@ -61,6 +61,18 @@ fn validator_rejects_non_i32_host_function_results() {
 }
 
 #[test]
+fn validator_rejects_multiple_i32_host_function_results() {
+    let module = imported_function_module(vec![], vec![ValueType::I32, ValueType::I32]);
+    assert_eq!(
+        validate(&module),
+        Err(ValidationError::UnsupportedImportResultArity {
+            import: 0,
+            results: 2,
+        })
+    );
+}
+
+#[test]
 fn registry_rejects_non_i32_host_function_parameters() {
     for value_type in unsupported_numeric_types() {
         let mut hosts = HostRegistry::new();
@@ -94,6 +106,22 @@ fn registry_rejects_non_i32_host_function_results() {
             .expect_err("non-i32 host results must not be admitted by the registry yet");
         assert!(matches!(error, HostRegistryError::UnsupportedSignature));
     }
+}
+
+#[test]
+fn registry_rejects_multiple_i32_host_function_results() {
+    let mut hosts = HostRegistry::new();
+    let error = hosts
+        .register(
+            "env",
+            "host",
+            vec![],
+            vec![ValueType::I32, ValueType::I32],
+            HostCapabilities::NONE,
+            |_context, _args| Ok(None),
+        )
+        .expect_err("multi-result host callbacks must remain outside the current ABI");
+    assert!(matches!(error, HostRegistryError::UnsupportedSignature));
 }
 
 #[test]
