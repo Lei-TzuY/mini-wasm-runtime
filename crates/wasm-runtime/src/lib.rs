@@ -540,7 +540,7 @@ impl fmt::Display for HostRegistryError {
             }
             Self::UnsupportedSignature => write!(
                 f,
-                "host function signatures are currently i32-only with at most one result"
+                "host function signatures currently support at most one result"
             ),
         }
     }
@@ -585,12 +585,7 @@ impl HostRegistry {
         F: for<'a> FnMut(&mut HostContext<'a>, &[Value]) -> Result<Option<Value>, HostError>
             + 'static,
     {
-        if results.len() > 1
-            || params
-                .iter()
-                .chain(results.iter())
-                .any(|ty| *ty != ValueType::I32)
-        {
+        if results.len() > 1 {
             return Err(HostRegistryError::UnsupportedSignature);
         }
         let module = module.into();
