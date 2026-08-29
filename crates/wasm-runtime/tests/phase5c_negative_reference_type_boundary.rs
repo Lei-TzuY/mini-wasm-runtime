@@ -11,6 +11,15 @@ fn module_header() -> Vec<u8> {
     vec![0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00]
 }
 
+fn imported_global_module(value_type: u8, mutability: u8) -> Vec<u8> {
+    let mut bytes = module_header();
+    let import = [
+        0x01, 0x03, b'e', b'n', b'v', 0x01, b'g', 0x03, value_type, mutability,
+    ];
+    push_section(&mut bytes, 2, &import);
+    bytes
+}
+
 #[test]
 fn function_parameter_funcref_remains_fail_closed_at_parse_boundary() {
     let mut bytes = module_header();
@@ -46,43 +55,14 @@ fn defined_global_funcref_remains_fail_closed_before_const_expr_admission() {
 
 #[test]
 fn imported_reference_globals_remain_fail_closed_before_binding_admission() {
-    for unsupported in [0x70, 0x6f] {
-        let mut bytes = module_header();
-        let import = [
-            0x01, // one import
-            0x03, b'e', b'n', b'v', // module name
-            0x01, b'g', // field name
-            0x03, // global import
-            unsupported,
-            0x00, // immutable
-        ];
-        push_section(&mut bytes, 2, &import);
-
-        assert_eq!(
-            parse_module(&bytes),
-            Err(ParseError::UnsupportedValueType(unsupported))
-        );
-    }
-}
-
-#[test]
-fn mutable_imported_reference_globals_remain_fail_closed_before_binding_admission() {
-    for unsupported in [0x70, 0x6f] {
-        let mut bytes = module_header();
-        let import = [
-            0x01, // one import
-            0x03, b'e', b'n', b'v', // module name
-            0x01, b'g', // field name
-            0x03, // global import
-            unsupported,
-            0x01, // mutable
-        ];
-        push_section(&mut bytes, 2, &import);
-
-        assert_eq!(
-            parse_module(&bytes),
-            Err(ParseError::UnsupportedValueType(unsupported))
-        );
+    for value_type in [0x70, 0x6f] {
+        for mutability in [0x00, 0x01] {
+            let bytes = imported_global_module(value_type, mutability);
+            assert_eq!(
+                parse_module(&bytes),
+                Err(ParseError::UnsupportedValueType(value_type))
+            );
+        }
     }
 }
 
