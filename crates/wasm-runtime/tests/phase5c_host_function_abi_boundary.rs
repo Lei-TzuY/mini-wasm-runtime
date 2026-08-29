@@ -181,3 +181,31 @@ fn host_callback_unexpected_result_fails_closed() {
         }
     ));
 }
+
+#[test]
+fn host_callback_wrong_result_type_fails_closed() {
+    let module = exported_import_module(vec![], vec![ValueType::I32]);
+    let mut hosts = HostRegistry::new();
+    hosts
+        .register(
+            "env",
+            "host",
+            vec![],
+            vec![ValueType::I32],
+            HostCapabilities::NONE,
+            |_context, _args| Ok(Some(Value::I64(7))),
+        )
+        .expect("i32 host signature remains admitted");
+
+    let mut instance = Instance::with_hosts(module, hosts).expect("host binding is valid");
+    let error = instance
+        .invoke_export("run", &[])
+        .expect_err("host callback result type must match its declared result type");
+    assert!(matches!(
+        error,
+        RuntimeError::ValueTypeMismatch {
+            expected: ValueType::I32,
+            actual: ValueType::I64,
+        }
+    ));
+}
