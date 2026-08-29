@@ -69,10 +69,10 @@ fn validator_rejects_multiple_i32_host_function_results() {
 }
 
 #[test]
-fn registry_keeps_non_i32_host_function_parameters_fail_closed() {
+fn registry_accepts_non_i32_host_function_parameters() {
     for value_type in non_i32_numeric_types() {
         let mut hosts = HostRegistry::new();
-        let error = hosts
+        hosts
             .register(
                 "env",
                 "host",
@@ -81,18 +81,15 @@ fn registry_keeps_non_i32_host_function_parameters_fail_closed() {
                 HostCapabilities::NONE,
                 |_context, _args| Ok(None),
             )
-            .expect_err(
-                "runtime registry must remain fail-closed until mixed-numeric ABI execution lands",
-            );
-        assert!(matches!(error, HostRegistryError::UnsupportedSignature));
+            .expect("all MVP numeric host parameter types should be admitted");
     }
 }
 
 #[test]
-fn registry_keeps_non_i32_host_function_results_fail_closed() {
+fn registry_accepts_non_i32_host_function_results() {
     for value_type in non_i32_numeric_types() {
         let mut hosts = HostRegistry::new();
-        let error = hosts
+        hosts
             .register(
                 "env",
                 "host",
@@ -101,10 +98,7 @@ fn registry_keeps_non_i32_host_function_results_fail_closed() {
                 HostCapabilities::NONE,
                 |_context, _args| Ok(None),
             )
-            .expect_err(
-                "runtime registry must remain fail-closed until mixed-numeric ABI execution lands",
-            );
-        assert!(matches!(error, HostRegistryError::UnsupportedSignature));
+            .expect("all MVP numeric host result types should be admitted");
     }
 }
 
@@ -122,6 +116,48 @@ fn registry_rejects_multiple_i32_host_function_results() {
         )
         .expect_err("multi-result host callbacks must remain outside the current ABI");
     assert!(matches!(error, HostRegistryError::UnsupportedSignature));
+}
+
+#[test]
+fn mixed_numeric_host_round_trip_preserves_exact_values() {
+    let f32_bits = 0x7fc0_1234;
+    let f64_bits = 0x7ff8_0000_0000_5678;
+    let module = exported_import_module(
+        vec![ValueType::I64, ValueType::F32, ValueType::F64],
+        vec![ValueType::F64],
+    );
+    let mut hosts = HostRegistry::new();
+    hosts
+        .register(
+            "env",
+            "host",
+            vec![ValueType::I64, ValueType::F32, ValueType::F64],
+            vec![ValueType::F64],
+            HostCapabilities::NONE,
+            move |_context, args| {
+                assert_eq!(args[0].as_i64(), -9);
+                assert_eq!(args[1].as_f32().to_bits(), f32_bits);
+                assert_eq!(args[2].as_f64().to_bits(), f64_bits);
+                Ok(Some(args[2]))
+            },
+        )
+        .expect("mixed numeric host signature should be admitted");
+
+    let mut instance = Instance::with_hosts(module, hosts).expect("host binding is valid");
+    let result = instance
+        .invoke_export(
+            "run",
+            &[
+                Value::I64(-9),
+                Value::F32(f32::from_bits(f32_bits)),
+                Value::F64(f64::from_bits(f64_bits)),
+            ],
+        )
+        .expect("mixed numeric host call should execute");
+    let Some(Value::F64(value)) = result else {
+        panic!("mixed numeric host call should return f64");
+    };
+    assert_eq!(value.to_bits(), f64_bits);
 }
 
 #[test]
