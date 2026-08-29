@@ -28,36 +28,30 @@ fn exported_import_module(params: Vec<ValueType>, results: Vec<ValueType>) -> Mo
     module
 }
 
-fn unsupported_numeric_types() -> [ValueType; 3] {
+fn non_i32_numeric_types() -> [ValueType; 3] {
     [ValueType::I64, ValueType::F32, ValueType::F64]
 }
 
 #[test]
-fn validator_rejects_non_i32_host_function_parameters() {
-    for value_type in unsupported_numeric_types() {
+fn validator_accepts_non_i32_host_function_parameters() {
+    for value_type in non_i32_numeric_types() {
         let module = imported_function_module(vec![value_type], vec![]);
         assert_eq!(
             validate(&module),
-            Err(ValidationError::UnsupportedImportValueType {
-                import: 0,
-                value_type,
-            }),
-            "host import parameter {value_type:?} must remain fail-closed until the mixed-numeric ABI slice is complete"
+            Ok(()),
+            "numeric host import parameter {value_type:?} should be admitted by validation"
         );
     }
 }
 
 #[test]
-fn validator_rejects_non_i32_host_function_results() {
-    for value_type in unsupported_numeric_types() {
+fn validator_accepts_non_i32_host_function_results() {
+    for value_type in non_i32_numeric_types() {
         let module = imported_function_module(vec![], vec![value_type]);
         assert_eq!(
             validate(&module),
-            Err(ValidationError::UnsupportedImportValueType {
-                import: 0,
-                value_type,
-            }),
-            "host import result {value_type:?} must remain fail-closed until the mixed-numeric ABI slice is complete"
+            Ok(()),
+            "numeric host import result {value_type:?} should be admitted by validation"
         );
     }
 }
@@ -75,8 +69,8 @@ fn validator_rejects_multiple_i32_host_function_results() {
 }
 
 #[test]
-fn registry_rejects_non_i32_host_function_parameters() {
-    for value_type in unsupported_numeric_types() {
+fn registry_keeps_non_i32_host_function_parameters_fail_closed() {
+    for value_type in non_i32_numeric_types() {
         let mut hosts = HostRegistry::new();
         let error = hosts
             .register(
@@ -87,14 +81,14 @@ fn registry_rejects_non_i32_host_function_parameters() {
                 HostCapabilities::NONE,
                 |_context, _args| Ok(None),
             )
-            .expect_err("non-i32 host parameters must not be admitted by the registry yet");
+            .expect_err("runtime registry must remain fail-closed until mixed-numeric ABI execution lands");
         assert!(matches!(error, HostRegistryError::UnsupportedSignature));
     }
 }
 
 #[test]
-fn registry_rejects_non_i32_host_function_results() {
-    for value_type in unsupported_numeric_types() {
+fn registry_keeps_non_i32_host_function_results_fail_closed() {
+    for value_type in non_i32_numeric_types() {
         let mut hosts = HostRegistry::new();
         let error = hosts
             .register(
@@ -105,7 +99,7 @@ fn registry_rejects_non_i32_host_function_results() {
                 HostCapabilities::NONE,
                 |_context, _args| Ok(None),
             )
-            .expect_err("non-i32 host results must not be admitted by the registry yet");
+            .expect_err("runtime registry must remain fail-closed until mixed-numeric ABI execution lands");
         assert!(matches!(error, HostRegistryError::UnsupportedSignature));
     }
 }
