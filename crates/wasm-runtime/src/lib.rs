@@ -426,10 +426,10 @@ impl MemoryHandle {
             memory
                 .checked_host_range(address, bytes.len())
                 .map_err(|error| match error {
-                    MemoryHandleError::OutOfBounds { address, width } => {
+                    HostError::MemoryOutOfBounds { address, width } => {
                         MemoryHandleError::OutOfBounds { address, width }
                     }
-                    _ => HostError::MemoryUnavailable,
+                    _ => unreachable!("checked_host_range only reports bounds errors"),
                 })?;
         memory.bytes[range].copy_from_slice(bytes);
         Ok(())
@@ -540,7 +540,7 @@ impl fmt::Display for HostRegistryError {
             }
             Self::UnsupportedSignature => write!(
                 f,
-                "host function signatures support numeric values with at most one result"
+                "host function signatures are currently i32-only with at most one result"
             ),
         }
     }
@@ -585,7 +585,12 @@ impl HostRegistry {
         F: for<'a> FnMut(&mut HostContext<'a>, &[Value]) -> Result<Option<Value>, HostError>
             + 'static,
     {
-        if results.len() > 1 {
+        if results.len() > 1
+            || params
+                .iter()
+                .chain(results.iter())
+                .any(|ty| *ty != ValueType::I32)
+        {
             return Err(HostRegistryError::UnsupportedSignature);
         }
         let module = module.into();
@@ -1434,6 +1439,7 @@ impl Instance {
     fn initialize_data_segments(&mut self) -> Result<(), RuntimeError> {
         let data = self.module.data.clone();
 
+        // Preflight all active segments before mutating a potentially host-shared memory.
         for (segment_index, segment) in data.iter().enumerate() {
             let offset = u64::from(segment.offset as u32);
             let end = offset.checked_add(segment.bytes.len() as u64).ok_or(
@@ -1470,6 +1476,8 @@ impl Instance {
     fn initialize_element_segments(&mut self) -> Result<(), RuntimeError> {
         let elements = self.module.elements.clone();
 
+        // Preflight every active segment before mutating a potentially host-shared table.
+        // A later OOB segment must not leave earlier segment writes externally visible.
         for (segment_index, segment) in elements.iter().enumerate() {
             if segment.table_index != 0 {
                 return Err(RuntimeError::TableIndexOutOfBounds(segment.table_index));
@@ -1913,11 +1921,21 @@ impl Instance {
                     let (_, displacement) = read_memarg(code, &mut pc)?;
                     let address = numeric::i32_from_stack(&mut stack)?;
                     let value = match opcode {
-                        0x28 => self.with_memory(|memory| memory.load_i32(address, displacement))?,
-                        0x2c => self.with_memory(|memory| memory.load_i8_s(address, displacement))?,
-                        0x2d => self.with_memory(|memory| memory.load_i8_u(address, displacement))?,
-                        0x2e => self.with_memory(|memory| memory.load_i16_s(address, displacement))?,
-                        0x2f => self.with_memory(|memory| memory.load_i16_u(address, displacement))?,
+                        0x28 => {
+                            self.with_memory(|memory| memory.load_i32(address, displacement))?
+                        }
+                        0x2c => {
+                            self.with_memory(|memory| memory.load_i8_s(address, displacement))?
+                        }
+                        0x2d => {
+                            self.with_memory(|memory| memory.load_i8_u(address, displacement))?
+                        }
+                        0x2e => {
+                            self.with_memory(|memory| memory.load_i16_s(address, displacement))?
+                        }
+                        0x2f => {
+                            self.with_memory(|memory| memory.load_i16_u(address, displacement))?
+                        }
                         _ => unreachable!(),
                     };
                     stack.push(Value::I32(value));
@@ -1927,9 +1945,15 @@ impl Instance {
                     let value = numeric::i32_from_stack(&mut stack)?;
                     let address = numeric::i32_from_stack(&mut stack)?;
                     match opcode {
-                        0x36 => self.with_memory_mut(|memory| memory.store_i32(address, displacement, value))?,
-                        0x3a => self.with_memory_mut(|memory| memory.store_i8(address, displacement, value))?,
-                        0x3b => self.with_memory_mut(|memory| memory.store_i16(address, displacement, value))?,
+                        0x36 => self.with_memory_mut(|memory| {
+                            memory.store_i32(address, displacement, value)
+                        })?,
+                        0x3a => self.with_memory_mut(|memory| {
+                            memory.store_i8(address, displacement, value)
+                        })?,
+                        0x3b => self.with_memory_mut(|memory| {
+                            memory.store_i16(address, displacement, value)
+                        })?,
                         _ => unreachable!(),
                     }
                 }
@@ -1983,7 +2007,9 @@ impl Instance {
                 0xa1 => numeric::binary_f64(&mut stack, |a, b| a - b)?,
                 0xa2 => numeric::binary_f64(&mut stack, |a, b| a * b)?,
                 0xa3 => numeric::binary_f64(&mut stack, |a, b| a / b)?,
-                0xa7 | 0xac | 0xad | 0xb6 | 0xbb | 0xbc..=0xbf => numeric::convert(&mut stack, opcode)?,
+                0xa7 | 0xac | 0xad | 0xb6 | 0xbb | 0xbc..=0xbf => {
+                    numeric::convert(&mut stack, opcode)?
+                }
                 other => return Err(RuntimeError::UnsupportedOpcode(other)),
             }
         }
@@ -2048,10 +2074,14 @@ fn validate_host_bindings(
             continue;
         };
         let key = (import.module.clone(), import.name.clone());
-        let memory = hosts.memories.get(&key).ok_or_else(|| RuntimeError::UnresolvedMemoryImport {
-            module: import.module.clone(),
-            name: import.name.clone(),
-        })?;
+        let memory =
+            hosts
+                .memories
+                .get(&key)
+                .ok_or_else(|| RuntimeError::UnresolvedMemoryImport {
+                    module: import.module.clone(),
+                    name: import.name.clone(),
+                })?;
         validate_memory_limits(
             import,
             memory_type.limits.min,
@@ -2066,10 +2096,14 @@ fn validate_host_bindings(
             continue;
         };
         let key = (import.module.clone(), import.name.clone());
-        let global = hosts.globals.get(&key).ok_or_else(|| RuntimeError::UnresolvedGlobalImport {
-            module: import.module.clone(),
-            name: import.name.clone(),
-        })?;
+        let global =
+            hosts
+                .globals
+                .get(&key)
+                .ok_or_else(|| RuntimeError::UnresolvedGlobalImport {
+                    module: import.module.clone(),
+                    name: import.name.clone(),
+                })?;
         let actual = global.value_type();
         if actual != global_type.value_type {
             return Err(RuntimeError::HostGlobalTypeMismatch {
@@ -2145,9 +2179,11 @@ fn instantiate_imported_memory(
             continue;
         };
         let key = (import.module.clone(), import.name.clone());
-        let memory = hosts.memories.get(&key).cloned().ok_or_else(|| RuntimeError::UnresolvedMemoryImport {
-            module: import.module.clone(),
-            name: import.name.clone(),
+        let memory = hosts.memories.get(&key).cloned().ok_or_else(|| {
+            RuntimeError::UnresolvedMemoryImport {
+                module: import.module.clone(),
+                name: import.name.clone(),
+            }
         })?;
         validate_memory_limits(
             import,
@@ -2197,10 +2233,15 @@ fn instantiate_table(
             continue;
         };
         let key = (import.module.clone(), import.name.clone());
-        let table = hosts.tables.get(&key).cloned().ok_or_else(|| RuntimeError::UnresolvedTableImport {
-            module: import.module.clone(),
-            name: import.name.clone(),
-        })?;
+        let table =
+            hosts
+                .tables
+                .get(&key)
+                .cloned()
+                .ok_or_else(|| RuntimeError::UnresolvedTableImport {
+                    module: import.module.clone(),
+                    name: import.name.clone(),
+                })?;
         validate_table_limits(import, table_type.limits.min, table_type.limits.max, &table)?;
         table.bind(identity).map_err(|error| match error {
             TableHandleError::AlreadyBound => RuntimeError::HostTableAlreadyBound {
@@ -2215,24 +2256,40 @@ fn instantiate_table(
     let Some(table_type) = module.tables.first() else {
         return Ok(None);
     };
-    let table = TableHandle::new(table_type.limits.min, table_type.limits.max).map_err(|error| match error {
-        TableHandleError::AllocationFailed { elements } => RuntimeError::TableAllocationFailed { elements },
-        TableHandleError::InvalidLimits { .. } => RuntimeError::ControlInvariant("validated defined table has inconsistent limits"),
-        other => map_table_element_error(other, 0),
+    let table = TableHandle::new(table_type.limits.min, table_type.limits.max).map_err(
+        |error| match error {
+            TableHandleError::AllocationFailed { elements } => {
+                RuntimeError::TableAllocationFailed { elements }
+            }
+            TableHandleError::InvalidLimits { .. } => {
+                RuntimeError::ControlInvariant("validated defined table has inconsistent limits")
+            }
+            other => map_table_element_error(other, 0),
+        },
+    )?;
+    table.bind(identity).map_err(|_| {
+        RuntimeError::ControlInvariant("fresh defined table is unexpectedly already bound")
     })?;
-    table.bind(identity).map_err(|_| RuntimeError::ControlInvariant("fresh defined table is unexpectedly already bound"))?;
     Ok(Some(table))
 }
 
 fn map_table_element_error(error: TableHandleError, index: u32) -> RuntimeError {
     match error {
         TableHandleError::OutOfBounds { .. } => RuntimeError::TableElementOutOfBounds(index),
-        TableHandleError::ForeignFunctionReference { .. } => RuntimeError::ForeignTableFunctionReference {
-            element_index: index,
-        },
-        TableHandleError::AlreadyBound => RuntimeError::ControlInvariant("table binding changed while instance is live"),
-        TableHandleError::AllocationFailed { elements } => RuntimeError::TableAllocationFailed { elements },
-        TableHandleError::InvalidLimits { .. } => RuntimeError::ControlInvariant("table handle has inconsistent limits"),
+        TableHandleError::ForeignFunctionReference { .. } => {
+            RuntimeError::ForeignTableFunctionReference {
+                element_index: index,
+            }
+        }
+        TableHandleError::AlreadyBound => {
+            RuntimeError::ControlInvariant("table binding changed while instance is live")
+        }
+        TableHandleError::AllocationFailed { elements } => {
+            RuntimeError::TableAllocationFailed { elements }
+        }
+        TableHandleError::InvalidLimits { .. } => {
+            RuntimeError::ControlInvariant("table handle has inconsistent limits")
+        }
     }
 }
 
@@ -2242,13 +2299,16 @@ fn instantiate_globals(
 ) -> Result<Vec<GlobalHandle>, RuntimeError> {
     let mut globals = Vec::with_capacity(module.global_count());
     for import in &module.imports {
+        // Preserve imported globals in WebAssembly global-index order.
         let ImportDesc::Global(global_type) = import.desc else {
             continue;
         };
         let key = (import.module.clone(), import.name.clone());
-        let global = hosts.globals.get(&key).cloned().ok_or_else(|| RuntimeError::UnresolvedGlobalImport {
-            module: import.module.clone(),
-            name: import.name.clone(),
+        let global = hosts.globals.get(&key).cloned().ok_or_else(|| {
+            RuntimeError::UnresolvedGlobalImport {
+                module: import.module.clone(),
+                name: import.name.clone(),
+            }
         })?;
         if global.value_type() != global_type.value_type {
             return Err(RuntimeError::HostGlobalTypeMismatch {
@@ -2365,12 +2425,13 @@ fn branch_to(
     let target = controls[target_index].clone();
     let label_types = target.label_types();
     let label_arity = label_types.len();
-    let current_height = controls
-        .last()
-        .map(|frame| frame.stack_height)
-        .ok_or(RuntimeError::ControlInvariant(
-            "branch executed without active control frame",
-        ))?;
+    let current_height =
+        controls
+            .last()
+            .map(|frame| frame.stack_height)
+            .ok_or(RuntimeError::ControlInvariant(
+                "branch executed without active control frame",
+            ))?;
     if stack.len().saturating_sub(current_height) < label_arity {
         return Err(RuntimeError::StackUnderflow);
     }
