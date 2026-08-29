@@ -1627,6 +1627,9 @@ impl Instance {
                 actual,
             });
         }
+        if let (Some(expected), Some(value)) = (ty.results.first().copied(), result) {
+            numeric::expect_type(value, expected)?;
+        }
         Ok(result)
     }
 
