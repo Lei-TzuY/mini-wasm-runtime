@@ -32,7 +32,8 @@ fn defined_function_using_multivalue_result_type_remains_fail_closed() {
     push_section(&mut bytes, 3, &[0x01, 0x00]);
     push_section(&mut bytes, 10, &[0x01, 0x02, 0x00, 0x0b]);
 
-    let module = parse_module(&bytes).expect("multi-result function signature must remain parseable");
+    let module =
+        parse_module(&bytes).expect("multi-result function signature must remain parseable");
     assert_eq!(
         validate(&module),
         Err(ValidationError::UnsupportedResultArity {
