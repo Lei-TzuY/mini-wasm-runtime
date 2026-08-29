@@ -75,6 +75,21 @@ fn reference_locals_remain_fail_closed_at_parse_boundary() {
 }
 
 #[test]
+fn zero_count_reference_locals_remain_fail_closed_at_parse_boundary() {
+    for value_type in [0x70, 0x6f] {
+        let mut bytes = module_header();
+        push_section(&mut bytes, 1, &[0x01, 0x60, 0x00, 0x00]);
+        push_section(&mut bytes, 3, &[0x01, 0x00]);
+        push_section(&mut bytes, 10, &[0x01, 0x04, 0x01, 0x00, value_type, 0x0b]);
+
+        assert_eq!(
+            parse_module(&bytes),
+            Err(ParseError::UnsupportedValueType(value_type))
+        );
+    }
+}
+
+#[test]
 fn defined_global_funcref_remains_fail_closed_before_const_expr_admission() {
     let mut bytes = module_header();
     push_section(&mut bytes, 6, &[0x01, 0x70, 0x00, 0xd0, 0x70, 0x0b]);
