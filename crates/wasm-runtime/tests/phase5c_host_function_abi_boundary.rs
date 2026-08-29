@@ -1,5 +1,7 @@
-use wasm_parser::{FuncType, Import, ImportDesc, Module, ValueType};
-use wasm_runtime::{HostCapabilities, HostRegistry, HostRegistryError};
+use wasm_parser::{Export, ExportKind, FuncType, Import, ImportDesc, Module, ValueType};
+use wasm_runtime::{
+    HostCapabilities, HostRegistry, HostRegistryError, Instance, RuntimeError, Value,
+};
 use wasm_validator::{validate, ValidationError};
 
 fn imported_function_module(params: Vec<ValueType>, results: Vec<ValueType>) -> Module {
@@ -12,6 +14,16 @@ fn imported_function_module(params: Vec<ValueType>, results: Vec<ValueType>) -> 
         }],
         ..Module::default()
     }
+}
+
+fn exported_import_module(params: Vec<ValueType>, results: Vec<ValueType>) -> Module {
+    let mut module = imported_function_module(params, results);
+    module.exports.push(Export {
+        name: "run".into(),
+        kind: ExportKind::Function,
+        index: 0,
+    });
+    module
 }
 
 fn unsupported_numeric_types() -> [ValueType; 3] {
@@ -82,4 +94,62 @@ fn registry_rejects_non_i32_host_function_results() {
             .expect_err("non-i32 host results must not be admitted by the registry yet");
         assert!(matches!(error, HostRegistryError::UnsupportedSignature));
     }
+}
+
+#[test]
+fn host_callback_missing_declared_result_fails_closed() {
+    let module = exported_import_module(vec![], vec![ValueType::I32]);
+    let mut hosts = HostRegistry::new();
+    hosts
+        .register(
+            "env",
+            "host",
+            vec![],
+            vec![ValueType::I32],
+            HostCapabilities::NONE,
+            |_context, _args| Ok(None),
+        )
+        .expect("i32 host signature remains admitted");
+
+    let mut instance = Instance::with_hosts(module, hosts).expect("host binding is valid");
+    let error = instance
+        .invoke_export("run", &[])
+        .expect_err("missing declared host result must fail closed");
+    assert!(matches!(
+        error,
+        RuntimeError::HostResultArityMismatch {
+            expected: 1,
+            actual: 0,
+            ..
+        }
+    ));
+}
+
+#[test]
+fn host_callback_unexpected_result_fails_closed() {
+    let module = exported_import_module(vec![], vec![]);
+    let mut hosts = HostRegistry::new();
+    hosts
+        .register(
+            "env",
+            "host",
+            vec![],
+            vec![],
+            HostCapabilities::NONE,
+            |_context, _args| Ok(Some(Value::I32(7))),
+        )
+        .expect("zero-result i32 host signature remains admitted");
+
+    let mut instance = Instance::with_hosts(module, hosts).expect("host binding is valid");
+    let error = instance
+        .invoke_export("run", &[])
+        .expect_err("unexpected host result must fail closed");
+    assert!(matches!(
+        error,
+        RuntimeError::HostResultArityMismatch {
+            expected: 0,
+            actual: 1,
+            ..
+        }
+    ));
 }
