@@ -94,3 +94,28 @@ fn unreachable_stack_polymorphism_does_not_admit_typed_select() {
         "unreachable code must not hide an unsupported typed-select opcode",
     );
 }
+
+#[test]
+fn typed_select_in_else_arm_remains_fail_closed() {
+    assert_typed_select_rejected(
+        &[
+            0x41, 0x00, // false condition
+            0x04, 0x40, // if with no result
+            0x05, // else
+            0x1c, 0x01, I32, // typed select [i32]
+            0x0b,
+        ],
+        "structured else handling must not partially admit typed select",
+    );
+}
+
+#[test]
+fn return_induced_unreachable_frame_does_not_admit_typed_select() {
+    assert_typed_select_rejected(
+        &[
+            0x0f, // return makes the remainder of the function frame unreachable
+            0x1c, 0x01, I32, // typed select [i32]
+        ],
+        "return-induced stack polymorphism must not hide typed select",
+    );
+}
