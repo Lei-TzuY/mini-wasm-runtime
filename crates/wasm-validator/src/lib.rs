@@ -1,7 +1,7 @@
 //! Typed validation for the executable WebAssembly subset.
 //!
 //! Phase 5B validates every reachable operand as an explicit MVP numeric type.
-//! Function imports remain i32-only while defined code may use i32/i64/f32/f64.
+//! Function imports may use any supported numeric value type with at most one result.
 
 use std::{collections::HashSet, fmt};
 use wasm_parser::{decode_u32, ExportKind, FuncType, ImportDesc, Module, ValueType};
@@ -245,7 +245,7 @@ impl fmt::Display for ValidationError {
             ),
             Self::UnsupportedImportValueType { import, value_type } => write!(
                 f,
-                "function import {import} uses {value_type:?}; host calls are currently i32-only"
+                "function import {import} uses unsupported host value type {value_type:?}"
             ),
             Self::TypeIndexOutOfBounds {
                 function,
@@ -615,18 +615,6 @@ fn validate_imports(module: &Module) -> Result<(), ValidationError> {
                         results: function_type.results.len(),
                     });
                 }
-                for &value_type in function_type
-                    .params
-                    .iter()
-                    .chain(function_type.results.iter())
-                {
-                    if value_type != ValueType::I32 {
-                        return Err(ValidationError::UnsupportedImportValueType {
-                            import,
-                            value_type,
-                        });
-                    }
-                }
             }
             ImportDesc::Table(table_type) => {
                 if let Some(max) = table_type.limits.max {
@@ -866,22 +854,23 @@ mod tests {
     }
 
     #[test]
-    fn rejects_non_i32_import_signature() {
-        let module = Module {
-            types: vec![FuncType {
-                params: vec![ValueType::I64],
-                results: vec![],
-            }],
-            imports: vec![import("env", "f", 0)],
-            ..Module::default()
-        };
-        assert_eq!(
-            validate(&module),
-            Err(ValidationError::UnsupportedImportValueType {
-                import: 0,
-                value_type: ValueType::I64,
-            })
-        );
+    fn accepts_numeric_import_signatures() {
+        for value_type in [
+            ValueType::I32,
+            ValueType::I64,
+            ValueType::F32,
+            ValueType::F64,
+        ] {
+            let module = Module {
+                types: vec![FuncType {
+                    params: vec![value_type],
+                    results: vec![value_type],
+                }],
+                imports: vec![import("env", "f", 0)],
+                ..Module::default()
+            };
+            assert_eq!(validate(&module), Ok(()));
+        }
     }
 
     #[test]
