@@ -37,9 +37,38 @@ fn module_with_instructions(instructions: &[u8]) -> Vec<u8> {
     module
 }
 
+fn module_with_i32_result(instructions: &[u8]) -> Vec<u8> {
+    let mut module = vec![0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00];
+    push_section(&mut module, 1, &[0x01, 0x60, 0x00, 0x01, 0x7f]);
+    push_section(&mut module, 3, &[0x01, 0x00]);
+
+    let mut body = vec![0x00];
+    body.extend_from_slice(instructions);
+    body.push(0x0b);
+    let mut code = vec![0x01];
+    push_u32(&mut code, body.len() as u32);
+    code.extend_from_slice(&body);
+    push_section(&mut module, 10, &code);
+    module
+}
+
 fn assert_nop_rejected(instructions: &[u8], expectation: &str) {
     let module = parse_module(&module_with_instructions(instructions))
         .expect("nop boundary fixture must remain parseable");
+    let error = Instance::new(module).expect_err(expectation);
+    assert!(matches!(
+        error,
+        RuntimeError::Validation(ValidationError::UnsupportedOpcode {
+            function: 0,
+            opcode: 0x01,
+            ..
+        })
+    ));
+}
+
+fn assert_result_context_nop_rejected(instructions: &[u8], expectation: &str) {
+    let module = parse_module(&module_with_i32_result(instructions))
+        .expect("result-producing nop boundary fixture must remain parseable");
     let error = Instance::new(module).expect_err(expectation);
     assert!(matches!(
         error,
@@ -106,5 +135,29 @@ fn function_level_unreachable_does_not_hide_unsupported_nop() {
             0x01, // nop must still be opcode-checked
         ],
         "function-level unreachable code must still reject unsupported nop",
+    );
+}
+
+#[test]
+fn result_function_does_not_partially_admit_nop() {
+    assert_result_context_nop_rejected(
+        &[
+            0x01, // nop
+            0x41, 0x00, // i32.const 0 would otherwise satisfy the function result
+        ],
+        "a result-producing function must still reject unsupported nop before result typing",
+    );
+}
+
+#[test]
+fn result_block_does_not_partially_admit_nop() {
+    assert_result_context_nop_rejected(
+        &[
+            0x02, 0x7f, // block (result i32)
+            0x01, // nop
+            0x41, 0x00, // i32.const 0 satisfies the block result only if nop were admitted
+            0x0b,
+        ],
+        "a result-producing block must still reject unsupported nop before result typing",
     );
 }
