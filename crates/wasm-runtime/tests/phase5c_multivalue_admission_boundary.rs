@@ -21,7 +21,8 @@ fn unused_multivalue_type_declaration_does_not_expand_execution_admission() {
     let mut bytes = module_header();
     push_section(&mut bytes, 1, &multivalue_type_section());
 
-    let module = parse_module(&bytes).expect("multi-result function types are valid module syntax");
+    let module =
+        parse_module(&bytes).expect("multi-result function types are valid module syntax");
     validate(&module).expect("an unused multi-result type does not require execution support");
 }
 
@@ -32,7 +33,8 @@ fn defined_function_using_multivalue_result_type_remains_fail_closed() {
     push_section(&mut bytes, 3, &[0x01, 0x00]);
     push_section(&mut bytes, 10, &[0x01, 0x02, 0x00, 0x0b]);
 
-    let module = parse_module(&bytes).expect("multi-result function signature must remain parseable");
+    let module =
+        parse_module(&bytes).expect("multi-result function signature must remain parseable");
     assert_eq!(
         validate(&module),
         Err(ValidationError::UnsupportedResultArity {
