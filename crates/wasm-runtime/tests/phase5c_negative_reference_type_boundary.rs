@@ -65,11 +65,7 @@ fn reference_locals_remain_fail_closed_at_parse_boundary() {
         let mut bytes = module_header();
         push_section(&mut bytes, 1, &[0x01, 0x60, 0x00, 0x00]);
         push_section(&mut bytes, 3, &[0x01, 0x00]);
-        push_section(
-            &mut bytes,
-            10,
-            &[0x01, 0x04, 0x01, 0x01, value_type, 0x0b],
-        );
+        push_section(&mut bytes, 10, &[0x01, 0x04, 0x01, 0x01, value_type, 0x0b]);
 
         assert_eq!(
             parse_module(&bytes),
