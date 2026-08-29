@@ -81,7 +81,9 @@ fn registry_keeps_non_i32_host_function_parameters_fail_closed() {
                 HostCapabilities::NONE,
                 |_context, _args| Ok(None),
             )
-            .expect_err("runtime registry must remain fail-closed until mixed-numeric ABI execution lands");
+            .expect_err(
+                "runtime registry must remain fail-closed until mixed-numeric ABI execution lands",
+            );
         assert!(matches!(error, HostRegistryError::UnsupportedSignature));
     }
 }
@@ -99,7 +101,9 @@ fn registry_keeps_non_i32_host_function_results_fail_closed() {
                 HostCapabilities::NONE,
                 |_context, _args| Ok(None),
             )
-            .expect_err("runtime registry must remain fail-closed until mixed-numeric ABI execution lands");
+            .expect_err(
+                "runtime registry must remain fail-closed until mixed-numeric ABI execution lands",
+            );
         assert!(matches!(error, HostRegistryError::UnsupportedSignature));
     }
 }
