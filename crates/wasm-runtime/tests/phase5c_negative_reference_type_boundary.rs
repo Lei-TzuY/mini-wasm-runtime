@@ -43,6 +43,23 @@ fn function_result_externref_remains_fail_closed_at_parse_boundary() {
 }
 
 #[test]
+fn complementary_reference_function_types_remain_fail_closed() {
+    let cases = [
+        (0x6f, vec![0x01, 0x60, 0x01, 0x6f, 0x00]),
+        (0x70, vec![0x01, 0x60, 0x00, 0x01, 0x70]),
+    ];
+
+    for (value_type, type_section) in cases {
+        let mut bytes = module_header();
+        push_section(&mut bytes, 1, &type_section);
+        assert_eq!(
+            parse_module(&bytes),
+            Err(ParseError::UnsupportedValueType(value_type))
+        );
+    }
+}
+
+#[test]
 fn defined_global_funcref_remains_fail_closed_before_const_expr_admission() {
     let mut bytes = module_header();
     push_section(&mut bytes, 6, &[0x01, 0x70, 0x00, 0xd0, 0x70, 0x0b]);
@@ -50,6 +67,17 @@ fn defined_global_funcref_remains_fail_closed_before_const_expr_admission() {
     assert_eq!(
         parse_module(&bytes),
         Err(ParseError::UnsupportedValueType(0x70))
+    );
+}
+
+#[test]
+fn defined_global_externref_remains_fail_closed_before_const_expr_admission() {
+    let mut bytes = module_header();
+    push_section(&mut bytes, 6, &[0x01, 0x6f, 0x00, 0xd0, 0x6f, 0x0b]);
+
+    assert_eq!(
+        parse_module(&bytes),
+        Err(ParseError::UnsupportedValueType(0x6f))
     );
 }
 
