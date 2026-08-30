@@ -27,6 +27,7 @@ pub enum ParseError {
     InvalidLimitsFlags(u8),
     InvalidReferenceType(u8),
     InvalidMutability(u8),
+    InvalidElementKind(u8),
     UnsupportedElementSegmentMode(u32),
     UnsupportedDataSegmentMode(u32),
     InvalidConstExprOpcode(u8),
@@ -69,6 +70,7 @@ impl fmt::Display for ParseError {
                 write!(f, "unsupported table reference type 0x{tag:02x}")
             }
             Self::InvalidMutability(value) => write!(f, "invalid global mutability byte {value}"),
+            Self::InvalidElementKind(kind) => write!(f, "invalid element kind byte 0x{kind:02x}"),
             Self::UnsupportedElementSegmentMode(mode) => {
                 write!(f, "unsupported element segment mode {mode}")
             }
@@ -662,17 +664,25 @@ fn parse_element_section(cursor: &mut Cursor<'_>, module: &mut Module) -> Result
     module.elements.reserve(count as usize);
     for _ in 0..count {
         let mode = cursor.read_u32()?;
-        if mode != 0 {
-            return Err(ParseError::UnsupportedElementSegmentMode(mode));
-        }
+        let table_index = match mode {
+            0 => 0,
+            2 => cursor.read_u32()?,
+            other => return Err(ParseError::UnsupportedElementSegmentMode(other)),
+        };
         let offset = read_i32_const_expr(cursor)?;
+        if mode == 2 {
+            let elemkind = cursor.read_u8()?;
+            if elemkind != 0x00 {
+                return Err(ParseError::InvalidElementKind(elemkind));
+            }
+        }
         let function_count = cursor.read_u32()?;
         let mut function_indices = Vec::with_capacity(function_count as usize);
         for _ in 0..function_count {
             function_indices.push(cursor.read_u32()?);
         }
         module.elements.push(ElementSegment {
-            table_index: 0,
+            table_index,
             offset,
             function_indices,
         });

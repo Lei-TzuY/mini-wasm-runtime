@@ -87,11 +87,11 @@ fn noncanonical_unknown_segment_modes_decode_then_fail_semantically() {
 }
 
 #[test]
-fn noncanonical_supported_data_mode_two_decodes_before_payload_parsing() {
-    let mut module = vec![0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00];
-    push_section(&mut module, 5, &[0x01, 0x00, 0x00]); // one memory, min=0
+fn noncanonical_supported_mode_two_decodes_before_payload_parsing() {
+    let mut data_module = vec![0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00];
+    push_section(&mut data_module, 5, &[0x01, 0x00, 0x00]); // one memory, min=0
     push_section(
-        &mut module,
+        &mut data_module,
         11,
         &[
             0x01, // one data segment
@@ -102,16 +102,29 @@ fn noncanonical_supported_data_mode_two_decodes_before_payload_parsing() {
         ],
     );
 
-    let parsed = parse_module(&module).expect("noncanonical mode-2 data segment must parse");
-    assert_eq!(parsed.data.len(), 1);
-    assert_eq!(parsed.data[0].memory_index, 0);
-    assert_eq!(parsed.data[0].offset, 0);
-    assert!(parsed.data[0].bytes.is_empty());
+    let parsed_data = parse_module(&data_module).expect("noncanonical mode-2 data segment must parse");
+    assert_eq!(parsed_data.data.len(), 1);
+    assert_eq!(parsed_data.data[0].memory_index, 0);
+    assert_eq!(parsed_data.data[0].offset, 0);
+    assert!(parsed_data.data[0].bytes.is_empty());
 
-    let element = module_with_segment_mode(9, &[0x82, 0x00]);
-    assert_eq!(
-        parse_module(&element),
-        Err(ParseError::UnsupportedElementSegmentMode(2)),
-        "noncanonical element mode 2 must remain fail closed"
+    let mut element_module = vec![0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00];
+    push_section(
+        &mut element_module,
+        9,
+        &[
+            0x01, // one element segment
+            0x82, 0x00, // noncanonical u32 LEB for mode 2
+            0x00, // explicit table index 0
+            0x41, 0x00, 0x0b, // i32.const 0; end
+            0x00, // elemkind funcref
+            0x00, // empty function-index vector
+        ],
     );
+    let parsed_element =
+        parse_module(&element_module).expect("noncanonical mode-2 element segment must parse");
+    assert_eq!(parsed_element.elements.len(), 1);
+    assert_eq!(parsed_element.elements[0].table_index, 0);
+    assert_eq!(parsed_element.elements[0].offset, 0);
+    assert!(parsed_element.elements[0].function_indices.is_empty());
 }

@@ -70,10 +70,12 @@ fn upstream_passive_data_mode_fails_closed_at_discriminant() {
 }
 
 #[test]
-fn upstream_explicit_table_index_element_mode_fails_closed_before_payload_reinterpretation() {
+fn upstream_explicit_table_index_element_mode_preserves_target_and_payload() {
     // WebAssembly/spec test/core/elem.wast includes the binary mode-2 form
-    // `(elem (table 0) (i32.const 0) func 0)`. Phase 5C intentionally only
-    // accepts legacy active mode 0, so the richer encoding must fail closed.
+    // `(elem (table 0) (i32.const 0) func 0)`. Preserve every field rather
+    // than reinterpreting the explicit table index or elemkind as legacy data.
+    assert_eq!(UPSTREAM_SPEC_COMMIT.len(), 40);
+
     let mut module = vec![0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00];
     push_section(&mut module, 1, &[0x01, 0x60, 0x00, 0x00]);
     push_section(&mut module, 3, &[0x01, 0x00]);
@@ -91,18 +93,18 @@ fn upstream_explicit_table_index_element_mode_fails_closed_before_payload_reinte
         ],
     );
 
-    assert_eq!(
-        parse_module(&module),
-        Err(ParseError::UnsupportedElementSegmentMode(2))
-    );
+    let parsed = parse_module(&module).expect("mode-2 element segment must parse");
+    assert_eq!(parsed.elements.len(), 1);
+    assert_eq!(parsed.elements[0].table_index, 0);
+    assert_eq!(parsed.elements[0].offset, 0);
+    assert_eq!(parsed.elements[0].function_indices, vec![0]);
 }
 
 #[test]
 fn upstream_nonlegacy_element_modes_fail_closed_at_discriminant() {
     // `elem.wast` exercises passive, declarative, and expression-based element
-    // encodings. Their standard binary discriminants are 1 and 3..=7; mode 2
-    // has its own crafted regression above. Each payload below is a minimal
-    // mode-shaped encoding, but rejection must happen immediately at the mode.
+    // encodings. Their standard binary discriminants are 1 and 3..=7. Active
+    // mode 2 is admitted separately; all remaining richer forms stay closed.
     assert_eq!(UPSTREAM_SPEC_COMMIT.len(), 40);
 
     let cases: &[(u32, &[u8])] = &[
