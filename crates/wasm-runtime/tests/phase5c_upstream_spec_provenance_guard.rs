@@ -1,5 +1,5 @@
 const UPSTREAM_SPEC_COMMIT: &str = "fc209c5ed8afc4dfeb9252024d217da3376c7a6f";
-const SPEC_REVISION_PREFIX: &str = "WebAssembly/spec@";
+const SPEC_COMMIT_DECL_PREFIX: &str = "const UPSTREAM_SPEC_COMMIT: &str = \"";
 
 const CURATED_SPEC_SOURCES: &[(&str, &str)] = &[
     (
@@ -31,23 +31,18 @@ fn curated_upstream_spec_vectors_remain_pinned_to_one_revision() {
     );
 
     for (path, source) in CURATED_SPEC_SOURCES {
-        let mut revisions = source.split(SPEC_REVISION_PREFIX).skip(1);
-        let first = revisions
+        let mut declarations = source.split(SPEC_COMMIT_DECL_PREFIX).skip(1);
+        let first = declarations
             .next()
-            .and_then(|suffix| suffix.get(..UPSTREAM_SPEC_COMMIT.len()));
+            .and_then(|suffix| suffix.split('"').next());
         assert_eq!(
             first,
             Some(UPSTREAM_SPEC_COMMIT),
-            "{path} must record the pinned WebAssembly/spec revision {UPSTREAM_SPEC_COMMIT}"
+            "{path} must declare the pinned WebAssembly/spec revision {UPSTREAM_SPEC_COMMIT}"
         );
-
-        for suffix in revisions {
-            let revision = suffix.get(..UPSTREAM_SPEC_COMMIT.len());
-            assert_eq!(
-                revision,
-                Some(UPSTREAM_SPEC_COMMIT),
-                "{path} contains a conflicting WebAssembly/spec revision"
-            );
-        }
+        assert!(
+            declarations.next().is_none(),
+            "{path} must declare exactly one upstream spec revision"
+        );
     }
 }
