@@ -64,7 +64,8 @@ fn documented_phase5c_upstream_vectors_remain_pinned_to_one_revision() {
         assert_pinned(&tests_dir.join(name));
     }
 
-    for entry in fs::read_dir(&tests_dir).expect("wasm-runtime tests directory must be readable") {
+    let entries = fs::read_dir(&tests_dir).expect("wasm-runtime tests directory must be readable");
+    for entry in entries {
         let path = entry.expect("tests directory entry must be readable").path();
         if !is_phase5c_spec_vector(&path) {
             continue;
