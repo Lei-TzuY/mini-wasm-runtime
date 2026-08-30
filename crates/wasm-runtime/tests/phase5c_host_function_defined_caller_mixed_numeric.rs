@@ -2,7 +2,10 @@ use wasm_parser::{parse_module, ValueType};
 use wasm_runtime::{HostCapabilities, HostRegistry, Instance, Value};
 
 fn push_section(module: &mut Vec<u8>, id: u8, payload: &[u8]) {
-    assert!(payload.len() < 128, "fixture helper only needs one-byte section lengths");
+    assert!(
+        payload.len() < 128,
+        "fixture helper only needs one-byte section lengths"
+    );
     module.push(id);
     module.push(payload.len() as u8);
     module.extend_from_slice(payload);
