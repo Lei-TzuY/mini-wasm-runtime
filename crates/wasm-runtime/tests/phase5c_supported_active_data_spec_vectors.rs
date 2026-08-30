@@ -58,6 +58,21 @@ fn push_active_data(payload: &mut Vec<u8>, offset: i32, bytes: &[u8]) {
     payload.extend_from_slice(bytes);
 }
 
+fn push_explicit_active_data(
+    payload: &mut Vec<u8>,
+    memory_index: u32,
+    offset: i32,
+    bytes: &[u8],
+) {
+    payload.push(0x02);
+    push_u32(payload, memory_index);
+    payload.push(0x41);
+    push_i32(payload, offset);
+    payload.push(0x0b);
+    push_u32(payload, bytes.len() as u32);
+    payload.extend_from_slice(bytes);
+}
+
 fn overlapping_data_module() -> Vec<u8> {
     let mut module = vec![0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00];
 
@@ -81,6 +96,29 @@ fn overlapping_data_module() -> Vec<u8> {
     push_active_data(&mut data, 3, b"f");
     push_active_data(&mut data, 2, b"g");
     push_active_data(&mut data, 1, b"h");
+    push_section(&mut module, 11, &data);
+
+    module
+}
+
+fn explicit_index_data_module() -> Vec<u8> {
+    let mut module = vec![0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00];
+
+    push_section(&mut module, 1, &[0x01, 0x60, 0x01, I32, 0x01, I32]);
+    push_section(&mut module, 3, &[0x01, 0x00]);
+    push_section(&mut module, 5, &[0x01, 0x00, 0x01]);
+
+    let mut exports = vec![0x01];
+    push_name(&mut exports, "load8");
+    exports.extend([0x00, 0x00]);
+    push_section(&mut module, 7, &exports);
+
+    let mut code = vec![0x01];
+    push_body(&mut code, &[0x20, 0x00, 0x2d, 0x00, 0x00]);
+    push_section(&mut module, 10, &code);
+
+    let mut data = vec![0x01];
+    push_explicit_active_data(&mut data, 0, 7, b"wasm");
     push_section(&mut module, 11, &data);
 
     module
@@ -115,6 +153,22 @@ fn upstream_overlapping_active_data_segments_apply_in_declaration_order() {
         (4, b'e'),
         (5, 0),
     ] {
+        assert_eq!(
+            vm.invoke_export("load8", &[Value::I32(address)]).unwrap(),
+            Some(Value::I32(i32::from(expected))),
+            "unexpected byte at address {address}"
+        );
+    }
+}
+
+#[test]
+fn explicit_memory_index_zero_active_data_executes_like_legacy_active_data() {
+    let module = parse_module(&explicit_index_data_module())
+        .expect("explicit memory-index active data vector must parse");
+    assert_eq!(module.data[0].memory_index, 0);
+
+    let mut vm = Instance::new(module).expect("explicit memory-index data must instantiate");
+    for (address, expected) in [(7, b'w'), (8, b'a'), (9, b's'), (10, b'm')] {
         assert_eq!(
             vm.invoke_export("load8", &[Value::I32(address)]).unwrap(),
             Some(Value::I32(i32::from(expected))),
