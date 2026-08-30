@@ -1,6 +1,6 @@
 # Phase 5C — Host Function ABI Boundary
 
-Phase 5C currently keeps imported Rust host functions on the original i32-only, zero-or-one-result ABI. This is an explicit admission boundary, not an accidental limitation to be removed one layer at a time.
+Phase 5C now admits imported Rust host functions across the MVP numeric value types (`i32`, `i64`, `f32`, `f64`) while deliberately retaining the runtime's zero-or-one-result execution boundary.
 
 ## Current admitted surface
 
@@ -8,45 +8,41 @@ A function import is executable only when all of the following hold:
 
 - its type index resolves;
 - it declares at most one result;
-- every parameter and result is `i32`;
+- every parameter and result is one of the supported MVP numeric value types;
 - an exact `(module, name)` host registration exists;
 - the registered parameter and result vectors exactly match the imported function type;
 - runtime argument `Value` variants match the declared parameter types before the callback executes;
 - callback result arity matches the declared zero-or-one-result signature;
+- a returned callback `Value` matches the declared result `ValueType` before it can enter Wasm execution or escape a direct imported-function export;
 - capability and host-call-budget checks remain in force.
 
-The i32-only rule is deliberately enforced twice. `wasm-validator` rejects non-i32 imported function parameters/results, and `HostRegistry::register` rejects the same signatures before they can become runtime bindings. `crates/wasm-runtime/tests/phase5c_host_function_abi_boundary.rs` pins both layers for i64, f32, and f64.
+The previous i32-only admission gate has been removed at both layers. `wasm-validator` accepts i32/i64/f32/f64 imported-function signatures with at most one result, and `HostRegistry::register` accepts the same surface. Multi-result registrations remain fail closed.
 
-## Required mixed-numeric vertical slice
+## Runtime safety contract
 
-The future non-i32 host-function slice must not merely remove those two admission gates. It is complete only when the entire boundary moves together:
+Mixed-numeric admission does not weaken the host boundary. Instance construction still requires exact registered/imported signature equality. `invoke_host` validates every runtime argument against the declared parameter type before callback execution, checks callback result arity after execution, and then checks the actual returned `Value` variant against the declared result type.
 
-1. validator admission accepts i32/i64/f32/f64 parameters and zero-or-one numeric result;
-2. `HostRegistry::register` accepts the same numeric signature surface while retaining the one-result ceiling;
-3. instance construction still requires exact registered/imported signature equality;
-4. callback arguments remain variant-checked before callback execution;
-5. callback result arity remains checked after callback execution;
-6. a returned `Value` is checked against the declared result `ValueType` before it can enter Wasm execution or escape a direct imported-function export;
-7. a wrong callback result variant fails with a dedicated typed host-boundary error rather than being accepted because its arity is one;
-8. f32/f64 values preserve their exact payload bits across the host boundary, including NaN payloads;
-9. multi-result host callbacks remain out of scope for this zero-or-one-result slice.
+This result-type check is required because registration metadata describes what a callback promises to return while the callback itself returns the generic `Option<Value>` representation and can dynamically violate that promise. Arity checking alone is insufficient.
 
-The result-type check is a defense-in-depth requirement. Registration metadata describes what a callback promises to return, but the callback itself returns the generic `Option<Value>` type and can dynamically violate that promise. Arity checking alone is therefore insufficient once the boundary is generalized—and is not a substitute for value-type checking even for the current generic callback representation.
+The admitted path also preserves exact floating-point payload bits. f32/f64 values cross the host boundary as their existing `Value` variants without numeric conversion or NaN canonicalization.
 
-## Required adversarial coverage
+## Adversarial coverage
 
-A complete mixed-numeric implementation should cover at least:
+Phase 5C pins the mixed-numeric boundary with coverage for:
 
-- i64 parameter/result round-trip;
-- mixed `[i32, i64, f32, f64]` parameter order and exact variants;
-- exact f32/f64 NaN payload preservation;
-- wrong argument variant rejected before callback side effects;
-- wrong callback result variant rejected at the host boundary;
-- exact non-i32 registration/import signature mismatch at instantiation;
-- a defined Wasm caller consuming a typed host result in subsequent typed execution;
+- mixed numeric host signatures and end-to-end execution;
+- i64/f32/f64 registration admission while retaining the one-result ceiling;
+- exact registered/imported signature matching at instantiation;
+- wrong argument variants rejected before callback side effects;
+- wrong callback result variants rejected with `RuntimeError::ValueTypeMismatch`;
+- wrong-result coverage for i32 as well as non-i32 declared result types;
+- exact f32/f64 payload-bit preservation, including nontrivial NaN payloads;
+- missing and unexpected callback results rejected by arity checks;
 - multi-result registration remaining fail closed.
 
-These requirements intentionally match the runtime's existing zero-or-one-result execution model. Multi-value execution is a separate vertical slice and must not be smuggled into this change merely to broaden the host ABI.
+## Remaining boundary
+
+Multi-value host results remain intentionally unsupported because general multi-value execution is a separate Phase 5C vertical slice. That boundary must not be relaxed independently of the validator/runtime execution model.
 
 ## Non-goals
 
