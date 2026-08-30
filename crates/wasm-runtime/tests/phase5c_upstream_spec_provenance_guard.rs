@@ -1,5 +1,4 @@
 const UPSTREAM_SPEC_COMMIT: &str = "fc209c5ed8afc4dfeb9252024d217da3376c7a6f";
-const SPEC_COMMIT_DECL_PREFIX: &str = "const UPSTREAM_SPEC_COMMIT: &str = \"";
 
 const CURATED_SPEC_SOURCES: &[(&str, &str)] = &[
     (
@@ -20,6 +19,12 @@ const CURATED_SPEC_SOURCES: &[(&str, &str)] = &[
     ),
 ];
 
+fn full_hex_commits(source: &str) -> impl Iterator<Item = &str> {
+    source
+        .split(|character: char| !character.is_ascii_hexdigit())
+        .filter(|token| token.len() == 40)
+}
+
 #[test]
 fn curated_upstream_spec_vectors_remain_pinned_to_one_revision() {
     assert_eq!(UPSTREAM_SPEC_COMMIT.len(), 40);
@@ -31,18 +36,11 @@ fn curated_upstream_spec_vectors_remain_pinned_to_one_revision() {
     );
 
     for (path, source) in CURATED_SPEC_SOURCES {
-        let mut declarations = source.split(SPEC_COMMIT_DECL_PREFIX).skip(1);
-        let first = declarations
-            .next()
-            .and_then(|suffix| suffix.split('"').next());
+        let commits: Vec<_> = full_hex_commits(source).collect();
         assert_eq!(
-            first,
-            Some(UPSTREAM_SPEC_COMMIT),
-            "{path} must declare the pinned WebAssembly/spec revision {UPSTREAM_SPEC_COMMIT}"
-        );
-        assert!(
-            declarations.next().is_none(),
-            "{path} must declare exactly one upstream spec revision"
+            commits,
+            [UPSTREAM_SPEC_COMMIT],
+            "{path} must record exactly the pinned WebAssembly/spec revision {UPSTREAM_SPEC_COMMIT}"
         );
     }
 }
