@@ -231,7 +231,7 @@ pub struct FunctionBody {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DataSegment {
-    /// Active segments currently target memory 0 only.
+    /// Active segment target memory index.
     pub memory_index: u32,
     /// Constant i32 byte offset evaluated during instantiation.
     pub offset: i32,
@@ -597,7 +597,6 @@ fn parse_table_section(cursor: &mut Cursor<'_>, module: &mut Module) -> Result<(
     }
     Ok(())
 }
-
 fn parse_memory_section(cursor: &mut Cursor<'_>, module: &mut Module) -> Result<(), ParseError> {
     let count = cursor.read_u32()?;
     module.memories.reserve(count as usize);
@@ -709,14 +708,16 @@ fn parse_data_section(cursor: &mut Cursor<'_>, module: &mut Module) -> Result<()
     module.data.reserve(count as usize);
     for _ in 0..count {
         let mode = cursor.read_u32()?;
-        if mode != 0 {
-            return Err(ParseError::UnsupportedDataSegmentMode(mode));
-        }
+        let memory_index = match mode {
+            0 => 0,
+            2 => cursor.read_u32()?,
+            other => return Err(ParseError::UnsupportedDataSegmentMode(other)),
+        };
         let offset = read_i32_const_expr(cursor)?;
         let len = cursor.read_u32()? as usize;
         let bytes = cursor.read_exact(len)?.to_vec();
         module.data.push(DataSegment {
-            memory_index: 0,
+            memory_index,
             offset,
             bytes,
         });
@@ -1050,6 +1051,22 @@ mod tests {
         assert_eq!(module.memories.len(), 1);
         assert_eq!(module.memories[0].limits.min, 1);
         assert_eq!(module.memories[0].limits.max, Some(2));
+        assert_eq!(module.data[0].offset, 4);
+        assert_eq!(module.data[0].bytes, b"was");
+    }
+
+    #[test]
+    fn parses_explicit_memory_index_active_data_segment() {
+        let mut bytes = vec![0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00];
+        push_section(&mut bytes, 5, &[0x01, 0x00, 0x01]);
+        push_section(
+            &mut bytes,
+            11,
+            &[0x01, 0x02, 0x00, 0x41, 0x04, 0x0b, 0x03, b'w', b'a', b's'],
+        );
+        let module = parse_module(&bytes).expect("explicit-index active data mode must parse");
+        assert_eq!(module.data.len(), 1);
+        assert_eq!(module.data[0].memory_index, 0);
         assert_eq!(module.data[0].offset, 4);
         assert_eq!(module.data[0].bytes, b"was");
     }
