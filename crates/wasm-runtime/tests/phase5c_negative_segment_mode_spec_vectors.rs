@@ -31,7 +31,8 @@ fn upstream_explicit_memory_index_data_mode_preserves_index_and_fails_closed_if_
         ],
     );
 
-    let parsed = parse_module(&module).expect("mode-2 data segment must preserve its target index");
+    let parsed =
+        parse_module(&module).expect("mode-2 data segment must preserve its target index");
     assert_eq!(parsed.data.len(), 1);
     assert_eq!(parsed.data[0].memory_index, 1);
     assert!(matches!(
