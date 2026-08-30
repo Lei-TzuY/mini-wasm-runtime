@@ -58,12 +58,7 @@ fn push_active_data(payload: &mut Vec<u8>, offset: i32, bytes: &[u8]) {
     payload.extend_from_slice(bytes);
 }
 
-fn push_explicit_active_data(
-    payload: &mut Vec<u8>,
-    memory_index: u32,
-    offset: i32,
-    bytes: &[u8],
-) {
+fn push_explicit_active_data(payload: &mut Vec<u8>, memory_index: u32, offset: i32, bytes: &[u8]) {
     payload.push(0x02);
     push_u32(payload, memory_index);
     payload.push(0x41);
