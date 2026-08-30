@@ -102,7 +102,8 @@ fn noncanonical_supported_mode_two_decodes_before_payload_parsing() {
         ],
     );
 
-    let parsed_data = parse_module(&data_module).expect("noncanonical mode-2 data segment must parse");
+    let parsed_data =
+        parse_module(&data_module).expect("noncanonical mode-2 data segment must parse");
     assert_eq!(parsed_data.data.len(), 1);
     assert_eq!(parsed_data.data[0].memory_index, 0);
     assert_eq!(parsed_data.data[0].offset, 0);
