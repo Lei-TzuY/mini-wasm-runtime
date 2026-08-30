@@ -17,6 +17,18 @@ const CURATED_SPEC_SOURCES: &[(&str, &str)] = &[
         "phase5c_negative_global_spec_vectors.rs",
         include_str!("phase5c_negative_global_spec_vectors.rs"),
     ),
+    (
+        "phase5c_supported_control_spec_vectors.rs",
+        include_str!("phase5c_supported_control_spec_vectors.rs"),
+    ),
+    (
+        "phase5c_supported_reinterpret_spec_vectors.rs",
+        include_str!("phase5c_supported_reinterpret_spec_vectors.rs"),
+    ),
+    (
+        "phase5c_supported_promote_demote_rounding_spec_vectors.rs",
+        include_str!("phase5c_supported_promote_demote_rounding_spec_vectors.rs"),
+    ),
 ];
 
 fn full_hex_commits(source: &str) -> impl Iterator<Item = &str> {
