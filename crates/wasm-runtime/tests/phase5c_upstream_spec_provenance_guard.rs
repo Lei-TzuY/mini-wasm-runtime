@@ -1,63 +1,7 @@
-const UPSTREAM_SPEC_COMMIT: &str = "fc209c5ed8afc4dfeb9252024d217da3376c7a6f";
+use std::fs;
+use std::path::Path;
 
-const CURATED_SPEC_SOURCES: &[(&str, &str)] = &[
-    (
-        "phase5c_supported_spec_vectors.rs",
-        include_str!("phase5c_supported_spec_vectors.rs"),
-    ),
-    (
-        "phase5c_supported_arithmetic_spec_vectors.rs",
-        include_str!("phase5c_supported_arithmetic_spec_vectors.rs"),
-    ),
-    (
-        "phase5c_supported_select_spec_vectors.rs",
-        include_str!("phase5c_supported_select_spec_vectors.rs"),
-    ),
-    (
-        "phase5c_negative_global_spec_vectors.rs",
-        include_str!("phase5c_negative_global_spec_vectors.rs"),
-    ),
-    (
-        "phase5c_supported_control_spec_vectors.rs",
-        include_str!("phase5c_supported_control_spec_vectors.rs"),
-    ),
-    (
-        "phase5c_supported_reinterpret_spec_vectors.rs",
-        include_str!("phase5c_supported_reinterpret_spec_vectors.rs"),
-    ),
-    (
-        "phase5c_supported_promote_demote_rounding_spec_vectors.rs",
-        include_str!("phase5c_supported_promote_demote_rounding_spec_vectors.rs"),
-    ),
-    (
-        "phase5c_negative_segment_mode_spec_vectors.rs",
-        include_str!("phase5c_negative_segment_mode_spec_vectors.rs"),
-    ),
-    (
-        "phase5c_negative_segment_offset_spec_vectors.rs",
-        include_str!("phase5c_negative_segment_offset_spec_vectors.rs"),
-    ),
-    (
-        "phase5c_negative_segment_target_spec_vectors.rs",
-        include_str!("phase5c_negative_segment_target_spec_vectors.rs"),
-    ),
-    (
-        "phase5c_imported_segment_boundary_spec_vectors.rs",
-        include_str!("phase5c_imported_segment_boundary_spec_vectors.rs"),
-    ),
-    (
-        "phase5c_supported_active_data_spec_vectors.rs",
-        include_str!("phase5c_supported_active_data_spec_vectors.rs"),
-    ),
-    (
-        "phase5c_supported_active_data_boundary_spec_vectors.rs",
-        include_str!("phase5c_supported_active_data_boundary_spec_vectors.rs"),
-    ),
-    (
-        "phase5c_supported_active_element_spec_vectors.rs",
-        include_str!("phase5c_supported_active_element_spec_vectors.rs"),
-    ),
-];
+const UPSTREAM_SPEC_COMMIT: &str = "fc209c5ed8afc4dfeb9252024d217da3376c7a6f";
 
 fn full_hex_commits(source: &str) -> impl Iterator<Item = &str> {
     source
@@ -65,8 +9,14 @@ fn full_hex_commits(source: &str) -> impl Iterator<Item = &str> {
         .filter(|token| token.len() == 40)
 }
 
+fn is_phase5c_spec_vector(path: &Path) -> bool {
+    path.file_name()
+        .and_then(|name| name.to_str())
+        .is_some_and(|name| name.starts_with("phase5c_") && name.ends_with("_spec_vectors.rs"))
+}
+
 #[test]
-fn curated_upstream_spec_vectors_remain_pinned_to_one_revision() {
+fn all_phase5c_spec_vectors_remain_pinned_to_one_revision() {
     assert_eq!(UPSTREAM_SPEC_COMMIT.len(), 40);
     assert!(
         UPSTREAM_SPEC_COMMIT
@@ -75,12 +25,29 @@ fn curated_upstream_spec_vectors_remain_pinned_to_one_revision() {
         "upstream spec revision must remain a full hexadecimal commit id"
     );
 
-    for (path, source) in CURATED_SPEC_SOURCES {
-        let commits: Vec<_> = full_hex_commits(source).collect();
+    let tests_dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests");
+    let mut paths: Vec<_> = fs::read_dir(&tests_dir)
+        .expect("wasm-runtime tests directory must be readable")
+        .map(|entry| entry.expect("tests directory entry must be readable").path())
+        .filter(|path| is_phase5c_spec_vector(path))
+        .collect();
+    paths.sort();
+
+    assert!(
+        !paths.is_empty(),
+        "Phase 5C spec-vector corpus must not silently disappear"
+    );
+
+    for path in paths {
+        let source = fs::read_to_string(&path).unwrap_or_else(|error| {
+            panic!("failed to read {}: {error}", path.display());
+        });
+        let commits: Vec<_> = full_hex_commits(&source).collect();
         assert_eq!(
             commits,
             [UPSTREAM_SPEC_COMMIT],
-            "{path} must record exactly the pinned WebAssembly/spec revision {UPSTREAM_SPEC_COMMIT}"
+            "{} must record exactly the pinned WebAssembly/spec revision {UPSTREAM_SPEC_COMMIT}",
+            path.display()
         );
     }
 }
