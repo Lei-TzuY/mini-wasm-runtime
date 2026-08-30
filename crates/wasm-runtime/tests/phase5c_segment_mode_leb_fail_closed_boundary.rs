@@ -67,11 +67,7 @@ fn canonical_unknown_segment_modes_fail_closed_without_payload_bytes() {
 
 #[test]
 fn noncanonical_unknown_segment_modes_decode_then_fail_semantically() {
-    let cases: &[(u32, &[u8])] = &[
-        (2, &[0x82, 0x00]),
-        (8, &[0x88, 0x00]),
-        (128, &[0x80, 0x81, 0x00]),
-    ];
+    let cases: &[(u32, &[u8])] = &[(8, &[0x88, 0x00]), (128, &[0x80, 0x81, 0x00])];
 
     for &(mode, mode_bytes) in cases {
         let element = module_with_segment_mode(9, mode_bytes);
@@ -88,4 +84,34 @@ fn noncanonical_unknown_segment_modes_decode_then_fail_semantically() {
             "noncanonical data mode {mode} must decode before semantic rejection"
         );
     }
+}
+
+#[test]
+fn noncanonical_supported_data_mode_two_decodes_before_payload_parsing() {
+    let mut module = vec![0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00];
+    push_section(&mut module, 5, &[0x01, 0x00, 0x00]); // one memory, min=0
+    push_section(
+        &mut module,
+        11,
+        &[
+            0x01, // one data segment
+            0x82, 0x00, // noncanonical u32 LEB for mode 2
+            0x00, // explicit memory index 0
+            0x41, 0x00, 0x0b, // i32.const 0; end
+            0x00, // empty byte vector
+        ],
+    );
+
+    let parsed = parse_module(&module).expect("noncanonical mode-2 data segment must parse");
+    assert_eq!(parsed.data.len(), 1);
+    assert_eq!(parsed.data[0].memory_index, 0);
+    assert_eq!(parsed.data[0].offset, 0);
+    assert!(parsed.data[0].bytes.is_empty());
+
+    let element = module_with_segment_mode(9, &[0x82, 0x00]);
+    assert_eq!(
+        parse_module(&element),
+        Err(ParseError::UnsupportedElementSegmentMode(2)),
+        "noncanonical element mode 2 must remain fail closed"
+    );
 }
