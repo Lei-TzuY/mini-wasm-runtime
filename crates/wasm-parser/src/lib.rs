@@ -597,6 +597,7 @@ fn parse_table_section(cursor: &mut Cursor<'_>, module: &mut Module) -> Result<(
     }
     Ok(())
 }
+
 fn parse_memory_section(cursor: &mut Cursor<'_>, module: &mut Module) -> Result<(), ParseError> {
     let count = cursor.read_u32()?;
     module.memories.reserve(count as usize);
