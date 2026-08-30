@@ -15,44 +15,20 @@ fn defined_caller_module() -> Vec<u8> {
     push_section(&mut module, 1, &[0x01, 0x60, 0x00, 0x01, 0x7c]);
 
     // import env.host : type 0
-    push_section(
-        &mut module,
-        2,
-        &[
-            0x01, // one import
-            0x03, b'e', b'n', b'v',
-            0x04, b'h', b'o', b's', b't',
-            0x00, // function import
-            0x00, // type index 0
-        ],
-    );
+    let import = [0x01, 0x03, b'e', b'n', b'v', 0x04, b'h', b'o', b's', b't', 0x00, 0x00];
+    push_section(&mut module, 2, &import);
 
     // one defined function, also type 0
     push_section(&mut module, 3, &[0x01, 0x00]);
 
     // export defined function index 1 as "run"
-    push_section(
-        &mut module,
-        7,
-        &[
-            0x01, // one export
-            0x03, b'r', b'u', b'n',
-            0x00, // function export
-            0x01, // function index 1 (after the imported function)
-        ],
-    );
+    let export = [0x01, 0x03, b'r', b'u', b'n', 0x00, 0x01];
+    push_section(&mut module, 7, &export);
 
     // body: call host; f64.const 1.5; f64.add; end
-    let mut body = vec![
-        0x00, // zero local declarations
-        0x10, 0x00, // call function index 0
-        0x44, // f64.const
-    ];
+    let mut body = vec![0x00, 0x10, 0x00, 0x44];
     body.extend_from_slice(&1.5_f64.to_le_bytes());
-    body.extend_from_slice(&[
-        0xa0, // f64.add
-        0x0b, // end
-    ]);
+    body.extend_from_slice(&[0xa0, 0x0b]);
 
     let mut code = vec![0x01, body.len() as u8];
     code.extend_from_slice(&body);
