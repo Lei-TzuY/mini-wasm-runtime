@@ -29,6 +29,34 @@ const CURATED_SPEC_SOURCES: &[(&str, &str)] = &[
         "phase5c_supported_promote_demote_rounding_spec_vectors.rs",
         include_str!("phase5c_supported_promote_demote_rounding_spec_vectors.rs"),
     ),
+    (
+        "phase5c_negative_segment_mode_spec_vectors.rs",
+        include_str!("phase5c_negative_segment_mode_spec_vectors.rs"),
+    ),
+    (
+        "phase5c_negative_segment_offset_spec_vectors.rs",
+        include_str!("phase5c_negative_segment_offset_spec_vectors.rs"),
+    ),
+    (
+        "phase5c_negative_segment_target_spec_vectors.rs",
+        include_str!("phase5c_negative_segment_target_spec_vectors.rs"),
+    ),
+    (
+        "phase5c_imported_segment_boundary_spec_vectors.rs",
+        include_str!("phase5c_imported_segment_boundary_spec_vectors.rs"),
+    ),
+    (
+        "phase5c_supported_active_data_spec_vectors.rs",
+        include_str!("phase5c_supported_active_data_spec_vectors.rs"),
+    ),
+    (
+        "phase5c_supported_active_data_boundary_spec_vectors.rs",
+        include_str!("phase5c_supported_active_data_boundary_spec_vectors.rs"),
+    ),
+    (
+        "phase5c_supported_active_element_spec_vectors.rs",
+        include_str!("phase5c_supported_active_element_spec_vectors.rs"),
+    ),
 ];
 
 fn full_hex_commits(source: &str) -> impl Iterator<Item = &str> {
