@@ -10,9 +10,10 @@ fn full_hex_commits(source: &str) -> impl Iterator<Item = &str> {
 }
 
 fn is_phase5c_spec_vector(path: &Path) -> bool {
-    path.file_name()
-        .and_then(|name| name.to_str())
-        .is_some_and(|name| name.starts_with("phase5c_") && name.ends_with("_spec_vectors.rs"))
+    let Some(name) = path.file_name().and_then(|name| name.to_str()) else {
+        return false;
+    };
+    name.starts_with("phase5c_") && name.ends_with("_spec_vectors.rs")
 }
 
 #[test]
@@ -28,7 +29,11 @@ fn all_phase5c_spec_vectors_remain_pinned_to_one_revision() {
     let tests_dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests");
     let mut paths: Vec<_> = fs::read_dir(&tests_dir)
         .expect("wasm-runtime tests directory must be readable")
-        .map(|entry| entry.expect("tests directory entry must be readable").path())
+        .map(|entry| {
+            entry
+                .expect("tests directory entry must be readable")
+                .path()
+        })
         .filter(|path| is_phase5c_spec_vector(path))
         .collect();
     paths.sort();
@@ -46,7 +51,7 @@ fn all_phase5c_spec_vectors_remain_pinned_to_one_revision() {
         assert_eq!(
             commits,
             [UPSTREAM_SPEC_COMMIT],
-            "{} must record exactly the pinned WebAssembly/spec revision {UPSTREAM_SPEC_COMMIT}",
+            "{} must contain exactly the pinned spec revision",
             path.display()
         );
     }
