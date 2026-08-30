@@ -1,4 +1,6 @@
 use wasm_parser::{parse_module, ParseError};
+use wasm_runtime::{Instance, RuntimeError};
+use wasm_validator::ValidationError;
 
 const UPSTREAM_SPEC_COMMIT: &str = "fc209c5ed8afc4dfeb9252024d217da3376c7a6f";
 
@@ -9,7 +11,7 @@ fn push_section(module: &mut Vec<u8>, id: u8, payload: &[u8]) {
 }
 
 #[test]
-fn upstream_explicit_memory_index_data_mode_fails_closed_before_payload_reinterpretation() {
+fn upstream_explicit_memory_index_data_mode_preserves_index_and_fails_closed_if_missing() {
     // WebAssembly/spec test/core/data.wast @ the pinned revision contains a
     // crafted mode-2 active segment with memory index 1 specifically to catch
     // parsers that reinterpret the explicit index as a legacy flag or length.
@@ -29,16 +31,24 @@ fn upstream_explicit_memory_index_data_mode_fails_closed_before_payload_reinterp
         ],
     );
 
-    assert_eq!(
-        parse_module(&module),
-        Err(ParseError::UnsupportedDataSegmentMode(2))
-    );
+    let parsed = parse_module(&module).expect("mode-2 data segment must preserve its target index");
+    assert_eq!(parsed.data.len(), 1);
+    assert_eq!(parsed.data[0].memory_index, 1);
+    assert!(matches!(
+        Instance::new(parsed),
+        Err(RuntimeError::Validation(
+            ValidationError::DataMemoryOutOfBounds {
+                segment: 0,
+                memory_index: 1,
+            }
+        ))
+    ));
 }
 
 #[test]
 fn upstream_passive_data_mode_fails_closed_at_discriminant() {
-    // `data.wast` uses passive data segments. Phase 5C only accepts legacy
-    // active mode 0, so a well-formed passive empty segment must be rejected
+    // `data.wast` uses passive data segments. Phase 5C accepts active modes 0
+    // and 2 only, so a well-formed passive empty segment must still be rejected
     // as mode 1 rather than having its byte-vector length reinterpreted.
     assert_eq!(UPSTREAM_SPEC_COMMIT.len(), 40);
 
