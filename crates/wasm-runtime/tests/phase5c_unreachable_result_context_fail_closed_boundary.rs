@@ -37,11 +37,7 @@ fn result_module(instructions: &[u8]) -> Vec<u8> {
     module
 }
 
-fn assert_unreachable_rejected(
-    instructions: &[u8],
-    expected_offset: usize,
-    expectation: &str,
-) {
+fn assert_unreachable_rejected(instructions: &[u8], expected_offset: usize, expectation: &str) {
     let module = parse_module(&result_module(instructions))
         .expect("result-context unreachable fixture must parse");
     let error = match Instance::new(module).expect_err(expectation) {
