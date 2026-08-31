@@ -37,6 +37,29 @@ fn build_module(instructions: &[u8]) -> Vec<u8> {
     module
 }
 
+fn build_module_with_typed_block(instructions: &[u8]) -> Vec<u8> {
+    let mut module = vec![0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00];
+    push_section(
+        &mut module,
+        1,
+        &[
+            0x02, // two function types
+            0x60, 0x00, 0x00, // type 0: [] -> []
+            0x60, 0x01, 0x7f, 0x00, // type 1: [i32] -> []
+        ],
+    );
+    push_section(&mut module, 3, &[0x01, 0x00]);
+
+    let mut body = vec![0x00];
+    body.extend_from_slice(instructions);
+    body.push(0x0b);
+    let mut code = vec![0x01];
+    push_u32(&mut code, body.len() as u32);
+    code.extend_from_slice(&body);
+    push_section(&mut module, 10, &code);
+    module
+}
+
 fn validation_error(module: &[u8], expectation: &str) -> ValidationError {
     let module = parse_module(module).expect("fixture must remain structurally parseable");
     match Instance::new(module).expect_err(expectation) {
@@ -69,6 +92,26 @@ fn nested_block_after_outer_unreachable_starts_reachable() {
             "a nested block must not inherit outer stack polymorphism"
         ),
         ValidationError::OperandStackUnderflow { function: 0, .. }
+    ));
+}
+
+#[test]
+fn typed_block_after_outer_unreachable_uses_polymorphism_only_for_entry_params() {
+    let module = build_module_with_typed_block(&[
+        0x0c, 0x00, // br 0: mark the function frame unreachable
+        0x02, 0x01, // block (type 1): outer polymorphism satisfies its i32 parameter
+        0x6a, // the new reachable frame has one real i32, so i32.add still underflows
+        0x0b,
+    ]);
+    assert!(matches!(
+        validation_error(
+            &module,
+            "a typed block may consume an outer polymorphic parameter but must start reachable"
+        ),
+        ValidationError::OperandStackUnderflow {
+            function: 0,
+            offset: 4
+        }
     ));
 }
 
