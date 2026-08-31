@@ -81,9 +81,7 @@ fn explicit_mode2_imported_data_preflights_all_segments_before_mutating_shared_m
     assert_eq!(module.data[1].memory_index, 0);
 
     let mut hosts = HostRegistry::new();
-    hosts
-        .register_memory("env", "mem", memory.clone())
-        .unwrap();
+    hosts.register_memory("env", "mem", memory.clone()).unwrap();
 
     let error = match Instance::with_hosts(module, hosts) {
         Ok(_) => panic!("later out-of-bounds explicit data segment must fail instantiation"),
