@@ -1692,6 +1692,7 @@ impl Instance {
             pc += 1;
 
             match opcode {
+                0x01 => {}
                 0x02 | 0x03 => {
                     let signature = read_block_signature(&self.module, code, &mut pc)?;
                     let info = control_map.info(offset)?;
@@ -2529,7 +2530,8 @@ fn build_control_map(module: &Module, code: &[u8]) -> Result<ControlMap, Runtime
             0x44 => {
                 let _ = read_fixed_u64(code, &mut pc)?;
             }
-            0x0f
+            0x01
+            | 0x0f
             | 0x1a
             | 0x1b
             | 0x45..=0x66
@@ -3089,13 +3091,9 @@ mod tests {
     }
 
     #[test]
-    fn unsupported_opcode_is_rejected_before_execution() {
-        let bytes = module_with_body(0, 1, &[0x01, 0x0b]);
-        let module = parse_module(&bytes).expect("parse test module");
-        let error = Instance::new(module).expect_err("unsupported opcode must fail validation");
-        assert!(matches!(
-            error,
-            RuntimeError::Validation(ValidationError::UnsupportedOpcode { opcode: 0x01, .. })
-        ));
+    fn nop_executes_without_changing_result() {
+        let bytes = module_with_body(0, 1, &[0x01, 0x41, 0x2a, 0x0b]);
+        let mut vm = instance(&bytes);
+        assert_eq!(vm.invoke_export("run", &[]).unwrap(), Some(Value::I32(42)));
     }
 }

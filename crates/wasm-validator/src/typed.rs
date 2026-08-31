@@ -49,6 +49,7 @@ pub(super) fn validate_code(
         pc += 1;
 
         match opcode {
+            0x01 => {}
             0x02 | 0x03 => {
                 let signature = read_block_signature(module, code, &mut pc, function, offset)?;
                 let kind = if opcode == 0x02 {
