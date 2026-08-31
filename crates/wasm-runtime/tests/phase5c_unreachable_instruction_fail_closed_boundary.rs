@@ -122,6 +122,23 @@ fn validator_unreachable_frame_does_not_hide_unsupported_unreachable_opcode() {
 }
 
 #[test]
+fn outer_typed_branch_unreachable_frame_does_not_hide_unsupported_unreachable_opcode() {
+    assert_unreachable_instruction_rejected(
+        &[
+            0x02, 0x7f, // outer block (result i32)
+            0x02, 0x40, // inner block
+            0x41, 0x07, // i32.const 7 satisfies the outer label value
+            0x0c, 0x01, // br 1 makes the inner frame validator-unreachable
+            0x00, // unreachable instruction itself is still unsupported
+            0x0b, // end inner block
+            0x0b, // end outer block
+        ],
+        8,
+        "a non-zero-depth typed branch must not hide the unsupported unreachable opcode",
+    );
+}
+
+#[test]
 fn else_arm_does_not_partially_admit_unreachable_instruction() {
     assert_unreachable_instruction_rejected(
         &[
