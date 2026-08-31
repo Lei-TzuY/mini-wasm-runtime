@@ -3,6 +3,7 @@ use std::fs;
 use std::path::Path;
 
 const UPSTREAM_SPEC_COMMIT: &str = "fc209c5ed8afc4dfeb9252024d217da3376c7a6f";
+const UPSTREAM_PROVENANCE_MARKER: &str = "WebAssembly/spec@";
 
 fn full_hex_commits(source: &str) -> impl Iterator<Item = &str> {
     source
@@ -87,4 +88,32 @@ fn curated_upstream_manifest_is_complete_and_self_consistent() {
         entries > 0,
         "upstream provenance manifest must not be empty"
     );
+
+    for directory_entry in fs::read_dir(&tests_dir).unwrap_or_else(|error| {
+        panic!("failed to scan {}: {error}", tests_dir.display());
+    }) {
+        let path = directory_entry
+            .unwrap_or_else(|error| panic!("failed to inspect test directory entry: {error}"))
+            .path();
+        if !path.is_file() {
+            continue;
+        }
+
+        let Some(name) = path.file_name().and_then(|name| name.to_str()) else {
+            continue;
+        };
+        if !name.starts_with("phase5c_") || !name.ends_with("_spec_vectors.rs") {
+            continue;
+        }
+
+        let source = fs::read_to_string(&path).unwrap_or_else(|error| {
+            panic!("failed to inspect {}: {error}", path.display());
+        });
+        if source.contains(UPSTREAM_PROVENANCE_MARKER) {
+            assert!(
+                seen.contains(name),
+                "upstream-derived Phase 5C spec-vector test is missing from manifest: {name}"
+            );
+        }
+    }
 }
