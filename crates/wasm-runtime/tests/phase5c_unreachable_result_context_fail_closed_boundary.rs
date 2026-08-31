@@ -37,7 +37,11 @@ fn result_module(instructions: &[u8]) -> Vec<u8> {
     module
 }
 
-fn assert_unreachable_rejected(instructions: &[u8], expectation: &str) {
+fn assert_unreachable_rejected(
+    instructions: &[u8],
+    expected_offset: usize,
+    expectation: &str,
+) {
     let module = parse_module(&result_module(instructions))
         .expect("result-context unreachable fixture must parse");
     let error = match Instance::new(module).expect_err(expectation) {
@@ -48,9 +52,9 @@ fn assert_unreachable_rejected(instructions: &[u8], expectation: &str) {
         error,
         ValidationError::UnsupportedOpcode {
             function: 0,
+            offset,
             opcode: 0x00,
-            ..
-        }
+        } if offset == expected_offset
     ));
 }
 
@@ -58,6 +62,7 @@ fn assert_unreachable_rejected(instructions: &[u8], expectation: &str) {
 fn function_result_requirement_does_not_partially_admit_unreachable() {
     assert_unreachable_rejected(
         &[0x00],
+        0,
         "a result-producing function must reject unsupported unreachable before using stack polymorphism to satisfy its result",
     );
 }
@@ -70,6 +75,23 @@ fn block_result_requirement_does_not_partially_admit_unreachable() {
             0x00, // unreachable would make the block result stack-polymorphic once admitted
             0x0b,
         ],
+        2,
         "a result-producing block must not use unsupported unreachable to satisfy its result contract",
+    );
+}
+
+#[test]
+fn if_result_requirement_does_not_partially_admit_unreachable() {
+    assert_unreachable_rejected(
+        &[
+            0x41, 0x01, // true condition
+            0x04, 0x7f, // if (result i32)
+            0x00, // then arm would become stack-polymorphic once unreachable is admitted
+            0x05, // else
+            0x41, 0x2a, // i32.const 42 satisfies the else result
+            0x0b,
+        ],
+        4,
+        "a result-producing if must not use unsupported unreachable to satisfy its then-arm result contract",
     );
 }
