@@ -47,7 +47,8 @@ fn curated_upstream_manifest_is_complete_and_self_consistent() {
             line_index + 1
         );
         assert_eq!(
-            commit, UPSTREAM_SPEC_COMMIT,
+            commit,
+            UPSTREAM_SPEC_COMMIT,
             "{}:{} is not pinned to the Phase 5C upstream revision",
             manifest_path.display(),
             line_index + 1
@@ -67,7 +68,10 @@ fn curated_upstream_manifest_is_complete_and_self_consistent() {
 
         let vector_path = tests_dir.join(name);
         let source = fs::read_to_string(&vector_path).unwrap_or_else(|error| {
-            panic!("manifest entry {} is unreadable: {error}", vector_path.display());
+            panic!(
+                "manifest entry {} is unreadable: {error}",
+                vector_path.display()
+            );
         });
         let commits: Vec<_> = full_hex_commits(&source).collect();
         assert_eq!(
@@ -79,5 +83,8 @@ fn curated_upstream_manifest_is_complete_and_self_consistent() {
         entries += 1;
     }
 
-    assert!(entries > 0, "upstream provenance manifest must not be empty");
+    assert!(
+        entries > 0,
+        "upstream provenance manifest must not be empty"
+    );
 }
