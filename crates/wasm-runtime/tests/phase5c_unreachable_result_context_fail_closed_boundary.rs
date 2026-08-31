@@ -104,3 +104,19 @@ fn if_result_requirement_does_not_partially_admit_unreachable() {
         "a result-producing if must not use unsupported unreachable to satisfy its then-arm result contract",
     );
 }
+
+#[test]
+fn if_else_result_requirement_does_not_partially_admit_unreachable() {
+    assert_unreachable_rejected(
+        &[
+            0x41, 0x01, // true condition
+            0x04, 0x7f, // if (result i32)
+            0x41, 0x2a, // i32.const 42 satisfies the then result
+            0x05, // else
+            0x00, // else arm would become stack-polymorphic once unreachable is admitted
+            0x0b,
+        ],
+        7,
+        "a result-producing if must not use unsupported unreachable to satisfy its else-arm result contract",
+    );
+}
