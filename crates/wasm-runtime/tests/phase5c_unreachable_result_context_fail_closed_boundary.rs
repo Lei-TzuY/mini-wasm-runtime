@@ -64,6 +64,18 @@ fn function_result_requirement_does_not_partially_admit_unreachable() {
 }
 
 #[test]
+fn already_satisfied_function_result_does_not_hide_unsupported_unreachable() {
+    assert_unreachable_rejected(
+        &[
+            0x41, 0x2a, // i32.const 42 already satisfies the function result
+            0x00, // unsupported unreachable must still be rejected at its own opcode
+        ],
+        2,
+        "a satisfied result stack must not hide unsupported unreachable behind an otherwise valid function result",
+    );
+}
+
+#[test]
 fn block_result_requirement_does_not_partially_admit_unreachable() {
     assert_unreachable_rejected(
         &[
