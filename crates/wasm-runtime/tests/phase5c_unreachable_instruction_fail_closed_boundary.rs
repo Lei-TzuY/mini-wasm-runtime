@@ -37,7 +37,11 @@ fn module_with_instructions(instructions: &[u8]) -> Vec<u8> {
     module
 }
 
-fn assert_unreachable_instruction_rejected(instructions: &[u8], expectation: &str) {
+fn assert_unreachable_instruction_rejected(
+    instructions: &[u8],
+    expected_offset: usize,
+    expectation: &str,
+) {
     let module = parse_module(&module_with_instructions(instructions))
         .expect("unreachable-instruction boundary fixture must parse");
     let error = match Instance::new(module).expect_err(expectation) {
@@ -48,9 +52,9 @@ fn assert_unreachable_instruction_rejected(instructions: &[u8], expectation: &st
         error,
         ValidationError::UnsupportedOpcode {
             function: 0,
+            offset,
             opcode: 0x00,
-            ..
-        }
+        } if offset == expected_offset
     ));
 }
 
@@ -58,6 +62,7 @@ fn assert_unreachable_instruction_rejected(instructions: &[u8], expectation: &st
 fn reachable_unreachable_instruction_remains_fail_closed() {
     assert_unreachable_instruction_rejected(
         &[0x00],
+        0,
         "MVP unreachable instruction must remain outside the admitted surface",
     );
 }
@@ -70,7 +75,35 @@ fn structured_control_does_not_partially_admit_unreachable_instruction() {
             0x00, // unreachable instruction
             0x0b, // end block
         ],
+        2,
         "structured control must not hide unsupported unreachable instruction",
+    );
+}
+
+#[test]
+fn loop_body_does_not_partially_admit_unreachable_instruction() {
+    assert_unreachable_instruction_rejected(
+        &[
+            0x03, 0x40, // loop
+            0x00, // unreachable instruction
+            0x0b, // end loop
+        ],
+        2,
+        "loop control must not hide unsupported unreachable instruction",
+    );
+}
+
+#[test]
+fn if_then_arm_does_not_partially_admit_unreachable_instruction() {
+    assert_unreachable_instruction_rejected(
+        &[
+            0x41, 0x01, // true condition
+            0x04, 0x40, // if
+            0x00, // unreachable instruction in then arm
+            0x0b, // end if
+        ],
+        4,
+        "an if then-arm must not hide unsupported unreachable instruction",
     );
 }
 
@@ -83,6 +116,7 @@ fn validator_unreachable_frame_does_not_hide_unsupported_unreachable_opcode() {
             0x00, // unreachable instruction itself is still unsupported
             0x0b, // end block
         ],
+        4,
         "stack polymorphism must not partially admit the unreachable instruction opcode",
     );
 }
@@ -97,6 +131,7 @@ fn else_arm_does_not_partially_admit_unreachable_instruction() {
             0x00, // unreachable instruction in else arm
             0x0b, // end if
         ],
+        5,
         "an else transition must not hide an unsupported unreachable instruction",
     );
 }
@@ -108,6 +143,7 @@ fn return_induced_unreachable_frame_does_not_hide_unsupported_unreachable_opcode
             0x0f, // return makes the function frame validator-unreachable
             0x00, // unreachable instruction itself is still unsupported
         ],
+        1,
         "return-induced stack polymorphism must not admit the unsupported unreachable opcode",
     );
 }
