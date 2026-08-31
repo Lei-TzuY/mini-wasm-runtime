@@ -170,6 +170,26 @@ fn nested_if_after_outer_unreachable_starts_reachable() {
 }
 
 #[test]
+fn typed_if_after_outer_unreachable_uses_polymorphism_only_for_condition_and_entry_params() {
+    let module = build_module_with_typed_block(&[
+        0x0c, 0x00, // br 0: mark the function frame unreachable
+        0x04, 0x01, // if (type 1): outer polymorphism supplies condition and i32 parameter
+        0x6a, // the reachable then frame has one real i32, so i32.add underflows
+        0x0b,
+    ]);
+    assert!(matches!(
+        validation_error(
+            &module,
+            "a typed if may consume outer polymorphic inputs but its then frame must start reachable"
+        ),
+        ValidationError::OperandStackUnderflow {
+            function: 0,
+            offset: 4
+        }
+    ));
+}
+
+#[test]
 fn else_arm_resets_then_arm_unreachable_state() {
     let module = build_module(&[
         0x41, 0x01, // i32.const 1
