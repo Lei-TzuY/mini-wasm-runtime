@@ -8,8 +8,8 @@ const HEADER: [&str; 2] = [
 
 #[test]
 fn upstream_manifest_is_canonical_and_deterministic() {
-    let manifest_path = Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("tests/fixtures/phase5c_upstream_manifest.tsv");
+    let manifest_path =
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/phase5c_upstream_manifest.tsv");
     let bytes = fs::read(&manifest_path)
         .unwrap_or_else(|error| panic!("failed to read {}: {error}", manifest_path.display()));
 
@@ -36,7 +36,10 @@ fn upstream_manifest_is_canonical_and_deterministic() {
     let mut entries = 0usize;
     for (index, line) in lines.enumerate() {
         let line_number = index + HEADER.len() + 1;
-        assert!(!line.is_empty(), "manifest line {line_number} must not be blank");
+        assert!(
+            !line.is_empty(),
+            "manifest line {line_number} must not be blank"
+        );
         assert_eq!(
             line.trim(),
             line,
@@ -54,7 +57,10 @@ fn upstream_manifest_is_canonical_and_deterministic() {
             fields.next().is_none(),
             "manifest line {line_number} must contain exactly one tab separator"
         );
-        assert!(!path.is_empty(), "manifest line {line_number} has an empty path");
+        assert!(
+            !path.is_empty(),
+            "manifest line {line_number} has an empty path"
+        );
         assert!(
             !revision.is_empty(),
             "manifest line {line_number} has an empty revision"
@@ -70,5 +76,8 @@ fn upstream_manifest_is_canonical_and_deterministic() {
         entries += 1;
     }
 
-    assert!(entries > 0, "upstream manifest must contain at least one entry");
+    assert!(
+        entries > 0,
+        "upstream manifest must contain at least one entry"
+    );
 }
