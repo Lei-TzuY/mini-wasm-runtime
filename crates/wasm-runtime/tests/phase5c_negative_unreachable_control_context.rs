@@ -90,6 +90,23 @@ fn nested_loop_after_outer_unreachable_starts_reachable() {
 }
 
 #[test]
+fn nested_if_after_outer_unreachable_starts_reachable() {
+    let module = build_module(&[
+        0x0c, 0x00, // br 0: mark the function frame unreachable
+        0x04, 0x40, // if: condition is polymorphic, but the new frame starts reachable
+        0x6a, // i32.add therefore underflows this empty then arm
+        0x0b,
+    ]);
+    assert!(matches!(
+        validation_error(
+            &module,
+            "a nested if must not inherit outer stack polymorphism"
+        ),
+        ValidationError::OperandStackUnderflow { function: 0, .. }
+    ));
+}
+
+#[test]
 fn else_arm_resets_then_arm_unreachable_state() {
     let module = build_module(&[
         0x41, 0x01, // i32.const 1
