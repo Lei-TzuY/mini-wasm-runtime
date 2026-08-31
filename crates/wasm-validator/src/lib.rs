@@ -1080,10 +1080,13 @@ mod tests {
         let valid = module_with_code(1, 1, vec![0x20, 0x00, 0x0f, 0x6a, 0x0b]);
         assert_eq!(validate(&valid), Ok(()));
 
-        let invalid = module_with_code(1, 1, vec![0x20, 0x00, 0x0f, 0x01, 0x0b]);
+        let nop = module_with_code(1, 1, vec![0x20, 0x00, 0x0f, 0x01, 0x0b]);
+        assert_eq!(validate(&nop), Ok(()));
+
+        let invalid = module_with_code(1, 1, vec![0x20, 0x00, 0x0f, 0xd1, 0x0b]);
         assert!(matches!(
             validate(&invalid),
-            Err(ValidationError::UnsupportedOpcode { opcode: 0x01, .. })
+            Err(ValidationError::UnsupportedOpcode { opcode: 0xd1, .. })
         ));
     }
 
