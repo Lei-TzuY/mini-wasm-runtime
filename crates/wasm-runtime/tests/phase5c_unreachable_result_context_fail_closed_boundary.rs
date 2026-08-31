@@ -146,6 +146,23 @@ fn if_result_requirement_does_not_partially_admit_unreachable() {
 }
 
 #[test]
+fn already_satisfied_if_then_result_does_not_hide_unsupported_unreachable() {
+    assert_unreachable_rejected(
+        &[
+            0x41, 0x01, // true condition
+            0x04, 0x7f, // if (result i32)
+            0x41, 0x2a, // i32.const 42 already satisfies the then-arm result
+            0x00, // unsupported unreachable must still be rejected in the then arm
+            0x05, // else
+            0x41, 0x2b, // i32.const 43 satisfies the else-arm result
+            0x0b,
+        ],
+        6,
+        "a satisfied then-arm result must not hide unsupported unreachable before the else boundary",
+    );
+}
+
+#[test]
 fn if_else_result_requirement_does_not_partially_admit_unreachable() {
     assert_unreachable_rejected(
         &[
