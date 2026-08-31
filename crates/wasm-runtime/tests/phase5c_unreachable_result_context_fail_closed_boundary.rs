@@ -77,6 +77,19 @@ fn block_result_requirement_does_not_partially_admit_unreachable() {
 }
 
 #[test]
+fn loop_result_requirement_does_not_partially_admit_unreachable() {
+    assert_unreachable_rejected(
+        &[
+            0x03, 0x7f, // loop (result i32)
+            0x00, // unreachable would make the loop body stack-polymorphic once admitted
+            0x0b,
+        ],
+        2,
+        "a result-producing loop must not use unsupported unreachable to satisfy its end-result contract",
+    );
+}
+
+#[test]
 fn if_result_requirement_does_not_partially_admit_unreachable() {
     assert_unreachable_rejected(
         &[
