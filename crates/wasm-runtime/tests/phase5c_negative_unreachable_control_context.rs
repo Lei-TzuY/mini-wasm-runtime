@@ -208,3 +208,27 @@ fn else_arm_resets_then_arm_unreachable_state() {
         ValidationError::OperandStackUnderflow { function: 0, .. }
     ));
 }
+
+#[test]
+fn typed_else_restores_entry_params_without_inheriting_then_unreachable_state() {
+    let module = build_module_with_typed_block(&[
+        0x41, 0x2a, // i32.const 42: typed-if entry parameter
+        0x41, 0x01, // i32.const 1: condition
+        0x04, 0x01, // if (type 1): [i32] -> []
+        0x0c, 0x00, // br 0: mark only the then arm unreachable
+        0x6a, // accepted through same-frame stack polymorphism
+        0x05, // else: restore the typed entry parameter on a reachable frame
+        0x6a, // only one i32 is present, so i32.add must underflow
+        0x0b,
+    ]);
+    assert!(matches!(
+        validation_error(
+            &module,
+            "typed else must restore entry params without inheriting then-arm polymorphism"
+        ),
+        ValidationError::OperandStackUnderflow {
+            function: 0,
+            offset: 10
+        }
+    ));
+}
