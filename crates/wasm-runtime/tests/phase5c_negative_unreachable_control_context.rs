@@ -133,6 +133,26 @@ fn nested_loop_after_outer_unreachable_starts_reachable() {
 }
 
 #[test]
+fn typed_loop_after_outer_unreachable_uses_polymorphism_only_for_entry_params() {
+    let module = build_module_with_typed_block(&[
+        0x0c, 0x00, // br 0: mark the function frame unreachable
+        0x03, 0x01, // loop (type 1): outer polymorphism satisfies its i32 parameter
+        0x6a, // the new reachable loop frame has one real i32, so i32.add underflows
+        0x0b,
+    ]);
+    assert!(matches!(
+        validation_error(
+            &module,
+            "a typed loop may consume an outer polymorphic parameter but must start reachable"
+        ),
+        ValidationError::OperandStackUnderflow {
+            function: 0,
+            offset: 4
+        }
+    ));
+}
+
+#[test]
 fn nested_if_after_outer_unreachable_starts_reachable() {
     let module = build_module(&[
         0x0c, 0x00, // br 0: mark the function frame unreachable
