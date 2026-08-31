@@ -89,6 +89,20 @@ fn block_result_requirement_does_not_partially_admit_unreachable() {
 }
 
 #[test]
+fn already_satisfied_block_result_does_not_hide_unsupported_unreachable() {
+    assert_unreachable_rejected(
+        &[
+            0x02, 0x7f, // block (result i32)
+            0x41, 0x2a, // i32.const 42 already satisfies the block result
+            0x00, // unsupported unreachable must still be rejected at its own opcode
+            0x0b,
+        ],
+        4,
+        "a satisfied block-result stack must not hide unsupported unreachable before the block end",
+    );
+}
+
+#[test]
 fn loop_result_requirement_does_not_partially_admit_unreachable() {
     assert_unreachable_rejected(
         &[
