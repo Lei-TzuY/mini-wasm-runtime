@@ -102,9 +102,7 @@ fn explicit_mode2_imported_data_preflights_all_segments_before_mutating_shared_m
     let retry = parse_module(&imported_memory_module(&[(3, b"wasm")]))
         .expect("valid explicit mode-2 imported data retry must parse");
     let mut retry_hosts = HostRegistry::new();
-    retry_hosts
-        .register_memory("env", "mem", memory.clone())
-        .unwrap();
+    retry_hosts.register_memory("env", "mem", memory.clone()).unwrap();
     let _instance = Instance::with_hosts(retry, retry_hosts)
         .expect("failed explicit-data preflight must not poison imported memory handle");
 
