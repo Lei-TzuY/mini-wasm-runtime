@@ -43,7 +43,7 @@ The repository includes more than feature tests. The current baseline also conta
 - pinned upstream WebAssembly spec provenance
 - WAST ingestion infrastructure with exact executed/filtered accounting
 
-The committed WAST manifest is pinned to `WebAssembly/spec` commit `fc209c5ed8afc4dfeb9252024d217da3376c7a6f`. At this consolidation point it covers 33 unique upstream sources, 1059 selected assertions, and 4 stateful bare invokes with zero filters.
+The committed WAST manifest is pinned to `WebAssembly/spec` commit `fc209c5ed8afc4dfeb9252024d217da3376c7a6f`. At this consolidation point it covers 33 unique upstream sources, 1061 selected assertions, and 4 stateful bare invokes with zero filters.
 
 ## Known boundaries
 
