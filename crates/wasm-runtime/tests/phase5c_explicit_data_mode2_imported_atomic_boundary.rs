@@ -110,3 +110,32 @@ fn explicit_mode2_imported_data_preflights_all_segments_before_mutating_shared_m
 
     assert_eq!(memory.read(3, 4).unwrap(), b"wasm");
 }
+
+#[test]
+fn explicit_mode2_imported_data_treats_negative_offset_as_unsigned_and_stays_atomic() {
+    let memory = MemoryHandle::new(1, Some(2)).unwrap();
+    memory.write(3, b"KEEP").unwrap();
+
+    let module = parse_module(&imported_memory_module(&[
+        (3, b"wasm"),
+        (-1, b"x"), // WebAssembly i32 address semantics: 0xffff_ffff, not -1 or wrap-to-small
+    ]))
+    .expect("explicit mode-2 imported data module with negative offset must parse");
+
+    let mut hosts = HostRegistry::new();
+    hosts.register_memory("env", "mem", memory.clone()).unwrap();
+
+    let error = Instance::with_hosts(module, hosts)
+        .expect_err("unsigned negative explicit-data offset must fail instantiation");
+    assert!(matches!(
+        error,
+        RuntimeError::DataSegmentOutOfBounds {
+            segment: 1,
+            offset,
+            length: 1,
+        } if offset == u64::from(u32::MAX)
+    ));
+
+    assert_eq!(memory.read(3, 4).unwrap(), b"KEEP");
+    assert_eq!(memory.size_pages(), 1);
+}
