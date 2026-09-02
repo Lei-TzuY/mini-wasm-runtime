@@ -73,3 +73,7 @@
 (assert_return (invoke "rem_s" (i32.const -5) (i32.const 2)) (i32.const -1))
 (assert_return (invoke "rem_s" (i32.const 5) (i32.const -2)) (i32.const 1))
 (assert_return (invoke "rem_s" (i32.const -5) (i32.const -2)) (i32.const -1))
+(assert_return (invoke "rem_s" (i32.const 7) (i32.const 3)) (i32.const 1))
+(assert_return (invoke "rem_s" (i32.const -7) (i32.const 3)) (i32.const -1))
+(assert_return (invoke "rem_s" (i32.const 7) (i32.const -3)) (i32.const 1))
+(assert_return (invoke "rem_s" (i32.const -7) (i32.const -3)) (i32.const -1))
