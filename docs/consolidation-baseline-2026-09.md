@@ -71,6 +71,20 @@ For pure WAST expansion, prefer one coherent batch of roughly 20–50 assertions
 
 Production fixes stay regression-first and minimal. Conformance batching must never weaken validation, trap classification, fail-closed behavior, or exact manifest accounting.
 
+## First post-consolidation audit candidates
+
+The executable manifest is broad, but the pinned upstream core directory still contains evidence surfaces that are not represented as manifest rows. The first new runs should inspect those gaps before extending the already-active `i32.wast` row again.
+
+Highest-value candidates include:
+
+- `binary-leb128.wast`: the parser already owns signed/unsigned LEB128 decoding, so a curated malformed/boundary tranche can strengthen parser conformance rather than merely exercise runtime arithmetic;
+- `binary.wast`: inspect for a bounded subset that maps to already-supported binary module structure and malformed-module rejection;
+- other currently supported parser/validator surfaces absent from the manifest, selected only after confirming the corresponding feature is implemented and the upstream cases do not rely on unsupported proposals.
+
+These are audit candidates, not promises that the full upstream files are supported. A run must first classify upstream directives and prove that a coherent subset belongs inside the current support boundary.
+
+Only after those cross-layer/parser opportunities have been checked should routine expansion of existing numeric rows such as `i32.wast` become the default again.
+
 ## Rotation policy
 
 Do not spend consecutive runs indefinitely on one numeric file. After one or two conformance batches, inspect other evidence surfaces before choosing the next task:
