@@ -107,10 +107,13 @@ fn rejects_pinned_overlong_and_unused_bit_leb128_encodings() {
 
 #[test]
 fn rejects_overlong_u32s_in_parser_owned_binary_fields() {
+    // Keep each section payload long enough to contain the malformed field so
+    // this checks the LEB128 decoder boundary itself rather than an earlier
+    // section-payload EOF. The field encodings are the pinned upstream forms.
     let cases = [
         (
             "memory minimum",
-            "05 08 01 00 82 80 80 80 80 80 80 80 80 80 00",
+            "05 08 01 00 82 80 80 80 80 00",
         ),
         (
             "type parameter count",
@@ -122,7 +125,7 @@ fn rejects_overlong_u32s_in_parser_owned_binary_fields() {
         ),
         (
             "function type index",
-            "01 04 01 60 00 00 03 03 01 80 80 80 80 80 00 0a 04 01 02 00 0b",
+            "01 04 01 60 00 00 03 07 01 80 80 80 80 80 00 0a 04 01 02 00 0b",
         ),
         (
             "export name length",
@@ -130,7 +133,7 @@ fn rejects_overlong_u32s_in_parser_owned_binary_fields() {
         ),
         (
             "code function count",
-            "01 04 01 60 00 00 03 02 01 00 0a 05 81 80 80 80 80 00 02 00 0b",
+            "01 04 01 60 00 00 03 02 01 00 0a 09 81 80 80 80 80 00 02 00 0b",
         ),
     ];
 
