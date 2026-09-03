@@ -13,6 +13,6 @@ duplicate_type_section	parse_module,parse_validate	parse-error	0061736d010000000
 fuzz_invalid_utf8_export_name	parse_module,parse_validate	parse-error	0061736d010000000105016000017f030201000707010397979797979772756e00000a06010400412a0b	coverage seed promoted from PR 186 fuzz-smoke run 32896680246; invalid UTF-8 export name
 fuzz_section_out_of_order	parse_module,parse_validate	parse-error	0061736d01000000090100010100	coverage seed promoted from PR 186 fuzz-smoke run 32896680246; type section follows element section
 fuzz_const_expr_missing_end	parse_module,parse_validate	parse-error	0061736d010000000606017f004100610001006d7300010401600000030701000004046101	coverage seed promoted from PR 186 fuzz-smoke run 32896680246; malformed global const expression does not reach end
-function_without_code	parse_module,parse_validate	validation-error	0061736d0100000001040160000003020100	function declaration without matching code body
+function_without_code	parse_module,parse_validate	parse-error	0061736d0100000001040160000003020100	function declaration without matching code body is malformed at the parser boundary
 export_function_oob	parse_module,parse_validate	validation-error	0061736d010000000707010372756e0000	function export references missing function index 0
 two_memories	parse_module,parse_validate	validation-error	0061736d0100000005050200010001	validly encoded two-memory module outside current single-memory subset
