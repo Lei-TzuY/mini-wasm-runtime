@@ -57,6 +57,11 @@ pub enum ValidationError {
         global: usize,
         value_type: ValueType,
     },
+    GlobalInitializerTypeMismatch {
+        global: usize,
+        expected: ValueType,
+        actual: ValueType,
+    },
     StartFunctionOutOfBounds {
         function_index: u32,
     },
@@ -290,6 +295,14 @@ impl fmt::Display for ValidationError {
             Self::UnsupportedGlobalValueType { global, value_type } => write!(
                 f,
                 "global {global} uses {value_type:?}; globals are currently i32-only"
+            ),
+            Self::GlobalInitializerTypeMismatch {
+                global,
+                expected,
+                actual,
+            } => write!(
+                f,
+                "global {global} initializer has type {actual:?}, expected {expected:?}"
             ),
             Self::StartFunctionOutOfBounds { function_index } => {
                 write!(f, "start function index {function_index} is out of bounds")
@@ -525,6 +538,7 @@ pub fn validate(module: &Module) -> Result<(), ValidationError> {
     validate_memories(module)?;
     validate_imports(module)?;
     phase5::validate_phase5(module)?;
+    validate_defined_global_initializers(module)?;
 
     if module.function_type_indices.len() != module.code.len() {
         return Err(ValidationError::FunctionCodeLengthMismatch {
@@ -618,6 +632,21 @@ pub fn validate(module: &Module) -> Result<(), ValidationError> {
         }
     }
 
+    Ok(())
+}
+
+fn validate_defined_global_initializers(module: &Module) -> Result<(), ValidationError> {
+    for (defined, definition) in module.globals.iter().enumerate() {
+        let expected = definition.ty.value_type;
+        let actual = definition.init.value_type();
+        if actual != expected {
+            return Err(ValidationError::GlobalInitializerTypeMismatch {
+                global: module.global_import_count() + defined,
+                expected,
+                actual,
+            });
+        }
+    }
     Ok(())
 }
 
