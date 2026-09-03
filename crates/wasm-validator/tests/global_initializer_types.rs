@@ -1,5 +1,5 @@
 use wasm_parser::{Constant, Global, GlobalType, Import, ImportDesc, Module, ValueType};
-use wasm_validator::validate;
+use wasm_validator::{validate, ValidationError};
 
 #[test]
 fn rejects_defined_global_initializer_type_mismatch() {
@@ -22,8 +22,12 @@ fn rejects_defined_global_initializer_type_mismatch() {
         ..Module::default()
     };
 
-    assert!(
-        validate(&module).is_err(),
-        "validator accepted an i64 initializer for a declared i32 global"
+    assert_eq!(
+        validate(&module),
+        Err(ValidationError::GlobalInitializerTypeMismatch {
+            global: 1,
+            expected: ValueType::I32,
+            actual: ValueType::I64,
+        })
     );
 }
