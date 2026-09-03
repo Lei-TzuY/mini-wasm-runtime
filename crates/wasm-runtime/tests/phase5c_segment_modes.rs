@@ -200,6 +200,49 @@ fn explicit_active_element_targets_table_zero() {
 }
 
 #[test]
+fn failed_element_preflight_does_not_mutate_imported_memory() {
+    let (types, function_type_indices, code) = noop_function_parts();
+    let module = Module {
+        types,
+        imports: vec![memory_import(), table_import()],
+        function_type_indices,
+        code,
+        data: vec![DataSegment {
+            mode: DataMode::Active {
+                memory_index: 0,
+                offset: 8,
+            },
+            bytes: b"MUTATE".to_vec(),
+        }],
+        elements: vec![ElementSegment {
+            mode: ElementMode::Active {
+                table_index: 0,
+                offset: 2,
+            },
+            function_indices: vec![0],
+        }],
+        ..Module::default()
+    };
+
+    let memory = MemoryHandle::new(1, Some(1)).unwrap();
+    memory.write(8, b"KEEP!!").unwrap();
+    let table = TableHandle::new(2, Some(2)).unwrap();
+    let mut hosts = HostRegistry::new();
+    hosts.register_memory("env", "mem", memory.clone()).unwrap();
+    hosts.register_table("env", "tab", table.clone()).unwrap();
+
+    let error = Instance::with_hosts(module, hosts)
+        .expect_err("element OOB must fail before any imported object is mutated");
+    assert!(matches!(
+        error,
+        RuntimeError::ElementSegmentOutOfBounds { segment: 0, .. }
+    ));
+    assert_eq!(memory.read(8, 6).unwrap(), b"KEEP!!");
+    assert!(table.get(0).unwrap().is_none());
+    assert!(table.get(1).unwrap().is_none());
+}
+
+#[test]
 fn passive_element_still_validates_function_indices() {
     let (types, function_type_indices, code) = noop_function_parts();
     let module = Module {
