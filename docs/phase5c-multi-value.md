@@ -1,5 +1,7 @@
 # Phase 5C — multi-value results
 
+> Historical slice note: this document records the repository state when defined-function and structured-control multi-value execution first landed. A later Phase-5C slice added the `HostRegistry::register_values` multi-result host callback ABI, so the host-result limitation below is preserved as provenance for this slice rather than a current repository capability claim. For current host behavior, prefer `README.md`, `docs/architecture.md`, `docs/roadmap.md`, and `docs/phase5c-host-multi-value.md`.
+
 This slice extends defined-function and structured-control execution from zero-or-one result to ordered vectors of numeric results.
 
 ## Execution model
