@@ -104,20 +104,18 @@ fn unsupported_limits_flags_fail_closed_in_parser() {
 }
 
 #[test]
-fn missing_code_body_is_rejected_before_instantiation() {
+fn missing_code_body_is_rejected_by_parser_before_instantiation() {
     let mut module = header();
     push_section(&mut module, 1, &[0x01, 0x60, 0x00, 0x00]);
     push_section(&mut module, 3, &[0x01, 0x00]);
 
-    let error = Instance::new(parse_module(&module).unwrap())
-        .expect_err("function/code cardinality mismatch must fail closed");
-    assert!(matches!(
-        error,
-        RuntimeError::Validation(ValidationError::FunctionCodeLengthMismatch {
+    assert_eq!(
+        parse_module(&module),
+        Err(ParseError::FunctionCodeLengthMismatch {
             functions: 1,
             bodies: 0,
         })
-    ));
+    );
 }
 
 #[test]
