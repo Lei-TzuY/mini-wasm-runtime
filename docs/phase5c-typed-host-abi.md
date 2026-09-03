@@ -1,5 +1,7 @@
 # Phase 5C — Typed Host Function ABI
 
+> Historical slice note: this document records the state of the typed-host ABI at the time this slice landed. The later `phase5c-host-multi-value.md` slice superseded the zero-or-one-result limitation for imported functions by adding `HostRegistry::register_values`; `HostRegistry::register` itself intentionally remains the compatibility zero-or-one-result API. Treat the limitations below as provenance for this slice, not as the repository's current host-result capability.
+
 This slice removes the remaining i32-only restriction from imported host functions while preserving the runtime's existing zero-or-one-result execution model and fail-closed host boundary.
 
 ## Scope
