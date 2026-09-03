@@ -1,0 +1,74 @@
+name: Rebuild parser function/code count fix
+
+on:
+  push:
+    branches:
+      - fix/parser-function-code-count
+
+permissions:
+  contents: write
+
+jobs:
+  rebuild:
+    runs-on: ubuntu-latest
+    if: github.event.head_commit.message == 'chore(ci): bootstrap parser invariant fix'
+    steps:
+      - name: Check out branch
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          fetch-depth: 0
+          ref: fix/parser-function-code-count
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+
+      - name: Apply parser invariant and verify focused regressions
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path('crates/wasm-parser/src/lib.rs')
+          text = path.read_text()
+
+          replacements = [
+              (
+                  '    FunctionBodyMissingEnd,\n    TrailingBytes,\n',
+                  '    FunctionBodyMissingEnd,\n    FunctionCodeLengthMismatch {\n        functions: usize,\n        bodies: usize,\n    },\n    TrailingBytes,\n',
+              ),
+              (
+                  '            Self::FunctionBodyMissingEnd => write!(f, "function body is missing final end opcode"),\n            Self::TrailingBytes => write!(f, "trailing bytes after parsed value"),\n',
+                  '            Self::FunctionBodyMissingEnd => write!(f, "function body is missing final end opcode"),\n            Self::FunctionCodeLengthMismatch { functions, bodies } => write!(\n                f,\n                "function section declares {functions} defined functions but code section contains {bodies} bodies"\n            ),\n            Self::TrailingBytes => write!(f, "trailing bytes after parsed value"),\n',
+              ),
+              (
+                  '        if !section.is_eof() {\n            return Err(ParseError::SectionLengthMismatch(section_id));\n        }\n    }\n    Ok(module)\n}\n\nfn parse_type_section',
+                  '        if !section.is_eof() {\n            return Err(ParseError::SectionLengthMismatch(section_id));\n        }\n    }\n\n    if module.function_type_indices.len() != module.code.len() {\n        return Err(ParseError::FunctionCodeLengthMismatch {\n            functions: module.function_type_indices.len(),\n            bodies: module.code.len(),\n        });\n    }\n\n    Ok(module)\n}\n\nfn parse_type_section',
+              ),
+          ]
+
+          for old, new in replacements:
+              count = text.count(old)
+              if count != 1:
+                  raise SystemExit(f'expected exactly one replacement target, found {count}: {old[:80]!r}')
+              text = text.replace(old, new, 1)
+
+          path.write_text(text)
+          PY
+
+          cargo fmt --all
+          cargo test -p wasm-parser --test pinned_binary_function_code_count
+          cargo test -p wasm-parser
+          git diff --check
+
+      - name: Commit final branch state without workflow scaffold
+        shell: bash
+        run: |
+          rm .github/workflows/rebuild-parser-function-code-count.yml
+          git config user.name "LeiZ"
+          git config user.email "52287354+Lei-TzuY@users.noreply.github.com"
+          git add crates/wasm-parser/src/lib.rs crates/wasm-parser/tests/pinned_binary_function_code_count.rs .github/workflows/rebuild-parser-function-code-count.yml
+          git diff --cached --check
+          git commit -m "fix: reject function-code count mismatches in parser"
+          git push origin HEAD:fix/parser-function-code-count
