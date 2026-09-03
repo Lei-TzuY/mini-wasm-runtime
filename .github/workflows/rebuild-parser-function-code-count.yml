@@ -2,8 +2,7 @@ name: Rebuild parser function/code count fix
 
 on:
   push:
-    branches:
-      - fix/parser-function-code-count
+    branches: [fix/parser-function-code-count]
 
 permissions:
   contents: write
@@ -11,20 +10,14 @@ permissions:
 jobs:
   rebuild:
     runs-on: ubuntu-latest
-    if: github.event.head_commit.message == 'chore(ci): bootstrap parser invariant fix'
     steps:
       - name: Check out branch
-        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        uses: actions/checkout@v5
         with:
           fetch-depth: 0
           ref: fix/parser-function-code-count
 
-      - name: Set up Rust
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          components: rustfmt
-
-      - name: Apply parser invariant and verify focused regressions
+      - name: Apply parser invariant
         shell: bash
         run: |
           python - <<'PY'
@@ -51,18 +44,24 @@ jobs:
           for old, new in replacements:
               count = text.count(old)
               if count != 1:
-                  raise SystemExit(f'expected exactly one replacement target, found {count}: {old[:80]!r}')
+                  raise SystemExit(f'expected one replacement target, found {count}')
               text = text.replace(old, new, 1)
 
           path.write_text(text)
           PY
 
+      - name: Verify focused parser slice
+        shell: bash
+        run: |
+          rustup update stable --no-self-update
+          rustup default stable
+          rustup component add rustfmt
           cargo fmt --all
           cargo test -p wasm-parser --test pinned_binary_function_code_count
           cargo test -p wasm-parser
           git diff --check
 
-      - name: Commit final branch state without workflow scaffold
+      - name: Commit final branch state
         shell: bash
         run: |
           rm .github/workflows/rebuild-parser-function-code-count.yml
