@@ -37,6 +37,10 @@ pub enum ParseError {
         actual: ValueType,
     },
     FunctionBodyMissingEnd,
+    FunctionCodeLengthMismatch {
+        functions: usize,
+        bodies: usize,
+    },
     TrailingBytes,
 }
 
@@ -88,6 +92,10 @@ impl fmt::Display for ParseError {
                 "constant expression has type {actual:?}, expected {expected:?}"
             ),
             Self::FunctionBodyMissingEnd => write!(f, "function body is missing final end opcode"),
+            Self::FunctionCodeLengthMismatch { functions, bodies } => write!(
+                f,
+                "function section declares {functions} defined functions but code section contains {bodies} bodies"
+            ),
             Self::TrailingBytes => write!(f, "trailing bytes after parsed value"),
         }
     }
@@ -531,6 +539,14 @@ pub fn parse_module(bytes: &[u8]) -> Result<Module, ParseError> {
             return Err(ParseError::SectionLengthMismatch(section_id));
         }
     }
+
+    if module.function_type_indices.len() != module.code.len() {
+        return Err(ParseError::FunctionCodeLengthMismatch {
+            functions: module.function_type_indices.len(),
+            bodies: module.code.len(),
+        });
+    }
+
     Ok(module)
 }
 
