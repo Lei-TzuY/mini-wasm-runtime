@@ -1,7 +1,20 @@
 use super::{function_type, ValidationError};
-use wasm_parser::{ElementMode, Module};
+use wasm_parser::{ElementMode, ImportDesc, Module};
 
 pub(super) fn validate_phase5(module: &Module) -> Result<(), ValidationError> {
+    for (import, entry) in module.imports.iter().enumerate() {
+        let ImportDesc::Function(type_index) = entry.desc else {
+            continue;
+        };
+        let function_type = &module.types[type_index as usize];
+        if function_type.results.len() > 1 {
+            return Err(ValidationError::UnsupportedImportResultArity {
+                import,
+                results: function_type.results.len(),
+            });
+        }
+    }
+
     if module.table_count() > 1 {
         return Err(ValidationError::UnsupportedTableCount {
             count: module.table_count(),
