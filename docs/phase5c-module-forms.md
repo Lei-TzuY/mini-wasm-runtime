@@ -1,5 +1,7 @@
 # Phase 5C — Broader Module Forms + Conformance
 
+> Historical slice note: this document describes the repository state at this Phase-5C consolidation point. Later Phase-5C/Phase-6 work added defined-function structured multi-value execution and the `HostRegistry::register_values` multi-result host callback ABI. For current capability claims, prefer `README.md`, `docs/architecture.md`, `docs/roadmap.md`, and `docs/phase5c-host-multi-value.md`; limitations below are preserved as provenance for this slice.
+
 Phase 5C broadens the executable WebAssembly MVP surface only where parser, validator, instantiation, and runtime semantics can remain exact. Unsupported proposal features continue to fail closed.
 
 ## Current implemented state
