@@ -493,6 +493,8 @@ pub fn parse_module(bytes: &[u8]) -> Result<Module, ParseError> {
         let payload = cursor.read_exact(section_len)?;
 
         if section_id == 0 {
+            let mut section = Cursor::new(payload);
+            section.read_name()?;
             continue;
         }
         if !matches!(section_id, 1..=11) {
