@@ -1174,6 +1174,13 @@ impl LinearMemory {
         Ok(())
     }
 
+    fn fill(&mut self, destination: i32, value: i32, length: i32) -> Result<(), RuntimeError> {
+        let width = length as u32 as usize;
+        let destination_range = self.checked_range(destination, 0, width)?;
+        self.bytes[destination_range].fill(value as u8);
+        Ok(())
+    }
+
     fn checked_range(
         &self,
         address: i32,
@@ -2367,6 +2374,14 @@ impl Instance {
                                 memory.copy(destination, source, length)
                             })?;
                         }
+                        11 => {
+                            let memory_index = read_u32_immediate(code, &mut pc)?;
+                            ensure_runtime_memory_index(self, memory_index)?;
+                            let length = numeric::i32_from_stack(&mut stack)?;
+                            let value = numeric::i32_from_stack(&mut stack)?;
+                            let destination = numeric::i32_from_stack(&mut stack)?;
+                            self.with_memory_mut(|memory| memory.fill(destination, value, length))?;
+                        }
                         _ => {
                             return Err(RuntimeError::UnsupportedPrefixedOpcode {
                                 prefix: 0xfc,
@@ -2916,6 +2931,9 @@ fn build_control_map(module: &Module, code: &[u8]) -> Result<ControlMap, Runtime
                     0..=7 => {}
                     10 => {
                         let _ = read_u32_immediate(code, &mut pc)?;
+                        let _ = read_u32_immediate(code, &mut pc)?;
+                    }
+                    11 => {
                         let _ = read_u32_immediate(code, &mut pc)?;
                     }
                     _ => {

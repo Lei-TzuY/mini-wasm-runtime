@@ -591,6 +591,12 @@ pub(super) fn validate_code(
                         pop_expect(&mut stack, &controls, ValueType::I32, function, offset)?;
                         pop_expect(&mut stack, &controls, ValueType::I32, function, offset)?;
                     }
+                    11 => {
+                        super::read_memory_index(code, &mut pc, module, function, offset)?;
+                        pop_expect(&mut stack, &controls, ValueType::I32, function, offset)?;
+                        pop_expect(&mut stack, &controls, ValueType::I32, function, offset)?;
+                        pop_expect(&mut stack, &controls, ValueType::I32, function, offset)?;
+                    }
                     _ => {
                         return Err(ValidationError::UnsupportedPrefixedOpcode {
                             function,
