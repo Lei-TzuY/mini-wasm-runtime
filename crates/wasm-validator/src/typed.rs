@@ -584,6 +584,36 @@ pub(super) fn validate_code(
                         function,
                         offset,
                     )?,
+                    8 => {
+                        if module.data_count.is_none() {
+                            return Err(ValidationError::DataCountRequired { function, offset });
+                        }
+                        let data_index = read_u32(code, &mut pc, function, offset)?;
+                        if data_index as usize >= module.data.len() {
+                            return Err(ValidationError::DataIndexOutOfBounds {
+                                function,
+                                offset,
+                                data_index,
+                            });
+                        }
+                        super::read_memory_index(code, &mut pc, module, function, offset)?;
+                        pop_expect(&mut stack, &controls, ValueType::I32, function, offset)?;
+                        pop_expect(&mut stack, &controls, ValueType::I32, function, offset)?;
+                        pop_expect(&mut stack, &controls, ValueType::I32, function, offset)?;
+                    }
+                    9 => {
+                        if module.data_count.is_none() {
+                            return Err(ValidationError::DataCountRequired { function, offset });
+                        }
+                        let data_index = read_u32(code, &mut pc, function, offset)?;
+                        if data_index as usize >= module.data.len() {
+                            return Err(ValidationError::DataIndexOutOfBounds {
+                                function,
+                                offset,
+                                data_index,
+                            });
+                        }
+                    }
                     10 => {
                         super::read_memory_index(code, &mut pc, module, function, offset)?;
                         super::read_memory_index(code, &mut pc, module, function, offset)?;

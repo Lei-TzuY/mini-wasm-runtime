@@ -772,6 +772,12 @@ pub enum RuntimeError {
         offset: u64,
         length: usize,
     },
+    DataIndexOutOfBounds(u32),
+    DataSegmentSourceOutOfBounds {
+        segment: u32,
+        offset: u64,
+        length: usize,
+    },
     TableAllocationFailed {
         elements: u32,
     },
@@ -955,6 +961,11 @@ impl fmt::Display for RuntimeError {
             } => write!(
                 f,
                 "data segment {segment} at byte {offset} with length {length} does not fit initial memory"
+            ),
+            Self::DataIndexOutOfBounds(index) => write!(f, "data segment index {index} is out of bounds"),
+            Self::DataSegmentSourceOutOfBounds { segment, offset, length } => write!(
+                f,
+                "data segment {segment} source byte {offset} with length {length} is out of bounds"
             ),
             Self::TableAllocationFailed { elements } => {
                 write!(f, "failed to allocate table with {elements} elements")
@@ -1538,6 +1549,7 @@ pub struct Instance {
     control_maps: Vec<ControlMap>,
     memory: Option<LinearMemory>,
     imported_memory: Option<MemoryHandle>,
+    data_segments: Vec<Vec<u8>>,
     table: Option<TableHandle>,
     globals: Vec<GlobalHandle>,
     hosts: HostRegistry,
@@ -1581,6 +1593,14 @@ impl Instance {
         } else {
             None
         };
+        let data_segments = module
+            .data
+            .iter()
+            .map(|segment| match segment.mode {
+                DataMode::Passive => segment.bytes.clone(),
+                DataMode::Active { .. } => Vec::new(),
+            })
+            .collect();
         let identity = Rc::new(());
         let table = instantiate_table(&module, &hosts, &identity)?;
         let globals = instantiate_globals(&module, &hosts)?;
@@ -1591,6 +1611,7 @@ impl Instance {
             control_maps,
             memory,
             imported_memory,
+            data_segments,
             table,
             globals,
             hosts,
@@ -1743,6 +1764,50 @@ impl Instance {
                 Ok(())
             })?;
         }
+        Ok(())
+    }
+
+    fn memory_init(
+        &mut self,
+        data_index: u32,
+        destination: i32,
+        source: i32,
+        length: i32,
+    ) -> Result<(), RuntimeError> {
+        let width = length as u32 as usize;
+        let source_start = u64::from(source as u32);
+        let source_end = source_start.checked_add(width as u64).ok_or(
+            RuntimeError::DataSegmentSourceOutOfBounds {
+                segment: data_index,
+                offset: source_start,
+                length: width,
+            },
+        )?;
+        let segment = self
+            .data_segments
+            .get(data_index as usize)
+            .ok_or(RuntimeError::DataIndexOutOfBounds(data_index))?;
+        if source_end > segment.len() as u64 {
+            return Err(RuntimeError::DataSegmentSourceOutOfBounds {
+                segment: data_index,
+                offset: source_start,
+                length: width,
+            });
+        }
+        let start = source_start as usize;
+        let payload = segment[start..start + width].to_vec();
+        self.with_memory_mut(|memory| {
+            let range = memory.checked_range(destination, 0, width)?;
+            memory.bytes[range].copy_from_slice(&payload);
+            Ok(())
+        })
+    }
+
+    fn data_drop(&mut self, data_index: u32) -> Result<(), RuntimeError> {
+        self.data_segments
+            .get_mut(data_index as usize)
+            .ok_or(RuntimeError::DataIndexOutOfBounds(data_index))?
+            .clear();
         Ok(())
     }
 
@@ -2362,6 +2427,19 @@ impl Instance {
                     let subopcode = read_u32_immediate(code, &mut pc)?;
                     match subopcode {
                         0..=7 => numeric::trunc_sat(&mut stack, subopcode)?,
+                        8 => {
+                            let data_index = read_u32_immediate(code, &mut pc)?;
+                            let memory_index = read_u32_immediate(code, &mut pc)?;
+                            ensure_runtime_memory_index(self, memory_index)?;
+                            let length = numeric::i32_from_stack(&mut stack)?;
+                            let source = numeric::i32_from_stack(&mut stack)?;
+                            let destination = numeric::i32_from_stack(&mut stack)?;
+                            self.memory_init(data_index, destination, source, length)?;
+                        }
+                        9 => {
+                            let data_index = read_u32_immediate(code, &mut pc)?;
+                            self.data_drop(data_index)?;
+                        }
                         10 => {
                             let destination_memory = read_u32_immediate(code, &mut pc)?;
                             let source_memory = read_u32_immediate(code, &mut pc)?;
@@ -2929,6 +3007,13 @@ fn build_control_map(module: &Module, code: &[u8]) -> Result<ControlMap, Runtime
                 let subopcode = read_u32_immediate(code, &mut pc)?;
                 match subopcode {
                     0..=7 => {}
+                    8 => {
+                        let _ = read_u32_immediate(code, &mut pc)?;
+                        let _ = read_u32_immediate(code, &mut pc)?;
+                    }
+                    9 => {
+                        let _ = read_u32_immediate(code, &mut pc)?;
+                    }
                     10 => {
                         let _ = read_u32_immediate(code, &mut pc)?;
                         let _ = read_u32_immediate(code, &mut pc)?;

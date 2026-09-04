@@ -41,6 +41,10 @@ pub enum ParseError {
         functions: usize,
         bodies: usize,
     },
+    DataCountMismatch {
+        declared: u32,
+        actual: usize,
+    },
     TrailingBytes,
 }
 
@@ -95,6 +99,10 @@ impl fmt::Display for ParseError {
             Self::FunctionCodeLengthMismatch { functions, bodies } => write!(
                 f,
                 "function section declares {functions} defined functions but code section contains {bodies} bodies"
+            ),
+            Self::DataCountMismatch { declared, actual } => write!(
+                f,
+                "data-count section declares {declared} segments but data section contains {actual}"
             ),
             Self::TrailingBytes => write!(f, "trailing bytes after parsed value"),
         }
@@ -274,6 +282,8 @@ pub struct Module {
     pub elements: Vec<ElementSegment>,
     pub code: Vec<FunctionBody>,
     pub data: Vec<DataSegment>,
+    /// Bulk-memory DataCount section, when present before Code.
+    pub data_count: Option<u32>,
 }
 
 impl Module {
@@ -493,7 +503,8 @@ pub fn parse_module(bytes: &[u8]) -> Result<Module, ParseError> {
 
     let mut module = Module::default();
     let mut last_standard = 0u8;
-    let mut seen = [false; 12];
+    let mut last_order = 0u8;
+    let mut seen = [false; 13];
 
     while !cursor.is_eof() {
         let section_id = cursor.read_u8()?;
@@ -505,10 +516,17 @@ pub fn parse_module(bytes: &[u8]) -> Result<Module, ParseError> {
             section.read_name()?;
             continue;
         }
-        if !matches!(section_id, 1..=11) {
+        if !matches!(section_id, 1..=12) {
             return Err(ParseError::UnsupportedSection(section_id));
         }
-        if section_id < last_standard {
+        // DataCount (id 12) is ordered after Element and before Code/Data.
+        let section_order = match section_id {
+            12 => 10,
+            10 => 11,
+            11 => 12,
+            id => id,
+        };
+        if section_order < last_order {
             return Err(ParseError::SectionOutOfOrder {
                 previous: last_standard,
                 current: section_id,
@@ -519,6 +537,7 @@ pub fn parse_module(bytes: &[u8]) -> Result<Module, ParseError> {
         }
         seen[usize::from(section_id)] = true;
         last_standard = section_id;
+        last_order = section_order;
 
         let mut section = Cursor::new(payload);
         match section_id {
@@ -533,6 +552,7 @@ pub fn parse_module(bytes: &[u8]) -> Result<Module, ParseError> {
             9 => parse_element_section(&mut section, &mut module)?,
             10 => parse_code_section(&mut section, &mut module)?,
             11 => parse_data_section(&mut section, &mut module)?,
+            12 => module.data_count = Some(section.read_u32()?),
             _ => unreachable!("standard section range is exhaustive"),
         }
         if !section.is_eof() {
@@ -545,6 +565,14 @@ pub fn parse_module(bytes: &[u8]) -> Result<Module, ParseError> {
             functions: module.function_type_indices.len(),
             bodies: module.code.len(),
         });
+    }
+    if let Some(declared) = module.data_count {
+        if declared as usize != module.data.len() {
+            return Err(ParseError::DataCountMismatch {
+                declared,
+                actual: module.data.len(),
+            });
+        }
     }
 
     Ok(module)

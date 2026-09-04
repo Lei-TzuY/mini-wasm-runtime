@@ -126,6 +126,19 @@ pub enum ValidationError {
         segment: usize,
         memory_index: u32,
     },
+    DataCountMismatch {
+        declared: u32,
+        actual: usize,
+    },
+    DataCountRequired {
+        function: usize,
+        offset: usize,
+    },
+    DataIndexOutOfBounds {
+        function: usize,
+        offset: usize,
+        data_index: u32,
+    },
     MemoryInstructionWithoutMemory {
         function: usize,
         offset: usize,
@@ -365,6 +378,18 @@ impl fmt::Display for ValidationError {
                 f,
                 "data segment {segment} refers to missing memory index {memory_index}"
             ),
+            Self::DataCountMismatch { declared, actual } => write!(
+                f,
+                "data-count section declares {declared} segments but module contains {actual}"
+            ),
+            Self::DataCountRequired { function, offset } => write!(
+                f,
+                "function {function} bulk-memory data instruction at byte {offset} requires a DataCount section"
+            ),
+            Self::DataIndexOutOfBounds { function, offset, data_index } => write!(
+                f,
+                "function {function} bulk-memory instruction at byte {offset} refers to missing data segment {data_index}"
+            ),
             Self::MemoryInstructionWithoutMemory { function, offset } => write!(
                 f,
                 "function {function} uses a memory instruction at byte {offset} but the module declares no memory"
@@ -539,6 +564,15 @@ pub fn validate(module: &Module) -> Result<(), ValidationError> {
     validate_imports(module)?;
     phase5::validate_phase5(module)?;
     validate_defined_global_initializers(module)?;
+
+    if let Some(declared) = module.data_count {
+        if declared as usize != module.data.len() {
+            return Err(ValidationError::DataCountMismatch {
+                declared,
+                actual: module.data.len(),
+            });
+        }
+    }
 
     if module.function_type_indices.len() != module.code.len() {
         return Err(ValidationError::FunctionCodeLengthMismatch {
