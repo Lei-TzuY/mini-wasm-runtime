@@ -27,12 +27,7 @@ fn section(module: &mut Vec<u8>, id: u8, payload: &[u8]) {
     module.extend_from_slice(payload);
 }
 
-fn module(
-    imported_memory: bool,
-    body: &[u8],
-    data: &[u8],
-    declared_count: Option<u8>,
-) -> Vec<u8> {
+fn module(imported_memory: bool, body: &[u8], data: &[u8], declared_count: Option<u8>) -> Vec<u8> {
     let mut wasm = b"\0asm\x01\0\0\0".to_vec();
     section(&mut wasm, 1, &[1, 0x60, 0, 0]);
     if imported_memory {
@@ -82,9 +77,7 @@ fn memory_init_updates_imported_memory_backing() {
 
 #[test]
 fn data_drop_empties_segment_and_traps_followup_init() {
-    let body = [
-        0xfc, 9, 0, 0x41, 0, 0x41, 0, 0x41, 1, 0xfc, 8, 0, 0, 0x0b,
-    ];
+    let body = [0xfc, 9, 0, 0x41, 0, 0x41, 0, 0x41, 1, 0xfc, 8, 0, 0, 0x0b];
     let parsed = parse_module(&module(false, &body, b"x", Some(1))).unwrap();
     let mut vm = Instance::new(parsed).unwrap();
     let error = vm.invoke_export("run", &[]).unwrap_err();
