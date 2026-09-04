@@ -82,7 +82,9 @@ fn memory_init_updates_imported_memory_backing() {
 
 #[test]
 fn data_drop_empties_segment_and_traps_followup_init() {
-    let body = [0xfc, 9, 0, 0x41, 0, 0x41, 0, 0x41, 1, 0xfc, 8, 0, 0, 0x0b];
+    let body = [
+        0xfc, 9, 0, 0x41, 0, 0x41, 0, 0x41, 1, 0xfc, 8, 0, 0, 0x0b,
+    ];
     let parsed = parse_module(&module(false, &body, b"x", Some(1))).unwrap();
     let mut vm = Instance::new(parsed).unwrap();
     let error = vm.invoke_export("run", &[]).unwrap_err();
@@ -129,7 +131,9 @@ fn validator_requires_datacount_for_memory_init() {
     let parsed = parse_module(&module(false, &body, b"x", None)).unwrap();
     assert!(matches!(
         Instance::new(parsed),
-        Err(RuntimeError::Validation(ValidationError::DataCountRequired { .. }))
+        Err(RuntimeError::Validation(
+            ValidationError::DataCountRequired { .. }
+        ))
     ));
 }
 
@@ -139,10 +143,12 @@ fn validator_rejects_nonzero_memory_index() {
     let parsed = parse_module(&module(false, &body, b"x", Some(1))).unwrap();
     assert!(matches!(
         Instance::new(parsed),
-        Err(RuntimeError::Validation(ValidationError::MemoryIndexOutOfBounds {
-            memory_index: 1,
-            ..
-        }))
+        Err(RuntimeError::Validation(
+            ValidationError::MemoryIndexOutOfBounds {
+                memory_index: 1,
+                ..
+            }
+        ))
     ));
 }
 
