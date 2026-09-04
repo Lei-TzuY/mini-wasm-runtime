@@ -1,0 +1,39 @@
+name: Conquest table init staging v4
+on:
+  push:
+    branches: [conquest/table-init-elem-drop]
+permissions:
+  contents: write
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with: {fetch-depth: 0}
+      - uses: dtolnay/rust-toolchain@stable
+        with: {components: rustfmt, clippy}
+      - name: Apply, verify, and publish candidate
+        shell: bash
+        run: |
+          set +e
+          python3 tools/conquest_table_init_v2.py > /tmp/conquest-v4.log 2>&1
+          status=$?
+          if [ "$status" -eq 0 ]; then cargo fmt --all >> /tmp/conquest-v4.log 2>&1 || status=$?; fi
+          if [ "$status" -eq 0 ]; then cargo test --workspace --all-targets >> /tmp/conquest-v4.log 2>&1 || status=$?; fi
+          if [ "$status" -eq 0 ]; then cargo clippy --workspace --all-targets -- -D warnings >> /tmp/conquest-v4.log 2>&1 || status=$?; fi
+          if [ "$status" -eq 0 ]; then cargo doc --workspace --no-deps >> /tmp/conquest-v4.log 2>&1 || status=$?; fi
+          git config user.name "Bill Lei"
+          git config user.email "Lei-TzuY@users.noreply.github.com"
+          if [ "$status" -ne 0 ]; then
+            git restore .
+            cp /tmp/conquest-v4.log tools/conquest_table_init_v4.log
+            rm -f .github/workflows/conquest-table-init-v4.yml
+            git add -A
+            git commit -m "ci: capture corrected table init blocker"
+            git push origin HEAD:conquest/table-init-elem-drop
+            exit 0
+          fi
+          rm -f .github/workflows/conquest-table-init-v4.yml tools/conquest_table_init.py tools/conquest_table_init.log tools/conquest_table_init_v2.py tools/conquest_table_init_v4.log
+          git add -A
+          git commit -m "feat: add bulk-memory table.init and elem.drop"
+          git push origin HEAD:conquest/table-init-elem-drop
