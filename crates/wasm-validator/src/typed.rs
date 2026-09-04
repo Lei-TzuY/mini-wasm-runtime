@@ -551,11 +551,46 @@ pub(super) fn validate_code(
             )?,
             0xfc => {
                 let subopcode = read_u32(code, &mut pc, function, offset)?;
-                let (input, output) = match subopcode {
-                    0 | 1 => (ValueType::F32, ValueType::I32),
-                    2 | 3 => (ValueType::F64, ValueType::I32),
-                    4 | 5 => (ValueType::F32, ValueType::I64),
-                    6 | 7 => (ValueType::F64, ValueType::I64),
+                match subopcode {
+                    0 | 1 => unary(
+                        &mut stack,
+                        &controls,
+                        ValueType::F32,
+                        ValueType::I32,
+                        function,
+                        offset,
+                    )?,
+                    2 | 3 => unary(
+                        &mut stack,
+                        &controls,
+                        ValueType::F64,
+                        ValueType::I32,
+                        function,
+                        offset,
+                    )?,
+                    4 | 5 => unary(
+                        &mut stack,
+                        &controls,
+                        ValueType::F32,
+                        ValueType::I64,
+                        function,
+                        offset,
+                    )?,
+                    6 | 7 => unary(
+                        &mut stack,
+                        &controls,
+                        ValueType::F64,
+                        ValueType::I64,
+                        function,
+                        offset,
+                    )?,
+                    10 => {
+                        super::read_memory_index(code, &mut pc, module, function, offset)?;
+                        super::read_memory_index(code, &mut pc, module, function, offset)?;
+                        pop_expect(&mut stack, &controls, ValueType::I32, function, offset)?;
+                        pop_expect(&mut stack, &controls, ValueType::I32, function, offset)?;
+                        pop_expect(&mut stack, &controls, ValueType::I32, function, offset)?;
+                    }
                     _ => {
                         return Err(ValidationError::UnsupportedPrefixedOpcode {
                             function,
@@ -564,8 +599,7 @@ pub(super) fn validate_code(
                             subopcode,
                         })
                     }
-                };
-                unary(&mut stack, &controls, input, output, function, offset)?;
+                }
             }
             other => {
                 return Err(ValidationError::UnsupportedOpcode {

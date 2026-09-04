@@ -1165,6 +1165,15 @@ impl LinearMemory {
         old_pages as i32
     }
 
+    fn copy(&mut self, destination: i32, source: i32, length: i32) -> Result<(), RuntimeError> {
+        let width = length as u32 as usize;
+        let source_range = self.checked_range(source, 0, width)?;
+        let destination_range = self.checked_range(destination, 0, width)?;
+        self.bytes
+            .copy_within(source_range, destination_range.start);
+        Ok(())
+    }
+
     fn checked_range(
         &self,
         address: i32,
@@ -2344,7 +2353,27 @@ impl Instance {
                 0xa7..=0xbf => numeric::convert(&mut stack, opcode)?,
                 0xfc => {
                     let subopcode = read_u32_immediate(code, &mut pc)?;
-                    numeric::trunc_sat(&mut stack, subopcode)?;
+                    match subopcode {
+                        0..=7 => numeric::trunc_sat(&mut stack, subopcode)?,
+                        10 => {
+                            let destination_memory = read_u32_immediate(code, &mut pc)?;
+                            let source_memory = read_u32_immediate(code, &mut pc)?;
+                            ensure_runtime_memory_index(self, destination_memory)?;
+                            ensure_runtime_memory_index(self, source_memory)?;
+                            let length = numeric::i32_from_stack(&mut stack)?;
+                            let source = numeric::i32_from_stack(&mut stack)?;
+                            let destination = numeric::i32_from_stack(&mut stack)?;
+                            self.with_memory_mut(|memory| {
+                                memory.copy(destination, source, length)
+                            })?;
+                        }
+                        _ => {
+                            return Err(RuntimeError::UnsupportedPrefixedOpcode {
+                                prefix: 0xfc,
+                                subopcode,
+                            })
+                        }
+                    }
                 }
                 other => return Err(RuntimeError::UnsupportedOpcode(other)),
             }
@@ -2883,11 +2912,18 @@ fn build_control_map(module: &Module, code: &[u8]) -> Result<ControlMap, Runtime
             | 0xa7..=0xbf => {}
             0xfc => {
                 let subopcode = read_u32_immediate(code, &mut pc)?;
-                if subopcode > 7 {
-                    return Err(RuntimeError::UnsupportedPrefixedOpcode {
-                        prefix: 0xfc,
-                        subopcode,
-                    });
+                match subopcode {
+                    0..=7 => {}
+                    10 => {
+                        let _ = read_u32_immediate(code, &mut pc)?;
+                        let _ = read_u32_immediate(code, &mut pc)?;
+                    }
+                    _ => {
+                        return Err(RuntimeError::UnsupportedPrefixedOpcode {
+                            prefix: 0xfc,
+                            subopcode,
+                        })
+                    }
                 }
             }
             other => return Err(RuntimeError::UnsupportedOpcode(other)),
