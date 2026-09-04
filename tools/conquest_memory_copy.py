@@ -71,12 +71,44 @@ copy_method = '''    fn copy(&mut self, destination: i32, source: i32, length: i
 
 '''
 text = text.replace(anchor, copy_method + anchor, 1)
-old = '''                0xfc => {
+
+control_old = '''            0xfc => {
+                let subopcode = read_u32_immediate(code, &mut pc)?;
+                if subopcode > 7 {
+                    return Err(RuntimeError::UnsupportedPrefixedOpcode {
+                        prefix: 0xfc,
+                        subopcode,
+                    });
+                }
+            }
+'''
+control_new = '''            0xfc => {
+                let subopcode = read_u32_immediate(code, &mut pc)?;
+                match subopcode {
+                    0..=7 => {}
+                    10 => {
+                        let _ = read_u32_immediate(code, &mut pc)?;
+                        let _ = read_u32_immediate(code, &mut pc)?;
+                    }
+                    _ => {
+                        return Err(RuntimeError::UnsupportedPrefixedOpcode {
+                            prefix: 0xfc,
+                            subopcode,
+                        })
+                    }
+                }
+            }
+'''
+if control_old not in text:
+    raise SystemExit("control predecoder 0xfc anchor not found")
+text = text.replace(control_old, control_new, 1)
+
+exec_old = '''                0xfc => {
                     let subopcode = read_u32_immediate(code, &mut pc)?;
                     numeric::trunc_sat(&mut stack, subopcode)?;
                 }
 '''
-new = '''                0xfc => {
+exec_new = '''                0xfc => {
                     let subopcode = read_u32_immediate(code, &mut pc)?;
                     match subopcode {
                         0..=7 => numeric::trunc_sat(&mut stack, subopcode)?,
@@ -94,9 +126,9 @@ new = '''                0xfc => {
                     }
                 }
 '''
-if old not in text:
+if exec_old not in text:
     raise SystemExit("runtime 0xfc anchor not found")
-runtime.write_text(text.replace(old, new, 1))
+runtime.write_text(text.replace(exec_old, exec_new, 1))
 
 Path("crates/wasm-runtime/tests/bulk_memory_copy.rs").write_text(r'''use wasm_parser::parse_module;
 use wasm_runtime::{Instance, RuntimeError, Value};
