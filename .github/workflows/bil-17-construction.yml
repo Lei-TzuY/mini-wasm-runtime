@@ -34,13 +34,12 @@ jobs:
           )
           matches = list(copy_pattern.finditer(runtime))
           assert len(matches) == 1, f'expected one LinearMemory::copy, found {len(matches)}'
-          copy_block = matches[0].group(0)
           fill_block = '''\n    fn fill(&mut self, destination: i32, value: i32, length: i32) -> Result<(), RuntimeError> {\n        let width = length as u32 as usize;\n        let destination_range = self.checked_range(destination, 0, width)?;\n        self.bytes[destination_range].fill(value as u8);\n        Ok(())\n    }\n'''
           runtime = runtime[:matches[0].end()] + fill_block + runtime[matches[0].end():]
 
-          pre_start = runtime.index('                        0..=7 => {}')
-          pre_default = runtime.index('                        _ => {', pre_start)
-          pre_case = '''                        11 => {\n                            let _ = read_u32_immediate(code, &mut pc)?;\n                        }\n'''
+          pre_start = runtime.index('                    0..=7 => {}')
+          pre_default = runtime.index('                    _ => {', pre_start)
+          pre_case = '''                    11 => {\n                        let _ = read_u32_immediate(code, &mut pc)?;\n                    }\n'''
           runtime = runtime[:pre_default] + pre_case + runtime[pre_default:]
 
           exec_start = runtime.index('0..=7 => numeric::trunc_sat')
