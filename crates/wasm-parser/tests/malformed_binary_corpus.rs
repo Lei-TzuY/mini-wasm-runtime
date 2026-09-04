@@ -102,7 +102,7 @@ fn invalid_reference_type() -> Vec<u8> {
 
 fn unsupported_section() -> Vec<u8> {
     let mut bytes = header();
-    push_section(&mut bytes, 12, &[]);
+    push_section(&mut bytes, 13, &[]);
     bytes
 }
 
@@ -192,7 +192,7 @@ fn malformed_binary_inputs_fail_closed_with_precise_parser_errors() {
         Case {
             name: "unsupported section id",
             bytes: unsupported_section(),
-            expected: ParseError::UnsupportedSection(12),
+            expected: ParseError::UnsupportedSection(13),
         },
         Case {
             name: "invalid export kind",
