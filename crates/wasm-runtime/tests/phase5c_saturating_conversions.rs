@@ -221,19 +221,18 @@ fn validator_rejects_saturating_conversion_type_confusion() {
 }
 
 #[test]
-fn unsupported_prefixed_subopcodes_preserve_the_decoded_u32_value() {
-    for subopcode in [128u32] {
-        let bytes = module(F32, I32, &sat_instructions(subopcode));
-        let error = Instance::new(parse_module(&bytes).unwrap()).unwrap_err();
-        assert!(matches!(
-            error,
-            RuntimeError::Validation(ValidationError::UnsupportedPrefixedOpcode {
-                prefix: 0xfc,
-                subopcode: actual,
-                ..
-            }) if actual == subopcode
-        ));
-    }
+fn unsupported_prefixed_subopcode_preserves_the_decoded_u32_value() {
+    let subopcode = 128u32;
+    let bytes = module(F32, I32, &sat_instructions(subopcode));
+    let error = Instance::new(parse_module(&bytes).unwrap()).unwrap_err();
+    assert!(matches!(
+        error,
+        RuntimeError::Validation(ValidationError::UnsupportedPrefixedOpcode {
+            prefix: 0xfc,
+            subopcode: actual,
+            ..
+        }) if actual == subopcode
+    ));
 }
 
 #[test]
