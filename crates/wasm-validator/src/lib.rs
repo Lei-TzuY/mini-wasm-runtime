@@ -139,6 +139,11 @@ pub enum ValidationError {
         offset: usize,
         data_index: u32,
     },
+    ElementIndexOutOfBounds {
+        function: usize,
+        offset: usize,
+        element_index: u32,
+    },
     MemoryInstructionWithoutMemory {
         function: usize,
         offset: usize,
@@ -389,6 +394,14 @@ impl fmt::Display for ValidationError {
             Self::DataIndexOutOfBounds { function, offset, data_index } => write!(
                 f,
                 "function {function} bulk-memory instruction at byte {offset} refers to missing data segment {data_index}"
+            ),
+            Self::ElementIndexOutOfBounds {
+                function,
+                offset,
+                element_index,
+            } => write!(
+                f,
+                "function {function} bulk-memory instruction at byte {offset} refers to missing element segment {element_index}"
             ),
             Self::MemoryInstructionWithoutMemory { function, offset } => write!(
                 f,

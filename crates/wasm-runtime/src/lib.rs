@@ -778,6 +778,12 @@ pub enum RuntimeError {
         offset: u64,
         length: usize,
     },
+    ElementIndexOutOfBounds(u32),
+    ElementSegmentSourceOutOfBounds {
+        segment: u32,
+        offset: u64,
+        length: usize,
+    },
     TableAllocationFailed {
         elements: u32,
     },
@@ -966,6 +972,13 @@ impl fmt::Display for RuntimeError {
             Self::DataSegmentSourceOutOfBounds { segment, offset, length } => write!(
                 f,
                 "data segment {segment} source byte {offset} with length {length} is out of bounds"
+            ),
+            Self::ElementIndexOutOfBounds(index) => {
+                write!(f, "element segment index {index} is out of bounds")
+            }
+            Self::ElementSegmentSourceOutOfBounds { segment, offset, length } => write!(
+                f,
+                "element segment {segment} source slot {offset} with length {length} is out of bounds"
             ),
             Self::TableAllocationFailed { elements } => {
                 write!(f, "failed to allocate table with {elements} elements")
@@ -1550,6 +1563,7 @@ pub struct Instance {
     memory: Option<LinearMemory>,
     imported_memory: Option<MemoryHandle>,
     data_segments: Vec<Vec<u8>>,
+    element_segments: Vec<Vec<u32>>,
     table: Option<TableHandle>,
     globals: Vec<GlobalHandle>,
     hosts: HostRegistry,
@@ -1601,6 +1615,14 @@ impl Instance {
                 DataMode::Active { .. } => Vec::new(),
             })
             .collect();
+        let element_segments = module
+            .elements
+            .iter()
+            .map(|segment| match segment.mode {
+                ElementMode::Passive => segment.function_indices.clone(),
+                ElementMode::Active { .. } | ElementMode::Declarative => Vec::new(),
+            })
+            .collect();
         let identity = Rc::new(());
         let table = instantiate_table(&module, &hosts, &identity)?;
         let globals = instantiate_globals(&module, &hosts)?;
@@ -1612,6 +1634,7 @@ impl Instance {
             memory,
             imported_memory,
             data_segments,
+            element_segments,
             table,
             globals,
             hosts,
@@ -1807,6 +1830,69 @@ impl Instance {
         self.data_segments
             .get_mut(data_index as usize)
             .ok_or(RuntimeError::DataIndexOutOfBounds(data_index))?
+            .clear();
+        Ok(())
+    }
+
+    fn table_init(
+        &mut self,
+        element_index: u32,
+        table_index: u32,
+        destination: i32,
+        source: i32,
+        length: i32,
+    ) -> Result<(), RuntimeError> {
+        if table_index != 0 {
+            return Err(RuntimeError::TableElementOutOfBounds(table_index));
+        }
+        let width = length as u32 as usize;
+        let source_start = u64::from(source as u32);
+        let source_end = source_start.checked_add(width as u64).ok_or(
+            RuntimeError::ElementSegmentSourceOutOfBounds {
+                segment: element_index,
+                offset: source_start,
+                length: width,
+            },
+        )?;
+        let segment = self
+            .element_segments
+            .get(element_index as usize)
+            .ok_or(RuntimeError::ElementIndexOutOfBounds(element_index))?;
+        if source_end > segment.len() as u64 {
+            return Err(RuntimeError::ElementSegmentSourceOutOfBounds {
+                segment: element_index,
+                offset: source_start,
+                length: width,
+            });
+        }
+        let start = source_start as usize;
+        let functions = segment[start..start + width].to_vec();
+        let table = self
+            .table
+            .as_ref()
+            .ok_or(RuntimeError::TableElementOutOfBounds(destination as u32))?;
+        let destination_start = u64::from(destination as u32);
+        let destination_end = destination_start
+            .checked_add(width as u64)
+            .ok_or(RuntimeError::TableElementOutOfBounds(destination as u32))?;
+        if destination_end > table.slots.borrow().len() as u64 {
+            return Err(RuntimeError::TableElementOutOfBounds(destination as u32));
+        }
+        let mut slots = table.slots.borrow_mut();
+        let destination_start = destination_start as usize;
+        for (offset, function_index) in functions.into_iter().enumerate() {
+            slots[destination_start + offset] = Some(FunctionRef {
+                owner: Rc::downgrade(&self.identity),
+                function_index,
+            });
+        }
+        Ok(())
+    }
+
+    fn elem_drop(&mut self, element_index: u32) -> Result<(), RuntimeError> {
+        self.element_segments
+            .get_mut(element_index as usize)
+            .ok_or(RuntimeError::ElementIndexOutOfBounds(element_index))?
             .clear();
         Ok(())
     }
@@ -2460,6 +2546,24 @@ impl Instance {
                             let destination = numeric::i32_from_stack(&mut stack)?;
                             self.with_memory_mut(|memory| memory.fill(destination, value, length))?;
                         }
+                        12 => {
+                            let element_index = read_u32_immediate(code, &mut pc)?;
+                            let table_index = read_u32_immediate(code, &mut pc)?;
+                            let length = numeric::i32_from_stack(&mut stack)?;
+                            let source = numeric::i32_from_stack(&mut stack)?;
+                            let destination = numeric::i32_from_stack(&mut stack)?;
+                            self.table_init(
+                                element_index,
+                                table_index,
+                                destination,
+                                source,
+                                length,
+                            )?;
+                        }
+                        13 => {
+                            let element_index = read_u32_immediate(code, &mut pc)?;
+                            self.elem_drop(element_index)?;
+                        }
                         _ => {
                             return Err(RuntimeError::UnsupportedPrefixedOpcode {
                                 prefix: 0xfc,
@@ -3019,6 +3123,13 @@ fn build_control_map(module: &Module, code: &[u8]) -> Result<ControlMap, Runtime
                         let _ = read_u32_immediate(code, &mut pc)?;
                     }
                     11 => {
+                        let _ = read_u32_immediate(code, &mut pc)?;
+                    }
+                    12 => {
+                        let _ = read_u32_immediate(code, &mut pc)?;
+                        let _ = read_u32_immediate(code, &mut pc)?;
+                    }
+                    13 => {
                         let _ = read_u32_immediate(code, &mut pc)?;
                     }
                     _ => {

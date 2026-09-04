@@ -627,6 +627,37 @@ pub(super) fn validate_code(
                         pop_expect(&mut stack, &controls, ValueType::I32, function, offset)?;
                         pop_expect(&mut stack, &controls, ValueType::I32, function, offset)?;
                     }
+                    12 => {
+                        let element_index = read_u32(code, &mut pc, function, offset)?;
+                        if element_index as usize >= module.elements.len() {
+                            return Err(ValidationError::ElementIndexOutOfBounds {
+                                function,
+                                offset,
+                                element_index,
+                            });
+                        }
+                        let table_index = read_u32(code, &mut pc, function, offset)?;
+                        if table_index as usize >= module.table_count() {
+                            return Err(ValidationError::TableIndexOutOfBounds {
+                                function,
+                                offset,
+                                table_index,
+                            });
+                        }
+                        pop_expect(&mut stack, &controls, ValueType::I32, function, offset)?;
+                        pop_expect(&mut stack, &controls, ValueType::I32, function, offset)?;
+                        pop_expect(&mut stack, &controls, ValueType::I32, function, offset)?;
+                    }
+                    13 => {
+                        let element_index = read_u32(code, &mut pc, function, offset)?;
+                        if element_index as usize >= module.elements.len() {
+                            return Err(ValidationError::ElementIndexOutOfBounds {
+                                function,
+                                offset,
+                                element_index,
+                            });
+                        }
+                    }
                     _ => {
                         return Err(ValidationError::UnsupportedPrefixedOpcode {
                             function,
