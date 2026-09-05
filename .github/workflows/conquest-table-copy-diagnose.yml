@@ -1,0 +1,31 @@
+name: Conquest table.copy diagnose
+
+on:
+  push:
+    branches:
+      - conquest/table-copy
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Diagnose staging anchors
+        shell: bash
+        run: |
+          python3 <<'PY'
+          from pathlib import Path
+
+          probes = {
+              "runtime method": ("crates/wasm-runtime/src/lib.rs", "    fn elem_drop(&mut self, element_index: u32) -> Result<(), RuntimeError> {"),
+              "runtime opcode": ("crates/wasm-runtime/src/lib.rs", "                        13 => {\n                            let element_index = read_u32_immediate(code, &mut pc)?;\n                            self.elem_drop(element_index)?;\n                        }\n                        _ => {"),
+              "runtime control": ("crates/wasm-runtime/src/lib.rs", "                    13 => {\n                        let _ = read_u32_immediate(code, &mut pc)?;\n                    }\n                    _ => {"),
+              "validator": ("crates/wasm-validator/src/typed.rs", "                    13 => {\n                        let element_index = read_u32(code, &mut pc, function, offset)?;"),
+          }
+          failed = False
+          for name, (path, needle) in probes.items():
+              count = Path(path).read_text().count(needle)
+              print(f"{name}: {count}")
+              failed |= count != 1
+          raise SystemExit(1 if failed else 0)
+          PY
