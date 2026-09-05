@@ -1,0 +1,40 @@
+name: Conquest ref.func staging
+
+on:
+  push:
+    branches:
+      - conquest/ref-func
+
+permissions:
+  contents: write
+
+jobs:
+  stage:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt,clippy
+      - name: Apply implementation
+        run: python tools/conquest_ref_func.py
+      - name: Format
+        run: cargo fmt --all
+      - name: Check format
+        run: cargo fmt --all -- --check
+      - name: Test workspace
+        run: cargo test --workspace --all-targets
+      - name: Clippy
+        run: cargo clippy --workspace --all-targets -- -D warnings
+      - name: Docs
+        run: RUSTDOCFLAGS='-D warnings' cargo doc --workspace --no-deps
+      - name: Produce clean candidate
+        run: |
+          rm -f tools/conquest_ref_func.py .github/workflows/conquest-ref-func.yml Cargo.lock
+          git config user.name 'LeiZ'
+          git config user.email '52287354+Lei-TzuY@users.noreply.github.com'
+          git add -A
+          git commit -m 'feat: add executable ref.func semantics'
+          git push origin HEAD:conquest/ref-func
