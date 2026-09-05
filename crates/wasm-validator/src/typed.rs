@@ -569,6 +569,17 @@ pub(super) fn validate_code(
                     offset,
                 )?;
             }
+            0xd2 => {
+                let target = read_u32(code, &mut pc, function, offset)?;
+                if function_type(module, target).is_none() {
+                    return Err(ValidationError::CallTargetOutOfBounds {
+                        function,
+                        offset,
+                        target,
+                    });
+                }
+                stack.push(ValueType::FuncRef);
+            }
             0xfc => {
                 let subopcode = read_u32(code, &mut pc, function, offset)?;
                 match subopcode {

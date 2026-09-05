@@ -65,3 +65,34 @@ fn ref_null_rejects_non_funcref_immediate() {
         ))
     ));
 }
+
+#[test]
+fn ref_func_is_non_null_and_executes() {
+    let module = parse_module(&module(&[0xd2, 0x00, 0xd1])).unwrap();
+    let mut instance = Instance::new(module).unwrap();
+    assert_eq!(
+        instance.invoke_export("run", &[]).unwrap(),
+        Some(Value::I32(0))
+    );
+}
+
+#[test]
+fn ref_func_can_be_dropped() {
+    let module = parse_module(&module(&[0xd2, 0x00, 0x1a, 0x41, 0x07])).unwrap();
+    let mut instance = Instance::new(module).unwrap();
+    assert_eq!(
+        instance.invoke_export("run", &[]).unwrap(),
+        Some(Value::I32(7))
+    );
+}
+
+#[test]
+fn ref_func_rejects_out_of_bounds_function_index() {
+    let module = parse_module(&module(&[0xd2, 0x01, 0xd1])).unwrap();
+    assert!(matches!(
+        Instance::new(module),
+        Err(RuntimeError::Validation(
+            ValidationError::CallTargetOutOfBounds { target: 1, .. }
+        ))
+    ));
+}
