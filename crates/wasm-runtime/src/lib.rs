@@ -2562,6 +2562,28 @@ impl Instance {
                 0x8b..=0x91 | 0x99..=0x9f => numeric::unary_float(&mut stack, opcode)?,
                 0x92..=0x98 | 0xa0..=0xa6 => numeric::binary_float(&mut stack, opcode)?,
                 0xa7..=0xbf => numeric::convert(&mut stack, opcode)?,
+                0xd0 => {
+                    let reference_type =
+                        *code.get(pc).ok_or(RuntimeError::UnsupportedOpcode(0xd0))?;
+                    pc += 1;
+                    if reference_type != 0x70 {
+                        return Err(RuntimeError::UnsupportedOpcode(0xd0));
+                    }
+                    stack.push(Value::FuncRef(None));
+                }
+                0xd1 => {
+                    let value = stack.pop().ok_or(RuntimeError::StackUnderflow)?;
+                    let reference = match value {
+                        Value::FuncRef(reference) => reference,
+                        other => {
+                            return Err(RuntimeError::ValueTypeMismatch {
+                                expected: ValueType::FuncRef,
+                                actual: other.value_type(),
+                            })
+                        }
+                    };
+                    stack.push(Value::I32(if reference.is_none() { 1 } else { 0 }));
+                }
                 0xfc => {
                     let subopcode = read_u32_immediate(code, &mut pc)?;
                     match subopcode {
@@ -3178,6 +3200,14 @@ fn build_control_map(module: &Module, code: &[u8]) -> Result<ControlMap, Runtime
             | 0x67..=0x8a
             | 0x8b..=0xa6
             | 0xa7..=0xbf => {}
+            0xd0 => {
+                let reference_type = *code.get(pc).ok_or(RuntimeError::UnsupportedOpcode(0xd0))?;
+                pc += 1;
+                if reference_type != 0x70 {
+                    return Err(RuntimeError::UnsupportedOpcode(0xd0));
+                }
+            }
+            0xd1 => {}
             0xfc => {
                 let subopcode = read_u32_immediate(code, &mut pc)?;
                 match subopcode {

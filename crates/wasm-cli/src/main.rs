@@ -161,6 +161,10 @@ fn format_value(value: Value) -> String {
         Value::I64(value) => value.to_string(),
         Value::F32(value) => value.to_string(),
         Value::F64(value) => value.to_string(),
+        Value::FuncRef(reference) => match reference {
+            Some(index) => format!("funcref:{index}"),
+            None => "ref.null funcref".to_owned(),
+        },
     }
 }
 

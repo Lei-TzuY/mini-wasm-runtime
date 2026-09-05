@@ -7,6 +7,7 @@ pub enum Value {
     I64(i64),
     F32(f32),
     F64(f64),
+    FuncRef(Option<u32>),
 }
 
 impl Value {
@@ -16,6 +17,7 @@ impl Value {
             Self::I64(_) => ValueType::I64,
             Self::F32(_) => ValueType::F32,
             Self::F64(_) => ValueType::F64,
+            Self::FuncRef(_) => ValueType::FuncRef,
         }
     }
 
@@ -54,6 +56,7 @@ pub(super) fn zero(ty: ValueType) -> Value {
         ValueType::I64 => Value::I64(0),
         ValueType::F32 => Value::F32(0.0),
         ValueType::F64 => Value::F64(0.0),
+        ValueType::FuncRef => Value::FuncRef(None),
     }
 }
 

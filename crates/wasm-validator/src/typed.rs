@@ -549,6 +549,26 @@ pub(super) fn validate_code(
                 function,
                 offset,
             )?,
+            0xd0 => {
+                let reference_type = *code
+                    .get(pc)
+                    .ok_or(ValidationError::MalformedImmediate { function, offset })?;
+                pc += 1;
+                if reference_type != 0x70 {
+                    return Err(ValidationError::MalformedImmediate { function, offset });
+                }
+                stack.push(ValueType::FuncRef);
+            }
+            0xd1 => {
+                unary(
+                    &mut stack,
+                    &controls,
+                    ValueType::FuncRef,
+                    ValueType::I32,
+                    function,
+                    offset,
+                )?;
+            }
             0xfc => {
                 let subopcode = read_u32(code, &mut pc, function, offset)?;
                 match subopcode {
