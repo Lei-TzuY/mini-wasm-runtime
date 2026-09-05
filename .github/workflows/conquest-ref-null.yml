@@ -30,9 +30,6 @@ jobs:
           replace("crates/wasm-parser/src/lib.rs",
               "pub enum ValueType {\n    I32,\n    I64,\n    F32,\n    F64,\n}",
               "pub enum ValueType {\n    I32,\n    I64,\n    F32,\n    F64,\n    FuncRef,\n}")
-          replace("crates/wasm-parser/src/lib.rs",
-              "        0x7c => Ok(ValueType::F64),\n        other => Err(ParseError::UnsupportedValueType(other)),",
-              "        0x7c => Ok(ValueType::F64),\n        0x70 => Ok(ValueType::FuncRef),\n        other => Err(ParseError::UnsupportedValueType(other)),")
 
           replace("crates/wasm-runtime/src/numeric.rs",
               "    F64(f64),\n}",
@@ -43,6 +40,10 @@ jobs:
           replace("crates/wasm-runtime/src/numeric.rs",
               "        ValueType::F64 => Value::F64(0.0),\n    }",
               "        ValueType::F64 => Value::F64(0.0),\n        ValueType::FuncRef => Value::FuncRef(None),\n    }")
+
+          replace("crates/wasm-cli/src/main.rs",
+              "        Value::F64(value) => value.to_string(),\n    }",
+              "        Value::F64(value) => value.to_string(),\n        Value::FuncRef(reference) => match reference {\n            Some(index) => format!(\"funcref:{index}\"),\n            None => \"ref.null funcref\".to_owned(),\n        },\n    }")
 
           p = Path("crates/wasm-validator/src/typed.rs")
           s = p.read_text()
@@ -124,7 +125,7 @@ jobs:
           }
           ''')
 
-          Path("docs/reference-null.md").write_text('''# Nullable `funcref` operands\n\nThis slice adds an executable nullable `funcref` operand model plus `ref.null funcref` (`0xd0 0x70`) and `ref.is_null` (`0xd1`). The validator tracks `funcref` as a real operand type, the interpreter carries nullable instance-local function indices, and structured-control predecode consumes the `ref.null` immediate. Invalid reference-type immediates and numeric operands fail closed.\n\nReference-typed host parameters/results, reference globals, `ref.func`, `table.get`/`table.set`, `table.grow`, and `table.fill` remain intentionally unsupported until their ownership and cross-instance semantics are implemented explicitly. This slice is the executable foundation for those capabilities; it does not encode references as integers.\n''')
+          Path("docs/reference-null.md").write_text('''# Nullable `funcref` operands\n\nThis slice adds an executable nullable `funcref` operand model plus `ref.null funcref` (`0xd0 0x70`) and `ref.is_null` (`0xd1`). The validator tracks `funcref` as a real operand type, the interpreter carries nullable instance-local function indices, and structured-control predecode consumes the `ref.null` immediate. Invalid reference-type immediates and numeric operands fail closed.\n\nThe parser deliberately does not accept `funcref` in function signatures, locals, or globals yet. Reference-typed host parameters/results, reference globals, `ref.func`, `table.get`/`table.set`, `table.grow`, and `table.fill` remain unsupported until ownership and cross-instance semantics are implemented explicitly. This slice is the executable foundation for those capabilities; it does not encode references as integers.\n''')
 
       - name: Format
         run: cargo fmt --all && cargo fmt --all -- --check
