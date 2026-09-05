@@ -19,6 +19,8 @@ jobs:
         with: {components: rustfmt, clippy}
       - name: Apply implementation
         run: python tools/apply_table_fill.py
+      - name: Format generated implementation
+        run: cargo fmt --all
       - run: cargo fmt --all -- --check
       - run: cargo test --workspace --all-targets
       - run: cargo clippy --workspace --all-targets -- -D warnings
