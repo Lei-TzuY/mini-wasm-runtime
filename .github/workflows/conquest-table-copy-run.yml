@@ -21,7 +21,9 @@ jobs:
       - name: Implement
         run: python3 scripts/conquest_table_copy_stage.py
       - name: Format
-        run: cargo fmt --all -- --check
+        run: |
+          cargo fmt --all
+          cargo fmt --all -- --check
       - name: Workspace tests
         run: cargo test --workspace --all-targets
       - name: Clippy
@@ -34,7 +36,6 @@ jobs:
           rm -f Cargo.lock
           rm -f scripts/conquest_table_copy_stage.py
           rm -f .github/workflows/conquest-table-copy-diagnose.yml
-          rm -f .github/workflows/conquest-table-copy-stage-v2.yml
           rm -f .github/workflows/conquest-table-copy-run.yml
           git config user.name "LeiZ"
           git config user.email "52287354+Lei-TzuY@users.noreply.github.com"
