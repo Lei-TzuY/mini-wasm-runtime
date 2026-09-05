@@ -117,6 +117,7 @@ pub enum ValueType {
     I64,
     F32,
     F64,
+    FuncRef,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
