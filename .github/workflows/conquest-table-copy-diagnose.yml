@@ -10,22 +10,52 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Diagnose staging anchors
+      - name: Runtime method anchor
         shell: bash
         run: |
-          python3 <<'PY'
+          python3 - <<'PY'
           from pathlib import Path
-
-          probes = {
-              "runtime method": ("crates/wasm-runtime/src/lib.rs", "    fn elem_drop(&mut self, element_index: u32) -> Result<(), RuntimeError> {"),
-              "runtime opcode": ("crates/wasm-runtime/src/lib.rs", "                        13 => {\n                            let element_index = read_u32_immediate(code, &mut pc)?;\n                            self.elem_drop(element_index)?;\n                        }\n                        _ => {"),
-              "runtime control": ("crates/wasm-runtime/src/lib.rs", "                    13 => {\n                        let _ = read_u32_immediate(code, &mut pc)?;\n                    }\n                    _ => {"),
-              "validator": ("crates/wasm-validator/src/typed.rs", "                    13 => {\n                        let element_index = read_u32(code, &mut pc, function, offset)?;"),
-          }
-          failed = False
-          for name, (path, needle) in probes.items():
-              count = Path(path).read_text().count(needle)
-              print(f"{name}: {count}")
-              failed |= count != 1
-          raise SystemExit(1 if failed else 0)
+          needle = "    fn elem_drop(&mut self, element_index: u32) -> Result<(), RuntimeError> {"
+          raise SystemExit(0 if Path("crates/wasm-runtime/src/lib.rs").read_text().count(needle) == 1 else 1)
+          PY
+      - name: Runtime opcode anchor
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          needle = '''                        13 => {
+                            let element_index = read_u32_immediate(code, &mut pc)?;
+                            self.elem_drop(element_index)?;
+                        }
+                        _ => {'''
+          raise SystemExit(0 if Path("crates/wasm-runtime/src/lib.rs").read_text().count(needle) == 1 else 1)
+          PY
+      - name: Runtime control anchor
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          needle = '''                    13 => {
+                        let _ = read_u32_immediate(code, &mut pc)?;
+                    }
+                    _ => {'''
+          raise SystemExit(0 if Path("crates/wasm-runtime/src/lib.rs").read_text().count(needle) == 1 else 1)
+          PY
+      - name: Validator exact anchor
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          needle = '''                    13 => {
+                        let element_index = read_u32(code, &mut pc, function, offset)?;
+                        if element_index as usize >= module.elements.len() {
+                            return Err(ValidationError::ElementIndexOutOfBounds {
+                                function,
+                                offset,
+                                element_index,
+                            });
+                        }
+                    }
+                    _ => {'''
+          raise SystemExit(0 if Path("crates/wasm-validator/src/typed.rs").read_text().count(needle) == 1 else 1)
           PY
