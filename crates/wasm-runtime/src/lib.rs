@@ -1931,6 +1931,38 @@ impl Instance {
         Ok(())
     }
 
+    fn table_fill(
+        &mut self,
+        table_index: u32,
+        destination: i32,
+        value: Option<u32>,
+        length: i32,
+    ) -> Result<(), RuntimeError> {
+        if table_index != 0 {
+            return Err(RuntimeError::TableElementOutOfBounds(table_index));
+        }
+        let width = length as u32 as usize;
+        let destination_start = u64::from(destination as u32);
+        let table = self
+            .table
+            .as_ref()
+            .ok_or(RuntimeError::TableElementOutOfBounds(destination as u32))?;
+        let destination_end = destination_start
+            .checked_add(width as u64)
+            .ok_or(RuntimeError::TableElementOutOfBounds(destination as u32))?;
+        if destination_end > u64::from(table.len()) {
+            return Err(RuntimeError::TableElementOutOfBounds(destination as u32));
+        }
+        let replacement = value.map(|function_index| FunctionRef {
+            owner: Rc::downgrade(&self.identity),
+            function_index,
+        });
+        let start = destination_start as usize;
+        let mut slots = table.slots.borrow_mut();
+        slots[start..start + width].fill(replacement);
+        Ok(())
+    }
+
     fn table_size(&self, table_index: u32) -> Result<i32, RuntimeError> {
         if table_index != 0 {
             return Err(RuntimeError::TableElementOutOfBounds(table_index));
@@ -2657,6 +2689,21 @@ impl Instance {
                             let table_index = read_u32_immediate(code, &mut pc)?;
                             stack.push(Value::I32(self.table_size(table_index)?));
                         }
+                        17 => {
+                            let table_index = read_u32_immediate(code, &mut pc)?;
+                            let length = numeric::i32_from_stack(&mut stack)?;
+                            let value = match stack.pop().ok_or(RuntimeError::StackUnderflow)? {
+                                Value::FuncRef(value) => value,
+                                other => {
+                                    return Err(RuntimeError::ValueTypeMismatch {
+                                        expected: ValueType::FuncRef,
+                                        actual: other.value_type(),
+                                    })
+                                }
+                            };
+                            let destination = numeric::i32_from_stack(&mut stack)?;
+                            self.table_fill(table_index, destination, value, length)?;
+                        }
                         _ => {
                             return Err(RuntimeError::UnsupportedPrefixedOpcode {
                                 prefix: 0xfc,
@@ -3237,7 +3284,7 @@ fn build_control_map(module: &Module, code: &[u8]) -> Result<ControlMap, Runtime
                         let _ = read_u32_immediate(code, &mut pc)?;
                         let _ = read_u32_immediate(code, &mut pc)?;
                     }
-                    16 => {
+                    16 | 17 => {
                         let _ = read_u32_immediate(code, &mut pc)?;
                     }
                     _ => {

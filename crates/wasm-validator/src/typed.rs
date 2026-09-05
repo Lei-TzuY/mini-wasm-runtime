@@ -712,6 +712,19 @@ pub(super) fn validate_code(
                         }
                         stack.push(ValueType::I32);
                     }
+                    17 => {
+                        let table_index = read_u32(code, &mut pc, function, offset)?;
+                        if table_index != 0 || table_index as usize >= module.table_count() {
+                            return Err(ValidationError::TableIndexOutOfBounds {
+                                function,
+                                offset,
+                                table_index,
+                            });
+                        }
+                        pop_expect(&mut stack, &controls, ValueType::I32, function, offset)?;
+                        pop_expect(&mut stack, &controls, ValueType::FuncRef, function, offset)?;
+                        pop_expect(&mut stack, &controls, ValueType::I32, function, offset)?;
+                    }
                     _ => {
                         return Err(ValidationError::UnsupportedPrefixedOpcode {
                             function,
