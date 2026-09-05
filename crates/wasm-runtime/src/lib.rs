@@ -1931,6 +1931,17 @@ impl Instance {
         Ok(())
     }
 
+    fn table_size(&self, table_index: u32) -> Result<i32, RuntimeError> {
+        if table_index != 0 {
+            return Err(RuntimeError::TableElementOutOfBounds(table_index));
+        }
+        let table = self
+            .table
+            .as_ref()
+            .ok_or(RuntimeError::TableElementOutOfBounds(table_index))?;
+        Ok(table.len() as i32)
+    }
+
     fn elem_drop(&mut self, element_index: u32) -> Result<(), RuntimeError> {
         self.element_segments
             .get_mut(element_index as usize)
@@ -2620,6 +2631,10 @@ impl Instance {
                                 length,
                             )?;
                         }
+                        16 => {
+                            let table_index = read_u32_immediate(code, &mut pc)?;
+                            stack.push(Value::I32(self.table_size(table_index)?));
+                        }
                         _ => {
                             return Err(RuntimeError::UnsupportedPrefixedOpcode {
                                 prefix: 0xfc,
@@ -3190,6 +3205,9 @@ fn build_control_map(module: &Module, code: &[u8]) -> Result<ControlMap, Runtime
                     }
                     14 => {
                         let _ = read_u32_immediate(code, &mut pc)?;
+                        let _ = read_u32_immediate(code, &mut pc)?;
+                    }
+                    16 => {
                         let _ = read_u32_immediate(code, &mut pc)?;
                     }
                     _ => {
