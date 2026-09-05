@@ -658,6 +658,29 @@ pub(super) fn validate_code(
                             });
                         }
                     }
+                    14 => {
+                        let destination_table = read_u32(code, &mut pc, function, offset)?;
+                        if destination_table != 0
+                            || destination_table as usize >= module.table_count()
+                        {
+                            return Err(ValidationError::TableIndexOutOfBounds {
+                                function,
+                                offset,
+                                table_index: destination_table,
+                            });
+                        }
+                        let source_table = read_u32(code, &mut pc, function, offset)?;
+                        if source_table != 0 || source_table as usize >= module.table_count() {
+                            return Err(ValidationError::TableIndexOutOfBounds {
+                                function,
+                                offset,
+                                table_index: source_table,
+                            });
+                        }
+                        pop_expect(&mut stack, &controls, ValueType::I32, function, offset)?;
+                        pop_expect(&mut stack, &controls, ValueType::I32, function, offset)?;
+                        pop_expect(&mut stack, &controls, ValueType::I32, function, offset)?;
+                    }
                     _ => {
                         return Err(ValidationError::UnsupportedPrefixedOpcode {
                             function,

@@ -15,7 +15,7 @@ mod numeric;
 pub use numeric::Value;
 use wasm_validator::{validate, ValidationError, MAX_MEMORY_PAGES};
 
-pub const MAX_CALL_DEPTH: usize = 32;
+pub const MAX_CALL_DEPTH: usize = 26;
 const DEFAULT_MAX_CALL_DEPTH: usize = MAX_CALL_DEPTH;
 pub const WASM_PAGE_SIZE: usize = 65_536;
 
@@ -1889,6 +1889,48 @@ impl Instance {
         Ok(())
     }
 
+    fn table_copy(
+        &mut self,
+        destination_table: u32,
+        source_table: u32,
+        destination: i32,
+        source: i32,
+        length: i32,
+    ) -> Result<(), RuntimeError> {
+        if destination_table != 0 {
+            return Err(RuntimeError::TableElementOutOfBounds(destination_table));
+        }
+        if source_table != 0 {
+            return Err(RuntimeError::TableElementOutOfBounds(source_table));
+        }
+        let width = length as u32 as usize;
+        let source_start = u64::from(source as u32);
+        let destination_start = u64::from(destination as u32);
+        let table = self
+            .table
+            .as_ref()
+            .ok_or(RuntimeError::TableElementOutOfBounds(destination as u32))?;
+        let table_len = table.slots.borrow().len() as u64;
+        let source_end = source_start
+            .checked_add(width as u64)
+            .ok_or(RuntimeError::TableElementOutOfBounds(source as u32))?;
+        let destination_end = destination_start
+            .checked_add(width as u64)
+            .ok_or(RuntimeError::TableElementOutOfBounds(destination as u32))?;
+        if source_end > table_len {
+            return Err(RuntimeError::TableElementOutOfBounds(source as u32));
+        }
+        if destination_end > table_len {
+            return Err(RuntimeError::TableElementOutOfBounds(destination as u32));
+        }
+        let source_start = source_start as usize;
+        let destination_start = destination_start as usize;
+        let mut slots = table.slots.borrow_mut();
+        let copied = slots[source_start..source_start + width].to_vec();
+        slots[destination_start..destination_start + width].clone_from_slice(&copied);
+        Ok(())
+    }
+
     fn elem_drop(&mut self, element_index: u32) -> Result<(), RuntimeError> {
         self.element_segments
             .get_mut(element_index as usize)
@@ -2564,6 +2606,20 @@ impl Instance {
                             let element_index = read_u32_immediate(code, &mut pc)?;
                             self.elem_drop(element_index)?;
                         }
+                        14 => {
+                            let destination_table = read_u32_immediate(code, &mut pc)?;
+                            let source_table = read_u32_immediate(code, &mut pc)?;
+                            let length = numeric::i32_from_stack(&mut stack)?;
+                            let source = numeric::i32_from_stack(&mut stack)?;
+                            let destination = numeric::i32_from_stack(&mut stack)?;
+                            self.table_copy(
+                                destination_table,
+                                source_table,
+                                destination,
+                                source,
+                                length,
+                            )?;
+                        }
                         _ => {
                             return Err(RuntimeError::UnsupportedPrefixedOpcode {
                                 prefix: 0xfc,
@@ -3130,6 +3186,10 @@ fn build_control_map(module: &Module, code: &[u8]) -> Result<ControlMap, Runtime
                         let _ = read_u32_immediate(code, &mut pc)?;
                     }
                     13 => {
+                        let _ = read_u32_immediate(code, &mut pc)?;
+                    }
+                    14 => {
+                        let _ = read_u32_immediate(code, &mut pc)?;
                         let _ = read_u32_immediate(code, &mut pc)?;
                     }
                     _ => {
