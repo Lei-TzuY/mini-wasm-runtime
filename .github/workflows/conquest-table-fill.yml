@@ -2,14 +2,19 @@ name: Conquest table.fill staging
 on:
   push:
     branches: [conquest/table-fill]
+  pull_request:
+    branches: [main]
 permissions:
   contents: write
 jobs:
   stage:
+    if: github.head_ref == 'conquest/table-fill' || github.ref_name == 'conquest/table-fill'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-        with: {fetch-depth: 0}
+        with:
+          ref: conquest/table-fill
+          fetch-depth: 0
       - uses: dtolnay/rust-toolchain@stable
         with: {components: rustfmt, clippy}
       - name: Apply implementation
