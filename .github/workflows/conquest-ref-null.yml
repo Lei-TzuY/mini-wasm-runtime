@@ -1,0 +1,171 @@
+name: Conquest ref-null staging
+on:
+  push:
+    branches: [conquest/funcref-null]
+permissions:
+  contents: write
+jobs:
+  stage:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - name: Apply vertical slice
+        shell: python
+        run: |
+          from pathlib import Path
+
+          def replace(path, old, new, count=None):
+              p = Path(path)
+              s = p.read_text()
+              if old not in s:
+                  raise SystemExit(f"anchor missing in {path}: {old[:80]!r}")
+              s2 = s.replace(old, new, -1 if count is None else count)
+              p.write_text(s2)
+
+          # Parser: model funcref as a real operand type, while leaving reference-typed
+          # globals/const-exprs and other proposals fail-closed.
+          replace(
+              "crates/wasm-parser/src/lib.rs",
+              "pub enum ValueType {\n    I32,\n    I64,\n    F32,\n    F64,\n}",
+              "pub enum ValueType {\n    I32,\n    I64,\n    F32,\n    F64,\n    FuncRef,\n}",
+              1,
+          )
+          replace(
+              "crates/wasm-parser/src/lib.rs",
+              "        0x7c => Ok(ValueType::F64),\n        other => Err(ParseError::UnsupportedValueType(other)),",
+              "        0x7c => Ok(ValueType::F64),\n        0x70 => Ok(ValueType::FuncRef),\n        other => Err(ParseError::UnsupportedValueType(other)),",
+              1,
+          )
+
+          # Runtime value model: nullable instance-local function indices. This is
+          # intentionally not yet exposed as a reference-capable host ABI.
+          replace(
+              "crates/wasm-runtime/src/numeric.rs",
+              "    F64(f64),\n}",
+              "    F64(f64),\n    FuncRef(Option<u32>),\n}",
+              1,
+          )
+          replace(
+              "crates/wasm-runtime/src/numeric.rs",
+              "            Self::F64(_) => ValueType::F64,\n        }",
+              "            Self::F64(_) => ValueType::F64,\n            Self::FuncRef(_) => ValueType::FuncRef,\n        }",
+              1,
+          )
+          replace(
+              "crates/wasm-runtime/src/numeric.rs",
+              "        ValueType::F64 => Value::F64(0.0),\n    }",
+              "        ValueType::F64 => Value::F64(0.0),\n        ValueType::FuncRef => Value::FuncRef(None),\n    }",
+              1,
+          )
+
+          # Typed validation for ref.null funcref and ref.is_null.
+          p = Path("crates/wasm-validator/src/typed.rs")
+          s = p.read_text()
+          anchor = "            0xfc => {\n"
+          if s.count(anchor) != 1:
+              raise SystemExit(f"expected one validator 0xfc anchor, got {s.count(anchor)}")
+          arms = '''            0xd0 => {\n                let reference_type = *code.get(pc).ok_or(ValidationError::MalformedImmediate {\n                    function,\n                    offset,\n                })?;\n                pc += 1;\n                if reference_type != 0x70 {\n                    return Err(ValidationError::MalformedImmediate { function, offset });\n                }\n                stack.push(ValueType::FuncRef);\n            }\n            0xd1 => {\n                unary(\n                    &mut stack,\n                    &controls,\n                    ValueType::FuncRef,\n                    ValueType::I32,\n                    function,\n                    offset,\n                )?;\n            }\n'''
+          p.write_text(s.replace(anchor, arms + anchor, 1))
+
+          # Runtime execution and structured-control predecode. The first 0xfc arm is
+          # execution; the second is the predecoder.
+          p = Path("crates/wasm-runtime/src/lib.rs")
+          s = p.read_text()
+          anchor = "                0xfc => {\n"
+          if s.count(anchor) != 1:
+              raise SystemExit(f"expected one runtime execution 0xfc anchor, got {s.count(anchor)}")
+          exec_arms = '''                0xd0 => {\n                    let reference_type = *code.get(pc).ok_or(RuntimeError::UnsupportedOpcode(0xd0))?;\n                    pc += 1;\n                    if reference_type != 0x70 {\n                        return Err(RuntimeError::UnsupportedOpcode(0xd0));\n                    }\n                    stack.push(Value::FuncRef(None));\n                }\n                0xd1 => {\n                    let value = stack.pop().ok_or(RuntimeError::StackUnderflow)?;\n                    let reference = match value {\n                        Value::FuncRef(reference) => reference,\n                        other => {\n                            return Err(RuntimeError::ValueTypeMismatch {\n                                expected: ValueType::FuncRef,\n                                actual: other.value_type(),\n                            })\n                        }\n                    };\n                    stack.push(Value::I32(i32::from(reference.is_none())));\n                }\n'''
+          s = s.replace(anchor, exec_arms + anchor, 1)
+          anchor2 = "            0xfc => {\n"
+          if s.count(anchor2) != 1:
+              raise SystemExit(f"expected one runtime predecode 0xfc anchor, got {s.count(anchor2)}")
+          predecode = '''            0xd0 => {\n                let reference_type = *code.get(pc).ok_or(RuntimeError::UnsupportedOpcode(0xd0))?;\n                pc += 1;\n                if reference_type != 0x70 {\n                    return Err(RuntimeError::UnsupportedOpcode(0xd0));\n                }\n            }\n            0xd1 => {}\n'''
+          p.write_text(s.replace(anchor2, predecode + anchor2, 1))
+
+          # Focused executable regression corpus.
+          Path("crates/wasm-runtime/tests/reference_null.rs").write_text(r'''use wasm_parser::parse_module;
+          use wasm_runtime::{Instance, RuntimeError, Value};
+          use wasm_validator::ValidationError;
+
+          fn section(module: &mut Vec<u8>, id: u8, payload: &[u8]) {
+              module.push(id);
+              module.push(payload.len() as u8);
+              module.extend_from_slice(payload);
+          }
+
+          fn module(body_ops: &[u8]) -> Vec<u8> {
+              let mut module = b"\0asm\x01\0\0\0".to_vec();
+              section(&mut module, 1, &[1, 0x60, 0, 1, 0x7f]);
+              section(&mut module, 3, &[1, 0]);
+              section(&mut module, 7, &[1, 3, b'r', b'u', b'n', 0, 0]);
+              let mut body = vec![0];
+              body.extend_from_slice(body_ops);
+              body.push(0x0b);
+              let mut code = vec![1, body.len() as u8];
+              code.extend_from_slice(&body);
+              section(&mut module, 10, &code);
+              module
+          }
+
+          #[test]
+          fn ref_null_funcref_is_null_executes() {
+              let module = parse_module(&module(&[0xd0, 0x70, 0xd1])).unwrap();
+              let mut instance = Instance::new(module).unwrap();
+              assert_eq!(instance.invoke_export("run", &[]).unwrap(), Some(Value::I32(1)));
+          }
+
+          #[test]
+          fn ref_null_can_be_dropped() {
+              let module = parse_module(&module(&[0xd0, 0x70, 0x1a, 0x41, 0x07])).unwrap();
+              let mut instance = Instance::new(module).unwrap();
+              assert_eq!(instance.invoke_export("run", &[]).unwrap(), Some(Value::I32(7)));
+          }
+
+          #[test]
+          fn ref_is_null_rejects_numeric_operand() {
+              let module = parse_module(&module(&[0x41, 0x00, 0xd1])).unwrap();
+              assert!(matches!(
+                  Instance::new(module),
+                  Err(RuntimeError::Validation(ValidationError::TypeMismatch {
+                      expected: wasm_parser::ValueType::FuncRef,
+                      actual: wasm_parser::ValueType::I32,
+                      ..
+                  }))
+              ));
+          }
+
+          #[test]
+          fn ref_null_rejects_non_funcref_immediate() {
+              let module = parse_module(&module(&[0xd0, 0x6f, 0xd1])).unwrap();
+              assert!(matches!(
+                  Instance::new(module),
+                  Err(RuntimeError::Validation(ValidationError::MalformedImmediate { .. }))
+              ));
+          }
+          ''')
+
+          Path("docs/reference-null.md").write_text('''# Nullable `funcref` operands\n\nThis slice adds an executable nullable `funcref` operand model plus `ref.null funcref` (`0xd0 0x70`) and `ref.is_null` (`0xd1`). The validator tracks `funcref` as a real operand type, the interpreter carries nullable instance-local function indices, and structured-control predecode consumes the `ref.null` immediate. Invalid reference-type immediates and numeric operands fail closed.\n\nReference-typed host parameters/results, reference globals, `ref.func`, `table.get`/`table.set`, `table.grow`, and `table.fill` remain intentionally unsupported until their ownership and cross-instance semantics are implemented explicitly. This slice is the executable foundation for those capabilities; it does not encode references as integers.\n''')
+
+      - name: Format
+        run: cargo fmt --all -- --check || (cargo fmt --all && cargo fmt --all -- --check)
+      - name: Test workspace
+        run: cargo test --workspace --all-targets
+      - name: Clippy
+        run: cargo clippy --workspace --all-targets -- -D warnings
+      - name: Docs
+        run: RUSTDOCFLAGS='-D warnings' cargo doc --workspace --no-deps
+      - name: Commit verified candidate and remove staging workflow
+        run: |
+          rm .github/workflows/conquest-ref-null.yml
+          rm -f Cargo.lock
+          git config user.name 'LeiZ'
+          git config user.email '52287354+Lei-TzuY@users.noreply.github.com'
+          git add -A
+          git commit -m 'feat: add executable funcref null semantics'
+          git push origin HEAD:conquest/funcref-null
