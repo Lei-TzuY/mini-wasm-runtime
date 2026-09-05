@@ -1,0 +1,43 @@
+name: Conquest table.copy run
+
+on:
+  push:
+    branches:
+      - conquest/table-copy
+
+permissions:
+  contents: write
+
+jobs:
+  implement-and-verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - name: Implement
+        run: python3 scripts/conquest_table_copy_stage.py
+      - name: Format
+        run: cargo fmt --all -- --check
+      - name: Workspace tests
+        run: cargo test --workspace --all-targets
+      - name: Clippy
+        run: cargo clippy --workspace --all-targets -- -D warnings
+      - name: Docs
+        run: RUSTDOCFLAGS="-D warnings" cargo doc --workspace --no-deps
+      - name: Commit verified candidate
+        shell: bash
+        run: |
+          rm -f Cargo.lock
+          rm -f scripts/conquest_table_copy_stage.py
+          rm -f .github/workflows/conquest-table-copy-diagnose.yml
+          rm -f .github/workflows/conquest-table-copy-stage-v2.yml
+          rm -f .github/workflows/conquest-table-copy-run.yml
+          git config user.name "LeiZ"
+          git config user.email "52287354+Lei-TzuY@users.noreply.github.com"
+          git add -A
+          git commit -m "feat: add bulk-table table.copy"
+          git push origin HEAD:conquest/table-copy
