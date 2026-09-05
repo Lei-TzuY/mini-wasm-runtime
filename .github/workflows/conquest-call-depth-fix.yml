@@ -26,7 +26,7 @@ jobs:
           lib = Path("crates/wasm-runtime/src/lib.rs")
           text = lib.read_text()
           old = "pub const MAX_CALL_DEPTH: usize = 32;"
-          new = "pub const MAX_CALL_DEPTH: usize = 16;"
+          new = "pub const MAX_CALL_DEPTH: usize = 26;"
           if text.count(old) != 1:
               raise SystemExit(f"expected exactly one MAX_CALL_DEPTH anchor, found {text.count(old)}")
           lib.write_text(text.replace(old, new))
@@ -34,7 +34,7 @@ jobs:
           doc = Path("docs/phase5c-pinned-wast-call-tranche.md")
           text = doc.read_text()
           old = "The runtime therefore exposes `MAX_CALL_DEPTH = 32` as the validated native-stack safety ceiling."
-          new = "The runtime therefore exposes `MAX_CALL_DEPTH = 16` as the validated native-stack safety ceiling; the tighter bound preserves structured failure on current macOS ARM64 hosted runners where the prior ceiling of 32 can overflow before the guard fires."
+          new = "The runtime therefore exposes `MAX_CALL_DEPTH = 26` as the validated native-stack safety ceiling; the tighter bound preserves the pinned depth-25 call corpus while restoring structured failure on current macOS ARM64 hosted runners where the prior ceiling of 32 can overflow before the guard fires."
           if text.count(old) != 1:
               raise SystemExit(f"expected exactly one call-depth doc anchor, found {text.count(old)}")
           doc.write_text(text.replace(old, new))
