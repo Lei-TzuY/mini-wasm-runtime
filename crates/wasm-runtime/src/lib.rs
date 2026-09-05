@@ -15,7 +15,7 @@ mod numeric;
 pub use numeric::Value;
 use wasm_validator::{validate, ValidationError, MAX_MEMORY_PAGES};
 
-pub const MAX_CALL_DEPTH: usize = 32;
+pub const MAX_CALL_DEPTH: usize = 26;
 const DEFAULT_MAX_CALL_DEPTH: usize = MAX_CALL_DEPTH;
 pub const WASM_PAGE_SIZE: usize = 65_536;
 
