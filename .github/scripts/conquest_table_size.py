@@ -98,14 +98,14 @@ fn hosts(table: &TableHandle) -> HostRegistry {
 fn reports_imported_table_size() {
     let table = TableHandle::new(4, Some(8)).unwrap();
     let mut vm = Instance::with_hosts(parse_module(&module(0, 4)).unwrap(), hosts(&table)).unwrap();
-    assert_eq!(vm.invoke_export("run", &[]).unwrap(), vec![Value::I32(4)]);
+    assert_eq!(vm.invoke_export("run", &[]).unwrap(), Some(Value::I32(4)));
 }
 
 #[test]
 fn reports_zero_length_table() {
     let table = TableHandle::new(0, Some(8)).unwrap();
     let mut vm = Instance::with_hosts(parse_module(&module(0, 0)).unwrap(), hosts(&table)).unwrap();
-    assert_eq!(vm.invoke_export("run", &[]).unwrap(), vec![Value::I32(0)]);
+    assert_eq!(vm.invoke_export("run", &[]).unwrap(), Some(Value::I32(0)));
 }
 
 #[test]
