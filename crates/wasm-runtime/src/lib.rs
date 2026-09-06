@@ -1210,15 +1210,6 @@ impl LinearMemory {
         old_pages as i32
     }
 
-    fn copy(&mut self, destination: i32, source: i32, length: i32) -> Result<(), RuntimeError> {
-        let width = length as u32 as usize;
-        let source_range = self.checked_range(source, 0, width)?;
-        let destination_range = self.checked_range(destination, 0, width)?;
-        self.bytes
-            .copy_within(source_range, destination_range.start);
-        Ok(())
-    }
-
     fn fill(&mut self, destination: i32, value: i32, length: i32) -> Result<(), RuntimeError> {
         let width = length as u32 as usize;
         let destination_range = self.checked_range(destination, 0, width)?;
@@ -1577,12 +1568,17 @@ impl ExecutionBudget {
 }
 
 #[derive(Debug)]
+enum RuntimeMemory {
+    Owned(LinearMemory),
+    Imported(MemoryHandle),
+}
+
+#[derive(Debug)]
 pub struct Instance {
     identity: Rc<()>,
     module: Module,
     control_maps: Vec<ControlMap>,
-    memory: Option<LinearMemory>,
-    imported_memory: Option<MemoryHandle>,
+    memories: Vec<RuntimeMemory>,
     data_segments: Vec<Vec<u8>>,
     element_segments: Vec<Vec<u32>>,
     tables: Vec<TableHandle>,
@@ -1612,22 +1608,7 @@ impl Instance {
             .iter()
             .map(|body| build_control_map(&module, &body.code))
             .collect::<Result<Vec<_>, _>>()?;
-        let imported_memory = instantiate_imported_memory(&module, &hosts, limits)?;
-        let memory = if imported_memory.is_none() {
-            module
-                .memories
-                .first()
-                .map(|memory_type| {
-                    LinearMemory::new(
-                        memory_type.limits.min,
-                        memory_type.limits.max,
-                        limits.max_memory_pages,
-                    )
-                })
-                .transpose()?
-        } else {
-            None
-        };
+        let memories = instantiate_memories(&module, &hosts, limits)?;
         let data_segments = module
             .data
             .iter()
@@ -1652,8 +1633,7 @@ impl Instance {
             identity,
             module,
             control_maps,
-            memory,
-            imported_memory,
+            memories,
             data_segments,
             element_segments,
             tables,
@@ -1719,7 +1699,10 @@ impl Instance {
     }
 
     pub fn memory(&self) -> Option<&LinearMemory> {
-        self.memory.as_ref()
+        match self.memories.first() {
+            Some(RuntimeMemory::Owned(memory)) => Some(memory),
+            Some(RuntimeMemory::Imported(_)) | None => None,
+        }
     }
 
     pub fn global(&self, index: u32) -> Option<Value> {
@@ -1760,8 +1743,6 @@ impl Instance {
 
     fn initialize_data_segments(&mut self) -> Result<(), RuntimeError> {
         let data = self.module.data.clone();
-
-        // Preflight every active segment before mutating a potentially host-shared memory.
         for (segment_index, segment) in data.iter().enumerate() {
             let DataMode::Active {
                 memory_index,
@@ -1770,9 +1751,6 @@ impl Instance {
             else {
                 continue;
             };
-            if memory_index != 0 {
-                return Err(RuntimeError::MemoryIndexOutOfBounds(memory_index));
-            }
             let offset = u64::from(offset as u32);
             let end = offset.checked_add(segment.bytes.len() as u64).ok_or(
                 RuntimeError::DataSegmentOutOfBounds {
@@ -1781,7 +1759,8 @@ impl Instance {
                     length: segment.bytes.len(),
                 },
             )?;
-            let memory_len = self.with_memory(|memory| Ok(memory.bytes.len() as u64))?;
+            let memory_len =
+                self.with_memory_index(memory_index, |memory| Ok(memory.bytes.len() as u64))?;
             if end > memory_len {
                 return Err(RuntimeError::DataSegmentOutOfBounds {
                     segment: segment_index,
@@ -1790,13 +1769,16 @@ impl Instance {
                 });
             }
         }
-
         for segment in &data {
-            let DataMode::Active { offset, .. } = segment.mode else {
+            let DataMode::Active {
+                memory_index,
+                offset,
+            } = segment.mode
+            else {
                 continue;
             };
             let offset = u64::from(offset as u32);
-            self.with_memory_mut(|memory| {
+            self.with_memory_index_mut(memory_index, |memory| {
                 let start = usize::try_from(offset).map_err(|_| {
                     RuntimeError::ControlInvariant("preflighted data offset no longer fits usize")
                 })?;
@@ -1811,6 +1793,7 @@ impl Instance {
     fn memory_init(
         &mut self,
         data_index: u32,
+        memory_index: u32,
         destination: i32,
         source: i32,
         length: i32,
@@ -1837,7 +1820,27 @@ impl Instance {
         }
         let start = source_start as usize;
         let payload = segment[start..start + width].to_vec();
-        self.with_memory_mut(|memory| {
+        self.with_memory_index_mut(memory_index, |memory| {
+            let range = memory.checked_range(destination, 0, width)?;
+            memory.bytes[range].copy_from_slice(&payload);
+            Ok(())
+        })
+    }
+
+    fn memory_copy(
+        &mut self,
+        destination_memory: u32,
+        source_memory: u32,
+        destination: i32,
+        source: i32,
+        length: i32,
+    ) -> Result<(), RuntimeError> {
+        let width = length as u32 as usize;
+        let payload = self.with_memory_index(source_memory, |memory| {
+            let range = memory.checked_range(source, 0, width)?;
+            Ok(memory.bytes[range].to_vec())
+        })?;
+        self.with_memory_index_mut(destination_memory, |memory| {
             let range = memory.checked_range(destination, 0, width)?;
             memory.bytes[range].copy_from_slice(&payload);
             Ok(())
@@ -2034,32 +2037,54 @@ impl Instance {
         Ok(())
     }
 
+    fn with_memory_index<R>(
+        &self,
+        index: u32,
+        f: impl FnOnce(&LinearMemory) -> Result<R, RuntimeError>,
+    ) -> Result<R, RuntimeError> {
+        match self.memories.get(index as usize) {
+            Some(RuntimeMemory::Owned(memory)) => f(memory),
+            Some(RuntimeMemory::Imported(memory)) => {
+                let memory = memory.memory.borrow();
+                f(&memory)
+            }
+            None => Err(RuntimeError::MemoryIndexOutOfBounds(index)),
+        }
+    }
+
+    fn with_memory_index_mut<R>(
+        &mut self,
+        index: u32,
+        f: impl FnOnce(&mut LinearMemory) -> Result<R, RuntimeError>,
+    ) -> Result<R, RuntimeError> {
+        match self.memories.get_mut(index as usize) {
+            Some(RuntimeMemory::Owned(memory)) => f(memory),
+            Some(RuntimeMemory::Imported(memory)) => {
+                let mut memory = memory.memory.borrow_mut();
+                f(&mut memory)
+            }
+            None => Err(RuntimeError::MemoryIndexOutOfBounds(index)),
+        }
+    }
+
     fn with_memory<R>(
         &self,
         f: impl FnOnce(&LinearMemory) -> Result<R, RuntimeError>,
     ) -> Result<R, RuntimeError> {
-        if let Some(memory) = self.memory.as_ref() {
-            return f(memory);
+        if self.memories.is_empty() {
+            return Err(RuntimeError::MemoryUnavailable);
         }
-        if let Some(memory) = self.imported_memory.as_ref() {
-            let memory = memory.memory.borrow();
-            return f(&memory);
-        }
-        Err(RuntimeError::MemoryUnavailable)
+        self.with_memory_index(0, f)
     }
 
     fn with_memory_mut<R>(
         &mut self,
         f: impl FnOnce(&mut LinearMemory) -> Result<R, RuntimeError>,
     ) -> Result<R, RuntimeError> {
-        if let Some(memory) = self.memory.as_mut() {
-            return f(memory);
+        if self.memories.is_empty() {
+            return Err(RuntimeError::MemoryUnavailable);
         }
-        if let Some(memory) = self.imported_memory.as_ref() {
-            let mut memory = memory.memory.borrow_mut();
-            return f(&mut memory);
-        }
-        Err(RuntimeError::MemoryUnavailable)
+        self.with_memory_index_mut(0, f)
     }
 
     fn function_type(&self, function_index: u32) -> Result<FuncType, RuntimeError> {
@@ -2105,8 +2130,7 @@ impl Instance {
         validate_values(&ty.params, args)?;
 
         let key = (import.module.clone(), import.name.clone());
-        let (hosts, memory, imported_memory) =
-            (&mut self.hosts, &mut self.memory, &self.imported_memory);
+        let (hosts, memories) = (&mut self.hosts, &mut self.memories);
         let host = hosts
             .functions
             .get_mut(&key)
@@ -2114,10 +2138,10 @@ impl Instance {
                 module: import.module.clone(),
                 name: import.name.clone(),
             })?;
-        let context_memory = if let Some(shared) = imported_memory.as_ref() {
-            Some(HostMemory::Shared(shared.clone()))
-        } else {
-            memory.as_mut().map(HostMemory::Owned)
+        let context_memory = match memories.first_mut() {
+            Some(RuntimeMemory::Owned(memory)) => Some(HostMemory::Owned(memory)),
+            Some(RuntimeMemory::Imported(memory)) => Some(HostMemory::Shared(memory.clone())),
+            None => None,
         };
         let mut context = HostContext {
             memory: context_memory,
@@ -2609,14 +2633,16 @@ impl Instance {
                     let memory_index = read_u32_immediate(code, &mut pc)?;
                     ensure_runtime_memory_index(self, memory_index)?;
                     stack.push(Value::I32(
-                        self.with_memory(|memory| Ok(memory.size_pages()))? as i32,
+                        self.with_memory_index(memory_index, |memory| Ok(memory.size_pages()))?
+                            as i32,
                     ));
                 }
                 0x40 => {
                     let memory_index = read_u32_immediate(code, &mut pc)?;
                     ensure_runtime_memory_index(self, memory_index)?;
                     let delta = numeric::i32_from_stack(&mut stack)? as u32;
-                    let previous = self.with_memory_mut(|memory| Ok(memory.grow(delta)))?;
+                    let previous =
+                        self.with_memory_index_mut(memory_index, |memory| Ok(memory.grow(delta)))?;
                     stack.push(Value::I32(previous));
                 }
                 0x41 => {
@@ -2685,7 +2711,13 @@ impl Instance {
                             let length = numeric::i32_from_stack(&mut stack)?;
                             let source = numeric::i32_from_stack(&mut stack)?;
                             let destination = numeric::i32_from_stack(&mut stack)?;
-                            self.memory_init(data_index, destination, source, length)?;
+                            self.memory_init(
+                                data_index,
+                                memory_index,
+                                destination,
+                                source,
+                                length,
+                            )?;
                         }
                         9 => {
                             let data_index = read_u32_immediate(code, &mut pc)?;
@@ -2699,9 +2731,13 @@ impl Instance {
                             let length = numeric::i32_from_stack(&mut stack)?;
                             let source = numeric::i32_from_stack(&mut stack)?;
                             let destination = numeric::i32_from_stack(&mut stack)?;
-                            self.with_memory_mut(|memory| {
-                                memory.copy(destination, source, length)
-                            })?;
+                            self.memory_copy(
+                                destination_memory,
+                                source_memory,
+                                destination,
+                                source,
+                                length,
+                            )?;
                         }
                         11 => {
                             let memory_index = read_u32_immediate(code, &mut pc)?;
@@ -2709,7 +2745,9 @@ impl Instance {
                             let length = numeric::i32_from_stack(&mut stack)?;
                             let value = numeric::i32_from_stack(&mut stack)?;
                             let destination = numeric::i32_from_stack(&mut stack)?;
-                            self.with_memory_mut(|memory| memory.fill(destination, value, length))?;
+                            self.with_memory_index_mut(memory_index, |memory| {
+                                memory.fill(destination, value, length)
+                            })?;
                         }
                         12 => {
                             let element_index = read_u32_immediate(code, &mut pc)?;
@@ -2946,11 +2984,12 @@ fn validate_memory_runtime_limit(
     })
 }
 
-fn instantiate_imported_memory(
+fn instantiate_memories(
     module: &Module,
     hosts: &HostRegistry,
     limits: RuntimeLimits,
-) -> Result<Option<MemoryHandle>, RuntimeError> {
+) -> Result<Vec<RuntimeMemory>, RuntimeError> {
+    let mut memories = Vec::with_capacity(module.memory_count());
     for import in &module.imports {
         let ImportDesc::Memory(memory_type) = import.desc else {
             continue;
@@ -2969,9 +3008,16 @@ fn instantiate_imported_memory(
             &memory,
         )?;
         validate_memory_runtime_limit(import, &memory, limits.max_memory_pages)?;
-        return Ok(Some(memory));
+        memories.push(RuntimeMemory::Imported(memory));
     }
-    Ok(None)
+    for memory_type in &module.memories {
+        memories.push(RuntimeMemory::Owned(LinearMemory::new(
+            memory_type.limits.min,
+            memory_type.limits.max,
+            limits.max_memory_pages,
+        )?));
+    }
+    Ok(memories)
 }
 
 fn validate_table_limits(
@@ -3117,10 +3163,10 @@ fn instantiate_globals(
 }
 
 fn ensure_runtime_memory_index(instance: &Instance, index: u32) -> Result<(), RuntimeError> {
-    if index != 0 || (instance.memory.is_none() && instance.imported_memory.is_none()) {
-        Err(RuntimeError::MemoryIndexOutOfBounds(index))
-    } else {
+    if instance.memories.get(index as usize).is_some() {
         Ok(())
+    } else {
+        Err(RuntimeError::MemoryIndexOutOfBounds(index))
     }
 }
 

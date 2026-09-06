@@ -775,12 +775,6 @@ fn validate_imports(module: &Module) -> Result<(), ValidationError> {
 }
 
 fn validate_memories(module: &Module) -> Result<(), ValidationError> {
-    if module.memory_count() > 1 {
-        return Err(ValidationError::UnsupportedMemoryCount {
-            count: module.memory_count(),
-        });
-    }
-
     for memory in 0..module.memory_count() {
         let memory_type = module
             .memory_type(memory as u32)
@@ -1054,7 +1048,7 @@ mod tests {
     }
 
     #[test]
-    fn rejects_multiple_memories() {
+    fn accepts_multiple_memories() {
         let mut module = valid_module();
         module.memories = vec![
             MemoryType {
@@ -1064,10 +1058,7 @@ mod tests {
                 limits: Limits { min: 1, max: None },
             },
         ];
-        assert_eq!(
-            validate(&module),
-            Err(ValidationError::UnsupportedMemoryCount { count: 2 })
-        );
+        assert_eq!(validate(&module), Ok(()));
     }
 
     #[test]

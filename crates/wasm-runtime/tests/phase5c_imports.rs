@@ -160,7 +160,7 @@ fn imported_global_participates_in_global_get_typing() {
 }
 
 #[test]
-fn imported_and_defined_memory_still_obey_single_memory_runtime_subset() {
+fn imported_and_defined_memories_share_one_index_space() {
     let mut module = module_header();
     let mut imports = vec![0x01];
     push_import_prefix(&mut imports, "env", "mem", 0x02);
@@ -170,10 +170,7 @@ fn imported_and_defined_memory_still_obey_single_memory_runtime_subset() {
 
     let parsed = parse_module(&module).unwrap();
     assert_eq!(parsed.memory_count(), 2);
-    assert_eq!(
-        validate(&parsed),
-        Err(ValidationError::UnsupportedMemoryCount { count: 2 })
-    );
+    assert_eq!(validate(&parsed), Ok(()));
 }
 
 #[test]
