@@ -6,10 +6,8 @@ license.workspace = true
 rust-version.workspace = true
 
 [dependencies]
-wasm-runtime = { path = "../wasm-runtime" }
-
-[dev-dependencies]
 wasm-parser = { path = "../wasm-parser" }
+wasm-runtime = { path = "../wasm-runtime" }
 
 [lints]
 workspace = true
