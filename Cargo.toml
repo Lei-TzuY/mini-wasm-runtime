@@ -4,6 +4,7 @@ members = [
     "crates/wasm-parser",
     "crates/wasm-validator",
     "crates/wasm-runtime",
+    "crates/wasm-wasi",
     "crates/wasm-cli",
 ]
 
