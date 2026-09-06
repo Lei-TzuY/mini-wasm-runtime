@@ -2067,26 +2067,6 @@ impl Instance {
         }
     }
 
-    fn with_memory<R>(
-        &self,
-        f: impl FnOnce(&LinearMemory) -> Result<R, RuntimeError>,
-    ) -> Result<R, RuntimeError> {
-        if self.memories.is_empty() {
-            return Err(RuntimeError::MemoryUnavailable);
-        }
-        self.with_memory_index(0, f)
-    }
-
-    fn with_memory_mut<R>(
-        &mut self,
-        f: impl FnOnce(&mut LinearMemory) -> Result<R, RuntimeError>,
-    ) -> Result<R, RuntimeError> {
-        if self.memories.is_empty() {
-            return Err(RuntimeError::MemoryUnavailable);
-        }
-        self.with_memory_index_mut(0, f)
-    }
-
     fn function_type(&self, function_index: u32) -> Result<FuncType, RuntimeError> {
         let function = function_index as usize;
         let imported = self.module.function_import_count();
@@ -2508,77 +2488,71 @@ impl Instance {
                         .map_err(|error| map_table_element_error(error, element_index))?;
                 }
                 0x28..=0x35 => {
-                    let (_, displacement) = read_memarg(code, &mut pc)?;
+                    let (_, memory_index, displacement) = read_memarg(code, &mut pc)?;
+                    ensure_runtime_memory_index(self, memory_index)?;
                     let address = numeric::i32_from_stack(&mut stack)?;
                     let value = match opcode {
-                        0x28 => Value::I32(
-                            self.with_memory(|memory| memory.load_i32(address, displacement))?,
-                        ),
-                        0x29 => Value::I64(
-                            self.with_memory(|memory| memory.load_i64(address, displacement))?,
-                        ),
-                        0x2a => Value::F32(
-                            self.with_memory(|memory| memory.load_f32(address, displacement))?,
-                        ),
-                        0x2b => Value::F64(
-                            self.with_memory(|memory| memory.load_f64(address, displacement))?,
-                        ),
-                        0x2c => Value::I32(
-                            self.with_memory(|memory| memory.load_i8_s(address, displacement))?,
-                        ),
-                        0x2d => Value::I32(
-                            self.with_memory(|memory| memory.load_i8_u(address, displacement))?,
-                        ),
-                        0x2e => Value::I32(
-                            self.with_memory(|memory| memory.load_i16_s(address, displacement))?,
-                        ),
-                        0x2f => Value::I32(
-                            self.with_memory(|memory| memory.load_i16_u(address, displacement))?,
-                        ),
-                        0x30 => Value::I64(
-                            self.with_memory(|memory| memory.load_i64_8_s(address, displacement))?,
-                        ),
-                        0x31 => Value::I64(
-                            self.with_memory(|memory| memory.load_i64_8_u(address, displacement))?,
-                        ),
-                        0x32 => {
-                            Value::I64(self.with_memory(|memory| {
-                                memory.load_i64_16_s(address, displacement)
-                            })?)
-                        }
-                        0x33 => {
-                            Value::I64(self.with_memory(|memory| {
-                                memory.load_i64_16_u(address, displacement)
-                            })?)
-                        }
-                        0x34 => {
-                            Value::I64(self.with_memory(|memory| {
-                                memory.load_i64_32_s(address, displacement)
-                            })?)
-                        }
-                        0x35 => {
-                            Value::I64(self.with_memory(|memory| {
-                                memory.load_i64_32_u(address, displacement)
-                            })?)
-                        }
+                        0x28 => Value::I32(self.with_memory_index(memory_index, |memory| {
+                            memory.load_i32(address, displacement)
+                        })?),
+                        0x29 => Value::I64(self.with_memory_index(memory_index, |memory| {
+                            memory.load_i64(address, displacement)
+                        })?),
+                        0x2a => Value::F32(self.with_memory_index(memory_index, |memory| {
+                            memory.load_f32(address, displacement)
+                        })?),
+                        0x2b => Value::F64(self.with_memory_index(memory_index, |memory| {
+                            memory.load_f64(address, displacement)
+                        })?),
+                        0x2c => Value::I32(self.with_memory_index(memory_index, |memory| {
+                            memory.load_i8_s(address, displacement)
+                        })?),
+                        0x2d => Value::I32(self.with_memory_index(memory_index, |memory| {
+                            memory.load_i8_u(address, displacement)
+                        })?),
+                        0x2e => Value::I32(self.with_memory_index(memory_index, |memory| {
+                            memory.load_i16_s(address, displacement)
+                        })?),
+                        0x2f => Value::I32(self.with_memory_index(memory_index, |memory| {
+                            memory.load_i16_u(address, displacement)
+                        })?),
+                        0x30 => Value::I64(self.with_memory_index(memory_index, |memory| {
+                            memory.load_i64_8_s(address, displacement)
+                        })?),
+                        0x31 => Value::I64(self.with_memory_index(memory_index, |memory| {
+                            memory.load_i64_8_u(address, displacement)
+                        })?),
+                        0x32 => Value::I64(self.with_memory_index(memory_index, |memory| {
+                            memory.load_i64_16_s(address, displacement)
+                        })?),
+                        0x33 => Value::I64(self.with_memory_index(memory_index, |memory| {
+                            memory.load_i64_16_u(address, displacement)
+                        })?),
+                        0x34 => Value::I64(self.with_memory_index(memory_index, |memory| {
+                            memory.load_i64_32_s(address, displacement)
+                        })?),
+                        0x35 => Value::I64(self.with_memory_index(memory_index, |memory| {
+                            memory.load_i64_32_u(address, displacement)
+                        })?),
                         _ => unreachable!(),
                     };
                     stack.push(value);
                 }
                 0x36..=0x3e => {
-                    let (_, displacement) = read_memarg(code, &mut pc)?;
+                    let (_, memory_index, displacement) = read_memarg(code, &mut pc)?;
+                    ensure_runtime_memory_index(self, memory_index)?;
                     match opcode {
                         0x36 | 0x3a | 0x3b => {
                             let value = numeric::i32_from_stack(&mut stack)?;
                             let address = numeric::i32_from_stack(&mut stack)?;
                             match opcode {
-                                0x36 => self.with_memory_mut(|memory| {
+                                0x36 => self.with_memory_index_mut(memory_index, |memory| {
                                     memory.store_i32(address, displacement, value)
                                 })?,
-                                0x3a => self.with_memory_mut(|memory| {
+                                0x3a => self.with_memory_index_mut(memory_index, |memory| {
                                     memory.store_i8(address, displacement, value)
                                 })?,
-                                0x3b => self.with_memory_mut(|memory| {
+                                0x3b => self.with_memory_index_mut(memory_index, |memory| {
                                     memory.store_i16(address, displacement, value)
                                 })?,
                                 _ => unreachable!(),
@@ -2591,16 +2565,16 @@ impl Instance {
                             };
                             let address = numeric::i32_from_stack(&mut stack)?;
                             match opcode {
-                                0x37 => self.with_memory_mut(|memory| {
+                                0x37 => self.with_memory_index_mut(memory_index, |memory| {
                                     memory.store_i64(address, displacement, value)
                                 })?,
-                                0x3c => self.with_memory_mut(|memory| {
+                                0x3c => self.with_memory_index_mut(memory_index, |memory| {
                                     memory.store_i64_8(address, displacement, value)
                                 })?,
-                                0x3d => self.with_memory_mut(|memory| {
+                                0x3d => self.with_memory_index_mut(memory_index, |memory| {
                                     memory.store_i64_16(address, displacement, value)
                                 })?,
-                                0x3e => self.with_memory_mut(|memory| {
+                                0x3e => self.with_memory_index_mut(memory_index, |memory| {
                                     memory.store_i64_32(address, displacement, value)
                                 })?,
                                 _ => unreachable!(),
@@ -2612,7 +2586,7 @@ impl Instance {
                                 _ => unreachable!("pop_typed established f32"),
                             };
                             let address = numeric::i32_from_stack(&mut stack)?;
-                            self.with_memory_mut(|memory| {
+                            self.with_memory_index_mut(memory_index, |memory| {
                                 memory.store_f32(address, displacement, value)
                             })?;
                         }
@@ -2622,7 +2596,7 @@ impl Instance {
                                 _ => unreachable!("pop_typed established f64"),
                             };
                             let address = numeric::i32_from_stack(&mut stack)?;
-                            self.with_memory_mut(|memory| {
+                            self.with_memory_index_mut(memory_index, |memory| {
                                 memory.store_f64(address, displacement, value)
                             })?;
                         }
@@ -3509,10 +3483,20 @@ fn read_block_signature(
     })
 }
 
-fn read_memarg(code: &[u8], pc: &mut usize) -> Result<(u32, u32), RuntimeError> {
-    let alignment = read_u32_immediate(code, pc)?;
+fn read_memarg(code: &[u8], pc: &mut usize) -> Result<(u32, u32, u32), RuntimeError> {
+    let flags = read_u32_immediate(code, pc)?;
+    if flags >= 0x80 {
+        return Err(RuntimeError::ControlInvariant(
+            "validated memarg flags exceed encoding range",
+        ));
+    }
+    let (alignment, memory_index) = if flags & 0x40 != 0 {
+        (flags & 0x3f, read_u32_immediate(code, pc)?)
+    } else {
+        (flags, 0)
+    };
     let displacement = read_u32_immediate(code, pc)?;
-    Ok((alignment, displacement))
+    Ok((alignment, memory_index, displacement))
 }
 
 fn read_u32_immediate(code: &[u8], pc: &mut usize) -> Result<u32, RuntimeError> {
