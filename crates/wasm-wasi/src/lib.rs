@@ -1,8 +1,8 @@
 //! Bounded WASI Preview1 host capabilities for `mini-wasm-runtime`.
 //!
-//! This crate provides executable descriptor capabilities on the runtime's
-//! capability-scoped host boundary. Guest-memory operations are bounded and
-//! fail closed before externally visible output side effects are committed.
+//! This crate provides executable descriptor and process-argument capabilities on the runtime's
+//! capability-scoped host boundary. Guest-memory operations are bounded and fail closed before
+//! externally visible output side effects are committed.
 
 use std::{cell::RefCell, rc::Rc};
 use wasm_parser::ValueType;
@@ -19,6 +19,8 @@ pub const RIGHTS_FD_WRITE: u64 = 1 << 6;
 const FDSTAT_SIZE: usize = 24;
 const DEFAULT_MAX_IOVECS: u32 = 1_024;
 const DEFAULT_MAX_WRITE_BYTES: usize = 16 * 1024 * 1024;
+const DEFAULT_MAX_ARGS: usize = 4_096;
+const DEFAULT_MAX_ARGS_BYTES: usize = 1024 * 1024;
 
 #[derive(Debug, Clone, Default)]
 pub struct OutputBuffer {
@@ -47,8 +49,11 @@ impl OutputBuffer {
 pub struct WasiPreview1 {
     stdout: OutputBuffer,
     stderr: OutputBuffer,
+    args: Vec<Vec<u8>>,
     max_iovecs: u32,
     max_write_bytes: usize,
+    max_args: usize,
+    max_args_bytes: usize,
 }
 
 impl Default for WasiPreview1 {
@@ -56,8 +61,11 @@ impl Default for WasiPreview1 {
         Self {
             stdout: OutputBuffer::default(),
             stderr: OutputBuffer::default(),
+            args: Vec::new(),
             max_iovecs: DEFAULT_MAX_IOVECS,
             max_write_bytes: DEFAULT_MAX_WRITE_BYTES,
+            max_args: DEFAULT_MAX_ARGS,
+            max_args_bytes: DEFAULT_MAX_ARGS_BYTES,
         }
     }
 }
@@ -78,6 +86,24 @@ impl WasiPreview1 {
     pub fn with_limits(mut self, max_iovecs: u32, max_write_bytes: usize) -> Self {
         self.max_iovecs = max_iovecs;
         self.max_write_bytes = max_write_bytes;
+        self
+    }
+
+    pub fn with_args<I, S>(mut self, args: I) -> Self
+    where
+        I: IntoIterator<Item = S>,
+        S: AsRef<str>,
+    {
+        self.args = args
+            .into_iter()
+            .map(|arg| arg.as_ref().as_bytes().to_vec())
+            .collect();
+        self
+    }
+
+    pub fn with_args_limits(mut self, max_args: usize, max_args_bytes: usize) -> Self {
+        self.max_args = max_args;
+        self.max_args_bytes = max_args_bytes;
         self
     }
 
@@ -191,6 +217,130 @@ impl WasiPreview1 {
                 bytes[8..16].copy_from_slice(&RIGHTS_FD_WRITE.to_le_bytes());
 
                 if context.write_memory(*fdstat as u32, &bytes).is_err() {
+                    return Ok(vec![Value::I32(ERRNO_FAULT)]);
+                }
+
+                Ok(vec![Value::I32(ERRNO_SUCCESS)])
+            },
+        )?;
+
+        let configured_args = self.args.clone();
+        let max_args = self.max_args;
+        let max_args_bytes = self.max_args_bytes;
+        let sizes_args = configured_args.clone();
+        registry.register_values(
+            "wasi_snapshot_preview1",
+            "args_sizes_get",
+            vec![ValueType::I32, ValueType::I32],
+            vec![ValueType::I32],
+            HostCapabilities::MEMORY_READ_WRITE,
+            move |context, args| {
+                let [Value::I32(argc_ptr), Value::I32(argv_buf_size_ptr)] = args else {
+                    return Err(HostError::message(
+                        "validated wasi args_sizes_get signature received non-i32 arguments",
+                    ));
+                };
+
+                if sizes_args.len() > max_args {
+                    return Ok(vec![Value::I32(ERRNO_INVAL)]);
+                }
+                let mut bytes_len = 0usize;
+                for arg in &sizes_args {
+                    let Some(next) = bytes_len
+                        .checked_add(arg.len())
+                        .and_then(|n| n.checked_add(1))
+                    else {
+                        return Ok(vec![Value::I32(ERRNO_INVAL)]);
+                    };
+                    bytes_len = next;
+                }
+                if bytes_len > max_args_bytes
+                    || sizes_args.len() > u32::MAX as usize
+                    || bytes_len > u32::MAX as usize
+                {
+                    return Ok(vec![Value::I32(ERRNO_INVAL)]);
+                }
+
+                if context.read_memory(*argc_ptr as u32, 4).is_err()
+                    || context.read_memory(*argv_buf_size_ptr as u32, 4).is_err()
+                {
+                    return Ok(vec![Value::I32(ERRNO_FAULT)]);
+                }
+
+                let argc = (sizes_args.len() as u32).to_le_bytes();
+                let argv_buf_size = (bytes_len as u32).to_le_bytes();
+                if context.write_memory(*argc_ptr as u32, &argc).is_err()
+                    || context
+                        .write_memory(*argv_buf_size_ptr as u32, &argv_buf_size)
+                        .is_err()
+                {
+                    return Ok(vec![Value::I32(ERRNO_FAULT)]);
+                }
+
+                Ok(vec![Value::I32(ERRNO_SUCCESS)])
+            },
+        )?;
+
+        registry.register_values(
+            "wasi_snapshot_preview1",
+            "args_get",
+            vec![ValueType::I32, ValueType::I32],
+            vec![ValueType::I32],
+            HostCapabilities::MEMORY_READ_WRITE,
+            move |context, args| {
+                let [Value::I32(argv_ptr), Value::I32(argv_buf_ptr)] = args else {
+                    return Err(HostError::message(
+                        "validated wasi args_get signature received non-i32 arguments",
+                    ));
+                };
+
+                if configured_args.len() > max_args {
+                    return Ok(vec![Value::I32(ERRNO_INVAL)]);
+                }
+                let Some(pointer_bytes_len) = configured_args.len().checked_mul(4) else {
+                    return Ok(vec![Value::I32(ERRNO_INVAL)]);
+                };
+                let mut payload = Vec::new();
+                let mut pointer_table = Vec::with_capacity(pointer_bytes_len);
+                for arg in &configured_args {
+                    let Some(offset) = u32::try_from(payload.len()).ok() else {
+                        return Ok(vec![Value::I32(ERRNO_INVAL)]);
+                    };
+                    let Some(pointer) = (*argv_buf_ptr as u32).checked_add(offset) else {
+                        return Ok(vec![Value::I32(ERRNO_FAULT)]);
+                    };
+                    pointer_table.extend(pointer.to_le_bytes());
+                    let Some(next_len) = payload
+                        .len()
+                        .checked_add(arg.len())
+                        .and_then(|n| n.checked_add(1))
+                    else {
+                        return Ok(vec![Value::I32(ERRNO_INVAL)]);
+                    };
+                    if next_len > max_args_bytes || next_len > u32::MAX as usize {
+                        return Ok(vec![Value::I32(ERRNO_INVAL)]);
+                    }
+                    payload.extend_from_slice(arg);
+                    payload.push(0);
+                }
+
+                if context
+                    .read_memory(*argv_ptr as u32, pointer_table.len())
+                    .is_err()
+                    || context
+                        .read_memory(*argv_buf_ptr as u32, payload.len())
+                        .is_err()
+                {
+                    return Ok(vec![Value::I32(ERRNO_FAULT)]);
+                }
+
+                if context
+                    .write_memory(*argv_ptr as u32, &pointer_table)
+                    .is_err()
+                    || context
+                        .write_memory(*argv_buf_ptr as u32, &payload)
+                        .is_err()
+                {
                     return Ok(vec![Value::I32(ERRNO_FAULT)]);
                 }
 
