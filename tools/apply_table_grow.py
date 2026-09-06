@@ -12,118 +12,25 @@ def replace_once(path: str, old: str, new: str) -> None:
 runtime = "crates/wasm-runtime/src/lib.rs"
 replace_once(
     runtime,
-    '''    fn bind(&self, owner: &Rc<()>) -> Result<(), TableHandleError> {
-''',
-    '''    fn grow(&self, delta: u32, fill: Option<FunctionRef>) -> i32 {
-        let previous = self.len();
-        let Some(new_length) = previous.checked_add(delta) else {
-            return -1;
-        };
-        if self.maximum.is_some_and(|maximum| new_length > maximum) {
-            return -1;
-        }
-        if delta == 0 {
-            return previous as i32;
-        }
-        let additional = delta as usize;
-        let new_length = new_length as usize;
-        let mut slots = self.slots.borrow_mut();
-        if slots.try_reserve_exact(additional).is_err() {
-            return -1;
-        }
-        slots.resize(new_length, fill);
-        previous as i32
-    }
-
-    fn bind(&self, owner: &Rc<()>) -> Result<(), TableHandleError> {
-''',
+    '''    fn bind(&self, owner: &Rc<()>) -> Result<(), TableHandleError> {\n''',
+    '''    fn grow(&self, delta: u32, fill: Option<FunctionRef>) -> i32 {\n        let previous = self.len();\n        let Some(new_length) = previous.checked_add(delta) else {\n            return -1;\n        };\n        if self.maximum.is_some_and(|maximum| new_length > maximum) {\n            return -1;\n        }\n        if delta == 0 {\n            return previous as i32;\n        }\n        let additional = delta as usize;\n        let new_length = new_length as usize;\n        let mut slots = self.slots.borrow_mut();\n        if slots.try_reserve_exact(additional).is_err() {\n            return -1;\n        }\n        slots.resize(new_length, fill);\n        previous as i32\n    }\n\n    fn bind(&self, owner: &Rc<()>) -> Result<(), TableHandleError> {\n''',
 )
 replace_once(
     runtime,
-    '''                        16 => {
-                            let table_index = read_u32_immediate(code, &mut pc)?;
-                            stack.push(Value::I32(self.table_size(table_index)?));
-                        }
-''',
-    '''                        15 => {
-                            let table_index = read_u32_immediate(code, &mut pc)?;
-                            if table_index != 0 || self.table.is_none() {
-                                return Err(RuntimeError::TableIndexOutOfBounds(table_index));
-                            }
-                            let delta = numeric::i32_from_stack(&mut stack)? as u32;
-                            let reference = match numeric::pop_typed(&mut stack, ValueType::FuncRef)? {
-                                Value::FuncRef(reference) => reference,
-                                _ => unreachable!("pop_typed established funcref"),
-                            };
-                            let fill = reference.map(|function_index| FunctionRef {
-                                owner: Rc::downgrade(&self.identity),
-                                function_index,
-                            });
-                            let previous = self
-                                .table
-                                .as_ref()
-                                .ok_or(RuntimeError::TableIndexOutOfBounds(table_index))?
-                                .grow(delta, fill);
-                            stack.push(Value::I32(previous));
-                        }
-                        16 => {
-                            let table_index = read_u32_immediate(code, &mut pc)?;
-                            stack.push(Value::I32(self.table_size(table_index)?));
-                        }
-''',
+    '''                        16 => {\n                            let table_index = read_u32_immediate(code, &mut pc)?;\n                            stack.push(Value::I32(self.table_size(table_index)?));\n                        }\n''',
+    '''                        15 => {\n                            let table_index = read_u32_immediate(code, &mut pc)?;\n                            if table_index != 0 || self.table.is_none() {\n                                return Err(RuntimeError::TableIndexOutOfBounds(table_index));\n                            }\n                            let delta = numeric::i32_from_stack(&mut stack)? as u32;\n                            let reference = match numeric::pop_typed(&mut stack, ValueType::FuncRef)? {\n                                Value::FuncRef(reference) => reference,\n                                _ => unreachable!("pop_typed established funcref"),\n                            };\n                            let fill = reference.map(|function_index| FunctionRef {\n                                owner: Rc::downgrade(&self.identity),\n                                function_index,\n                            });\n                            let previous = self\n                                .table\n                                .as_ref()\n                                .ok_or(RuntimeError::TableIndexOutOfBounds(table_index))?\n                                .grow(delta, fill);\n                            stack.push(Value::I32(previous));\n                        }\n                        16 => {\n                            let table_index = read_u32_immediate(code, &mut pc)?;\n                            stack.push(Value::I32(self.table_size(table_index)?));\n                        }\n''',
 )
 replace_once(
     runtime,
-    '''                    16 | 17 => {
-                        let _ = read_u32_immediate(code, &mut pc)?;
-                    }
-''',
-    '''                    15 | 16 | 17 => {
-                        let _ = read_u32_immediate(code, &mut pc)?;
-                    }
-''',
+    '''                    16 | 17 => {\n                        let _ = read_u32_immediate(code, &mut pc)?;\n                    }\n''',
+    '''                    15..=17 => {\n                        let _ = read_u32_immediate(code, &mut pc)?;\n                    }\n''',
 )
 
 validator = "crates/wasm-validator/src/typed.rs"
 replace_once(
     validator,
-    '''                    16 => {
-                        let table_index = read_u32(code, &mut pc, function, offset)?;
-                        if table_index != 0 || table_index as usize >= module.table_count() {
-                            return Err(ValidationError::TableIndexOutOfBounds {
-                                function,
-                                offset,
-                                table_index,
-                            });
-                        }
-                        stack.push(ValueType::I32);
-                    }
-''',
-    '''                    15 => {
-                        let table_index = read_u32(code, &mut pc, function, offset)?;
-                        if table_index != 0 || table_index as usize >= module.table_count() {
-                            return Err(ValidationError::TableIndexOutOfBounds {
-                                function,
-                                offset,
-                                table_index,
-                            });
-                        }
-                        pop_expect(&mut stack, &controls, ValueType::I32, function, offset)?;
-                        pop_expect(&mut stack, &controls, ValueType::FuncRef, function, offset)?;
-                        stack.push(ValueType::I32);
-                    }
-                    16 => {
-                        let table_index = read_u32(code, &mut pc, function, offset)?;
-                        if table_index != 0 || table_index as usize >= module.table_count() {
-                            return Err(ValidationError::TableIndexOutOfBounds {
-                                function,
-                                offset,
-                                table_index,
-                            });
-                        }
-                        stack.push(ValueType::I32);
-                    }
-''',
+    '''                    16 => {\n                        let table_index = read_u32(code, &mut pc, function, offset)?;\n                        if table_index != 0 || table_index as usize >= module.table_count() {\n                            return Err(ValidationError::TableIndexOutOfBounds {\n                                function,\n                                offset,\n                                table_index,\n                            });\n                        }\n                        stack.push(ValueType::I32);\n                    }\n''',
+    '''                    15 => {\n                        let table_index = read_u32(code, &mut pc, function, offset)?;\n                        if table_index != 0 || table_index as usize >= module.table_count() {\n                            return Err(ValidationError::TableIndexOutOfBounds {\n                                function,\n                                offset,\n                                table_index,\n                            });\n                        }\n                        pop_expect(&mut stack, &controls, ValueType::I32, function, offset)?;\n                        pop_expect(&mut stack, &controls, ValueType::FuncRef, function, offset)?;\n                        stack.push(ValueType::I32);\n                    }\n                    16 => {\n                        let table_index = read_u32(code, &mut pc, function, offset)?;\n                        if table_index != 0 || table_index as usize >= module.table_count() {\n                            return Err(ValidationError::TableIndexOutOfBounds {\n                                function,\n                                offset,\n                                table_index,\n                            });\n                        }\n                        stack.push(ValueType::I32);\n                    }\n''',
 )
 
 Path("crates/wasm-runtime/tests/bulk_table_grow.rs").write_text(r'''use wasm_parser::parse_module;
