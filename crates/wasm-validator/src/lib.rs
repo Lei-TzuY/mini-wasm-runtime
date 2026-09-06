@@ -4,7 +4,9 @@
 //! Defined code and imported host functions may use ordered i32/i64/f32/f64 multi-value results.
 
 use std::{collections::HashSet, fmt};
-use wasm_parser::{decode_u32, DataMode, ExportKind, FuncType, ImportDesc, Module, ValueType};
+use wasm_parser::{
+    decode_u32, Constant, DataMode, ExportKind, FuncType, ImportDesc, Module, ValueType,
+};
 
 mod phase5;
 mod typed;
@@ -61,6 +63,10 @@ pub enum ValidationError {
         global: usize,
         expected: ValueType,
         actual: ValueType,
+    },
+    GlobalFunctionRefOutOfBounds {
+        global: usize,
+        function_index: u32,
     },
     StartFunctionOutOfBounds {
         function_index: u32,
@@ -321,6 +327,13 @@ impl fmt::Display for ValidationError {
             } => write!(
                 f,
                 "global {global} initializer has type {actual:?}, expected {expected:?}"
+            ),
+            Self::GlobalFunctionRefOutOfBounds {
+                global,
+                function_index,
+            } => write!(
+                f,
+                "global {global} initializer refers to missing function {function_index}"
             ),
             Self::StartFunctionOutOfBounds { function_index } => {
                 write!(f, "start function index {function_index} is out of bounds")
@@ -692,6 +705,14 @@ fn validate_defined_global_initializers(module: &Module) -> Result<(), Validatio
                 expected,
                 actual,
             });
+        }
+        if let Constant::FuncRef(Some(function_index)) = definition.init {
+            if function_index as usize >= module.function_count() {
+                return Err(ValidationError::GlobalFunctionRefOutOfBounds {
+                    global: module.global_import_count() + defined,
+                    function_index,
+                });
+            }
         }
     }
     Ok(())

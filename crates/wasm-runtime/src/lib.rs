@@ -3152,6 +3152,7 @@ fn value_from_constant(value: Constant) -> Value {
         Constant::I64(value) => Value::I64(value),
         Constant::F32(bits) => Value::F32(f32::from_bits(bits)),
         Constant::F64(bits) => Value::F64(f64::from_bits(bits)),
+        Constant::FuncRef(reference) => Value::FuncRef(reference),
     }
 }
 
