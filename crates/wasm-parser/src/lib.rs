@@ -244,9 +244,12 @@ pub enum ElementMode {
     Declarative,
 }
 
+pub const NULL_FUNCREF_INDEX: u32 = u32::MAX;
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ElementSegment {
     pub mode: ElementMode,
+    /// Function indices for legacy/ref.func items; NULL_FUNCREF_INDEX encodes ref.null.
     pub function_indices: Vec<u32>,
 }
 
@@ -715,34 +718,71 @@ fn parse_element_section(cursor: &mut Cursor<'_>, module: &mut Module) -> Result
     let count = cursor.read_u32()?;
     for _ in 0..count {
         let flags = cursor.read_u32()?;
-        let mode = match flags {
-            0 => ElementMode::Active {
-                table_index: 0,
-                offset: read_i32_const_expr(cursor)?,
-            },
+        let (mode, expressions) = match flags {
+            0 => (
+                ElementMode::Active {
+                    table_index: 0,
+                    offset: read_i32_const_expr(cursor)?,
+                },
+                false,
+            ),
             1 => {
                 read_legacy_element_kind(cursor)?;
-                ElementMode::Passive
+                (ElementMode::Passive, false)
             }
             2 => {
                 let table_index = cursor.read_u32()?;
                 let offset = read_i32_const_expr(cursor)?;
                 read_legacy_element_kind(cursor)?;
-                ElementMode::Active {
-                    table_index,
-                    offset,
-                }
+                (
+                    ElementMode::Active {
+                        table_index,
+                        offset,
+                    },
+                    false,
+                )
             }
             3 => {
                 read_legacy_element_kind(cursor)?;
-                ElementMode::Declarative
+                (ElementMode::Declarative, false)
+            }
+            4 => (
+                ElementMode::Active {
+                    table_index: 0,
+                    offset: read_i32_const_expr(cursor)?,
+                },
+                true,
+            ),
+            5 => {
+                read_element_reference_type(cursor)?;
+                (ElementMode::Passive, true)
+            }
+            6 => {
+                let table_index = cursor.read_u32()?;
+                let offset = read_i32_const_expr(cursor)?;
+                read_element_reference_type(cursor)?;
+                (
+                    ElementMode::Active {
+                        table_index,
+                        offset,
+                    },
+                    true,
+                )
+            }
+            7 => {
+                read_element_reference_type(cursor)?;
+                (ElementMode::Declarative, true)
             }
             other => return Err(ParseError::UnsupportedElementSegmentMode(other)),
         };
-        let function_count = cursor.read_u32()?;
+        let item_count = cursor.read_u32()?;
         let mut function_indices = Vec::new();
-        for _ in 0..function_count {
-            function_indices.push(cursor.read_u32()?);
+        for _ in 0..item_count {
+            function_indices.push(if expressions {
+                read_element_reference_expr(cursor)?
+            } else {
+                cursor.read_u32()?
+            });
         }
         module.elements.push(ElementSegment {
             mode,
@@ -758,6 +798,26 @@ fn read_legacy_element_kind(cursor: &mut Cursor<'_>) -> Result<(), ParseError> {
         Ok(())
     } else {
         Err(ParseError::InvalidElementKind(kind))
+    }
+}
+
+fn read_element_reference_type(cursor: &mut Cursor<'_>) -> Result<(), ParseError> {
+    let reference_type = cursor.read_u8()?;
+    if reference_type == 0x70 {
+        Ok(())
+    } else {
+        Err(ParseError::InvalidReferenceType(reference_type))
+    }
+}
+
+fn read_element_reference_expr(cursor: &mut Cursor<'_>) -> Result<u32, ParseError> {
+    match read_const_expr(cursor)? {
+        Constant::FuncRef(Some(function_index)) => Ok(function_index),
+        Constant::FuncRef(None) => Ok(NULL_FUNCREF_INDEX),
+        other => Err(ParseError::ConstExprTypeMismatch {
+            expected: ValueType::FuncRef,
+            actual: other.value_type(),
+        }),
     }
 }
 
@@ -1148,13 +1208,10 @@ mod tests {
     }
 
     #[test]
-    fn rejects_expression_based_element_mode() {
+    fn rejects_truncated_expression_based_element_mode() {
         let mut bytes = vec![0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00];
         push_section(&mut bytes, 9, &[0x01, 0x04]);
-        assert_eq!(
-            parse_module(&bytes),
-            Err(ParseError::UnsupportedElementSegmentMode(4))
-        );
+        assert_eq!(parse_module(&bytes), Err(ParseError::UnexpectedEof));
     }
 
     #[test]
