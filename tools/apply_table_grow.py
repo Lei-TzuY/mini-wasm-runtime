@@ -25,12 +25,8 @@ replace_once(
         if delta == 0 {
             return previous as i32;
         }
-        let Ok(additional) = usize::try_from(delta) else {
-            return -1;
-        };
-        let Ok(new_length) = usize::try_from(new_length) else {
-            return -1;
-        };
+        let additional = delta as usize;
+        let new_length = new_length as usize;
         let mut slots = self.slots.borrow_mut();
         if slots.try_reserve_exact(additional).is_err() {
             return -1;
