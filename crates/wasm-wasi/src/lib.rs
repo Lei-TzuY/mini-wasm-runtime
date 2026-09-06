@@ -1,8 +1,8 @@
 //! Bounded WASI Preview1 host capabilities for `mini-wasm-runtime`.
 //!
-//! This crate intentionally starts with one executable syscall: `fd_write`.
-//! It uses the runtime's capability-scoped host boundary and performs all guest
-//! memory preflight before committing output side effects.
+//! This crate provides executable descriptor capabilities on the runtime's
+//! capability-scoped host boundary. Guest-memory operations are bounded and
+//! fail closed before externally visible output side effects are committed.
 
 use std::{cell::RefCell, rc::Rc};
 use wasm_parser::ValueType;
@@ -13,6 +13,10 @@ pub const ERRNO_BADF: i32 = 8;
 pub const ERRNO_FAULT: i32 = 21;
 pub const ERRNO_INVAL: i32 = 28;
 
+pub const FILETYPE_CHARACTER_DEVICE: u8 = 2;
+pub const RIGHTS_FD_WRITE: u64 = 1 << 6;
+
+const FDSTAT_SIZE: usize = 24;
 const DEFAULT_MAX_IOVECS: u32 = 1_024;
 const DEFAULT_MAX_WRITE_BYTES: usize = 16 * 1024 * 1024;
 
@@ -159,6 +163,35 @@ impl WasiPreview1 {
                 }
                 for chunk in chunks {
                     output.append(&chunk);
+                }
+
+                Ok(vec![Value::I32(ERRNO_SUCCESS)])
+            },
+        )?;
+
+        registry.register_values(
+            "wasi_snapshot_preview1",
+            "fd_fdstat_get",
+            vec![ValueType::I32, ValueType::I32],
+            vec![ValueType::I32],
+            HostCapabilities::MEMORY_READ_WRITE,
+            move |context, args| {
+                let [Value::I32(fd), Value::I32(fdstat)] = args else {
+                    return Err(HostError::message(
+                        "validated wasi fd_fdstat_get signature received non-i32 arguments",
+                    ));
+                };
+
+                if !matches!(*fd, 1 | 2) {
+                    return Ok(vec![Value::I32(ERRNO_BADF)]);
+                }
+
+                let mut bytes = [0u8; FDSTAT_SIZE];
+                bytes[0] = FILETYPE_CHARACTER_DEVICE;
+                bytes[8..16].copy_from_slice(&RIGHTS_FD_WRITE.to_le_bytes());
+
+                if context.write_memory(*fdstat as u32, &bytes).is_err() {
+                    return Ok(vec![Value::I32(ERRNO_FAULT)]);
                 }
 
                 Ok(vec![Value::I32(ERRNO_SUCCESS)])
