@@ -8,7 +8,7 @@ use std::{
 };
 use wasm_parser::{
     decode_i32, decode_i64, decode_s33, decode_u32, Constant, DataMode, ElementMode, ExportKind,
-    FuncType, ImportDesc, ImportKind, Module, ParseError, ValueType,
+    FuncType, ImportDesc, ImportKind, Module, ParseError, ValueType, NULL_FUNCREF_INDEX,
 };
 
 mod numeric;
@@ -1902,10 +1902,14 @@ impl Instance {
         let mut slots = table.slots.borrow_mut();
         let destination_start = destination_start as usize;
         for (offset, function_index) in functions.into_iter().enumerate() {
-            slots[destination_start + offset] = Some(FunctionRef {
-                owner: Rc::downgrade(&self.identity),
-                function_index,
-            });
+            slots[destination_start + offset] = if function_index == NULL_FUNCREF_INDEX {
+                None
+            } else {
+                Some(FunctionRef {
+                    owner: Rc::downgrade(&self.identity),
+                    function_index,
+                })
+            };
         }
         Ok(())
     }
@@ -2025,9 +2029,15 @@ impl Instance {
                         "preflighted element segment index no longer fits u32",
                     )
                 })?;
-                table
-                    .set_for_instance(index, function_index, &self.identity)
-                    .map_err(|error| map_table_element_error(error, index))?;
+                if function_index == NULL_FUNCREF_INDEX {
+                    table
+                        .set(index, None)
+                        .map_err(|error| map_table_element_error(error, index))?;
+                } else {
+                    table
+                        .set_for_instance(index, function_index, &self.identity)
+                        .map_err(|error| map_table_element_error(error, index))?;
+                }
             }
         }
         Ok(())

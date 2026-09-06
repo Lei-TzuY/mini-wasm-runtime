@@ -1,5 +1,5 @@
 use super::{function_type, ValidationError};
-use wasm_parser::{ElementMode, Module};
+use wasm_parser::{ElementMode, Module, NULL_FUNCREF_INDEX};
 
 pub(super) fn validate_phase5(module: &Module) -> Result<(), ValidationError> {
     if module.table_count() > 1 {
@@ -46,6 +46,9 @@ pub(super) fn validate_phase5(module: &Module) -> Result<(), ValidationError> {
             }
         }
         for &function_index in &element.function_indices {
+            if function_index == NULL_FUNCREF_INDEX {
+                continue;
+            }
             if function_index as usize >= total_functions {
                 return Err(ValidationError::ElementFunctionOutOfBounds {
                     segment,
