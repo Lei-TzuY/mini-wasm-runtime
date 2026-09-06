@@ -55,7 +55,7 @@ The manifest therefore reaches 19 unique upstream sources and 533 selected asser
 
 This is still curated supported-surface conformance rather than a claim that the complete upstream files are accepted.
 
-- typed `select` (`0x1c`) remains outside the runtime's documented surface
+- typed `select` (`0x1c`) is now executable, but this historical pinned tranche remains scoped to its existing untyped-select assertions; manifest accounting is unchanged in this slice
 - reference-typed select/join cases are excluded
 - invalid-module assertions remain outside the current `assert_return`/`assert_trap` ingestion contract
 - the enormous `br_table` stress vector is excluded from this deterministic semantic tranche
