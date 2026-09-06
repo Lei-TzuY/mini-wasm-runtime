@@ -19,8 +19,8 @@ new_lookup = '''        let table = self
             .tables
             .get(table_index as usize)
             .ok_or(RuntimeError::TableIndexOutOfBounds(table_index))?;'''
-if s.count(old_lookup) != 2:
-    raise SystemExit(f'expected 2 legacy destination lookups, found {s.count(old_lookup)}')
+if s.count(old_lookup) != 3:
+    raise SystemExit(f'expected 3 legacy destination lookups, found {s.count(old_lookup)}')
 s = s.replace(old_lookup, new_lookup, 1)
 
 start = s.index('    fn table_copy(\n')
