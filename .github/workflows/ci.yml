@@ -9,6 +9,41 @@ permissions:
   contents: read
 
 jobs:
+  stage-bil241:
+    if: github.head_ref == 'bil-241-multitable-bulk'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: bil-241-multitable-bulk
+      - name: Install Rust
+        shell: bash
+        run: |
+          rustup toolchain install stable --profile minimal --component rustfmt,clippy
+          rustup default stable
+      - name: Apply implementation
+        run: test -f crates/wasm-runtime/tests/multi_table_bulk.rs || python .github/bil241_stage.py
+      - name: Format
+        run: cargo fmt --all
+      - name: Test workspace
+        run: cargo test --workspace --all-targets
+      - name: Clippy
+        run: cargo clippy --workspace --all-targets -- -D warnings
+      - name: Docs
+        run: cargo doc --workspace --no-deps
+      - name: Commit candidate if changed
+        shell: bash
+        run: |
+          rm -f Cargo.lock
+          git add crates/wasm-runtime/src/lib.rs crates/wasm-validator/src/typed.rs crates/wasm-runtime/tests/multi_table_bulk.rs
+          if git diff --cached --quiet; then exit 0; fi
+          git config user.name LeiZ
+          git config user.email '52287354+Lei-TzuY@users.noreply.github.com'
+          git commit -m 'feat: complete indexed multi-table bulk operations'
+          git push origin HEAD:bil-241-multitable-bulk
+
   test:
     name: Rust ${{ matrix.rust }} / ${{ matrix.os }}
     strategy:
