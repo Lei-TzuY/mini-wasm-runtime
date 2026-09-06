@@ -2616,6 +2616,10 @@ impl Instance {
                     };
                     stack.push(Value::I32(if reference.is_none() { 1 } else { 0 }));
                 }
+                0xd2 => {
+                    let function_index = read_u32_immediate(code, &mut pc)?;
+                    stack.push(Value::FuncRef(Some(function_index)));
+                }
                 0xfc => {
                     let subopcode = read_u32_immediate(code, &mut pc)?;
                     match subopcode {
@@ -3255,6 +3259,9 @@ fn build_control_map(module: &Module, code: &[u8]) -> Result<ControlMap, Runtime
                 }
             }
             0xd1 => {}
+            0xd2 => {
+                let _ = read_u32_immediate(code, &mut pc)?;
+            }
             0xfc => {
                 let subopcode = read_u32_immediate(code, &mut pc)?;
                 match subopcode {
