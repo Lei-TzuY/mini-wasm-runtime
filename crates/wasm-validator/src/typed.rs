@@ -312,6 +312,7 @@ pub(super) fn validate_code(
                 super::read_memarg(
                     code,
                     &mut pc,
+                    module,
                     function,
                     offset,
                     super::natural_alignment(opcode),
@@ -331,6 +332,7 @@ pub(super) fn validate_code(
                 super::read_memarg(
                     code,
                     &mut pc,
+                    module,
                     function,
                     offset,
                     super::natural_alignment(opcode),

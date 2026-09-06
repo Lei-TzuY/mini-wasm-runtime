@@ -832,12 +832,36 @@ fn natural_alignment(opcode: u8) -> u32 {
 fn read_memarg(
     code: &[u8],
     pc: &mut usize,
+    module: &Module,
     function: usize,
     offset: usize,
     maximum_alignment: u32,
-) -> Result<(u32, u32), ValidationError> {
-    let alignment = read_u32_immediate(code, pc, function, offset)?;
+) -> Result<(u32, u32, u32), ValidationError> {
+    let flags = read_u32_immediate(code, pc, function, offset)?;
+    if flags >= 0x80 {
+        return Err(ValidationError::InvalidMemoryAlignment {
+            function,
+            offset,
+            alignment: flags,
+            maximum: maximum_alignment,
+        });
+    }
+    let (alignment, memory_index) = if flags & 0x40 != 0 {
+        (
+            flags & 0x3f,
+            read_u32_immediate(code, pc, function, offset)?,
+        )
+    } else {
+        (flags, 0)
+    };
     let displacement = read_u32_immediate(code, pc, function, offset)?;
+    if memory_index as usize >= module.memory_count() {
+        return Err(ValidationError::MemoryIndexOutOfBounds {
+            function,
+            offset,
+            memory_index,
+        });
+    }
     if alignment > maximum_alignment {
         return Err(ValidationError::InvalidMemoryAlignment {
             function,
@@ -846,7 +870,7 @@ fn read_memarg(
             maximum: maximum_alignment,
         });
     }
-    Ok((alignment, displacement))
+    Ok((alignment, memory_index, displacement))
 }
 
 fn read_memory_index(
