@@ -2429,6 +2429,40 @@ impl Instance {
                             }
                         })?;
                 }
+                0x25 => {
+                    let table_index = read_u32_immediate(code, &mut pc)?;
+                    if table_index != 0 || self.table.is_none() {
+                        return Err(RuntimeError::TableIndexOutOfBounds(table_index));
+                    }
+                    let element_index = numeric::i32_from_stack(&mut stack)? as u32;
+                    let reference = self
+                        .table
+                        .as_ref()
+                        .ok_or(RuntimeError::TableIndexOutOfBounds(table_index))?
+                        .function_index_for_instance(element_index, &self.identity)
+                        .map_err(|error| map_table_element_error(error, element_index))?;
+                    stack.push(Value::FuncRef(reference));
+                }
+                0x26 => {
+                    let table_index = read_u32_immediate(code, &mut pc)?;
+                    if table_index != 0 || self.table.is_none() {
+                        return Err(RuntimeError::TableIndexOutOfBounds(table_index));
+                    }
+                    let reference = match numeric::pop_typed(&mut stack, ValueType::FuncRef)? {
+                        Value::FuncRef(reference) => reference,
+                        _ => unreachable!("pop_typed established funcref"),
+                    };
+                    let element_index = numeric::i32_from_stack(&mut stack)? as u32;
+                    let replacement = reference.map(|function_index| FunctionRef {
+                        owner: Rc::downgrade(&self.identity),
+                        function_index,
+                    });
+                    self.table
+                        .as_ref()
+                        .ok_or(RuntimeError::TableIndexOutOfBounds(table_index))?
+                        .set(element_index, replacement)
+                        .map_err(|error| map_table_element_error(error, element_index))?;
+                }
                 0x28..=0x35 => {
                     let (_, displacement) = read_memarg(code, &mut pc)?;
                     let address = numeric::i32_from_stack(&mut stack)?;
@@ -3211,7 +3245,7 @@ fn build_control_map(module: &Module, code: &[u8]) -> Result<ControlMap, Runtime
                     ));
                 }
             }
-            0x0c | 0x0d | 0x10 | 0x20..=0x24 | 0x3f | 0x40 => {
+            0x0c | 0x0d | 0x10 | 0x20..=0x26 | 0x3f | 0x40 => {
                 let _ = read_u32_immediate(code, &mut pc)?;
             }
             0x0e => {

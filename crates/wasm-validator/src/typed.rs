@@ -276,6 +276,30 @@ pub(super) fn validate_code(
                     offset,
                 )?;
             }
+            0x25 => {
+                let table_index = read_u32(code, &mut pc, function, offset)?;
+                if table_index != 0 || table_index as usize >= module.table_count() {
+                    return Err(ValidationError::TableIndexOutOfBounds {
+                        function,
+                        offset,
+                        table_index,
+                    });
+                }
+                pop_expect(&mut stack, &controls, ValueType::I32, function, offset)?;
+                stack.push(ValueType::FuncRef);
+            }
+            0x26 => {
+                let table_index = read_u32(code, &mut pc, function, offset)?;
+                if table_index != 0 || table_index as usize >= module.table_count() {
+                    return Err(ValidationError::TableIndexOutOfBounds {
+                        function,
+                        offset,
+                        table_index,
+                    });
+                }
+                pop_expect(&mut stack, &controls, ValueType::FuncRef, function, offset)?;
+                pop_expect(&mut stack, &controls, ValueType::I32, function, offset)?;
+            }
             0x28..=0x35 => {
                 super::ensure_memory(module, function, offset)?;
                 super::read_memarg(
