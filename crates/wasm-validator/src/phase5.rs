@@ -2,11 +2,6 @@ use super::{function_type, ValidationError};
 use wasm_parser::{ElementMode, Module, NULL_FUNCREF_INDEX};
 
 pub(super) fn validate_phase5(module: &Module) -> Result<(), ValidationError> {
-    if module.table_count() > 1 {
-        return Err(ValidationError::UnsupportedTableCount {
-            count: module.table_count(),
-        });
-    }
     for table in 0..module.table_count() {
         let table_type = module
             .table_type(table as u32)
