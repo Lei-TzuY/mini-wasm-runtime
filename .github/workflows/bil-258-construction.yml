@@ -14,6 +14,7 @@ jobs:
           ref: bil-258-multimemory-memarg
           fetch-depth: 0
       - run: python3 .github/bil258_patch.py
+      - run: python3 .github/bil258_fix.py
       - run: cargo fmt --all
       - run: cargo fmt --all -- --check
       - run: cargo test --workspace --all-targets
