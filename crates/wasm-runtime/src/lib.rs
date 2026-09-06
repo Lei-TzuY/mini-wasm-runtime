@@ -1585,7 +1585,6 @@ pub struct Instance {
     imported_memory: Option<MemoryHandle>,
     data_segments: Vec<Vec<u8>>,
     element_segments: Vec<Vec<u32>>,
-    table: Option<TableHandle>,
     tables: Vec<TableHandle>,
     globals: Vec<GlobalHandle>,
     hosts: HostRegistry,
@@ -1647,7 +1646,6 @@ impl Instance {
             .collect();
         let identity = Rc::new(());
         let tables = instantiate_tables(&module, &hosts, &identity)?;
-        let table = tables.first().cloned();
         let globals = instantiate_globals(&module, &hosts)?;
 
         let mut instance = Self {
@@ -1658,7 +1656,6 @@ impl Instance {
             imported_memory,
             data_segments,
             element_segments,
-            table,
             tables,
             globals,
             hosts,
@@ -1863,9 +1860,6 @@ impl Instance {
         source: i32,
         length: i32,
     ) -> Result<(), RuntimeError> {
-        if table_index != 0 {
-            return Err(RuntimeError::TableElementOutOfBounds(table_index));
-        }
         let width = length as u32 as usize;
         let source_start = u64::from(source as u32);
         let source_end = source_start.checked_add(width as u64).ok_or(
@@ -1889,9 +1883,9 @@ impl Instance {
         let start = source_start as usize;
         let functions = segment[start..start + width].to_vec();
         let table = self
-            .table
-            .as_ref()
-            .ok_or(RuntimeError::TableElementOutOfBounds(destination as u32))?;
+            .tables
+            .get(table_index as usize)
+            .ok_or(RuntimeError::TableIndexOutOfBounds(table_index))?;
         let destination_start = u64::from(destination as u32);
         let destination_end = destination_start
             .checked_add(width as u64)
@@ -1922,37 +1916,36 @@ impl Instance {
         source: i32,
         length: i32,
     ) -> Result<(), RuntimeError> {
-        if destination_table != 0 {
-            return Err(RuntimeError::TableElementOutOfBounds(destination_table));
-        }
-        if source_table != 0 {
-            return Err(RuntimeError::TableElementOutOfBounds(source_table));
-        }
         let width = length as u32 as usize;
         let source_start = u64::from(source as u32);
         let destination_start = u64::from(destination as u32);
-        let table = self
-            .table
-            .as_ref()
-            .ok_or(RuntimeError::TableElementOutOfBounds(destination as u32))?;
-        let table_len = table.slots.borrow().len() as u64;
+        let source_handle = self
+            .tables
+            .get(source_table as usize)
+            .cloned()
+            .ok_or(RuntimeError::TableIndexOutOfBounds(source_table))?;
+        let destination_handle = self
+            .tables
+            .get(destination_table as usize)
+            .cloned()
+            .ok_or(RuntimeError::TableIndexOutOfBounds(destination_table))?;
         let source_end = source_start
             .checked_add(width as u64)
             .ok_or(RuntimeError::TableElementOutOfBounds(source as u32))?;
         let destination_end = destination_start
             .checked_add(width as u64)
             .ok_or(RuntimeError::TableElementOutOfBounds(destination as u32))?;
-        if source_end > table_len {
+        if source_end > u64::from(source_handle.len()) {
             return Err(RuntimeError::TableElementOutOfBounds(source as u32));
         }
-        if destination_end > table_len {
+        if destination_end > u64::from(destination_handle.len()) {
             return Err(RuntimeError::TableElementOutOfBounds(destination as u32));
         }
         let source_start = source_start as usize;
         let destination_start = destination_start as usize;
-        let mut slots = table.slots.borrow_mut();
-        let copied = slots[source_start..source_start + width].to_vec();
-        slots[destination_start..destination_start + width].clone_from_slice(&copied);
+        let copied = source_handle.slots.borrow()[source_start..source_start + width].to_vec();
+        destination_handle.slots.borrow_mut()[destination_start..destination_start + width]
+            .clone_from_slice(&copied);
         Ok(())
     }
 
@@ -1963,15 +1956,12 @@ impl Instance {
         value: Option<u32>,
         length: i32,
     ) -> Result<(), RuntimeError> {
-        if table_index != 0 {
-            return Err(RuntimeError::TableElementOutOfBounds(table_index));
-        }
         let width = length as u32 as usize;
         let destination_start = u64::from(destination as u32);
         let table = self
-            .table
-            .as_ref()
-            .ok_or(RuntimeError::TableElementOutOfBounds(destination as u32))?;
+            .tables
+            .get(table_index as usize)
+            .ok_or(RuntimeError::TableIndexOutOfBounds(table_index))?;
         let destination_end = destination_start
             .checked_add(width as u64)
             .ok_or(RuntimeError::TableElementOutOfBounds(destination as u32))?;
@@ -1989,13 +1979,10 @@ impl Instance {
     }
 
     fn table_size(&self, table_index: u32) -> Result<i32, RuntimeError> {
-        if table_index != 0 {
-            return Err(RuntimeError::TableElementOutOfBounds(table_index));
-        }
         let table = self
-            .table
-            .as_ref()
-            .ok_or(RuntimeError::TableElementOutOfBounds(table_index))?;
+            .tables
+            .get(table_index as usize)
+            .ok_or(RuntimeError::TableIndexOutOfBounds(table_index))?;
         Ok(table.len() as i32)
     }
 
@@ -2758,9 +2745,6 @@ impl Instance {
                         }
                         15 => {
                             let table_index = read_u32_immediate(code, &mut pc)?;
-                            if table_index != 0 || self.table.is_none() {
-                                return Err(RuntimeError::TableIndexOutOfBounds(table_index));
-                            }
                             let delta = numeric::i32_from_stack(&mut stack)? as u32;
                             let reference =
                                 match numeric::pop_typed(&mut stack, ValueType::FuncRef)? {
@@ -2772,8 +2756,8 @@ impl Instance {
                                 function_index,
                             });
                             let previous = self
-                                .table
-                                .as_ref()
+                                .tables
+                                .get(table_index as usize)
                                 .ok_or(RuntimeError::TableIndexOutOfBounds(table_index))?
                                 .grow(delta, fill);
                             stack.push(Value::I32(previous));
