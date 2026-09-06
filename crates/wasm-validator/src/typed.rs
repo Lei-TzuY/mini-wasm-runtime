@@ -729,9 +729,7 @@ pub(super) fn validate_code(
                     }
                     14 => {
                         let destination_table = read_u32(code, &mut pc, function, offset)?;
-                        if destination_table != 0
-                            || destination_table as usize >= module.table_count()
-                        {
+                        if destination_table as usize >= module.table_count() {
                             return Err(ValidationError::TableIndexOutOfBounds {
                                 function,
                                 offset,
@@ -739,7 +737,7 @@ pub(super) fn validate_code(
                             });
                         }
                         let source_table = read_u32(code, &mut pc, function, offset)?;
-                        if source_table != 0 || source_table as usize >= module.table_count() {
+                        if source_table as usize >= module.table_count() {
                             return Err(ValidationError::TableIndexOutOfBounds {
                                 function,
                                 offset,
@@ -752,7 +750,7 @@ pub(super) fn validate_code(
                     }
                     15 => {
                         let table_index = read_u32(code, &mut pc, function, offset)?;
-                        if table_index != 0 || table_index as usize >= module.table_count() {
+                        if table_index as usize >= module.table_count() {
                             return Err(ValidationError::TableIndexOutOfBounds {
                                 function,
                                 offset,
@@ -765,7 +763,7 @@ pub(super) fn validate_code(
                     }
                     16 => {
                         let table_index = read_u32(code, &mut pc, function, offset)?;
-                        if table_index != 0 || table_index as usize >= module.table_count() {
+                        if table_index as usize >= module.table_count() {
                             return Err(ValidationError::TableIndexOutOfBounds {
                                 function,
                                 offset,
@@ -776,7 +774,7 @@ pub(super) fn validate_code(
                     }
                     17 => {
                         let table_index = read_u32(code, &mut pc, function, offset)?;
-                        if table_index != 0 || table_index as usize >= module.table_count() {
+                        if table_index as usize >= module.table_count() {
                             return Err(ValidationError::TableIndexOutOfBounds {
                                 function,
                                 offset,
