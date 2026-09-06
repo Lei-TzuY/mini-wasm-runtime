@@ -1586,6 +1586,7 @@ pub struct Instance {
     data_segments: Vec<Vec<u8>>,
     element_segments: Vec<Vec<u32>>,
     table: Option<TableHandle>,
+    tables: Vec<TableHandle>,
     globals: Vec<GlobalHandle>,
     hosts: HostRegistry,
     limits: RuntimeLimits,
@@ -1645,7 +1646,8 @@ impl Instance {
             })
             .collect();
         let identity = Rc::new(());
-        let table = instantiate_table(&module, &hosts, &identity)?;
+        let tables = instantiate_tables(&module, &hosts, &identity)?;
+        let table = tables.first().cloned();
         let globals = instantiate_globals(&module, &hosts)?;
 
         let mut instance = Self {
@@ -1657,6 +1659,7 @@ impl Instance {
             data_segments,
             element_segments,
             table,
+            tables,
             globals,
             hosts,
             limits,
@@ -1735,9 +1738,6 @@ impl Instance {
             else {
                 continue;
             };
-            if table_index != 0 {
-                return Err(RuntimeError::TableIndexOutOfBounds(table_index));
-            }
             let offset = u64::from(offset as u32);
             let end = offset
                 .checked_add(segment.function_indices.len() as u64)
@@ -1747,9 +1747,9 @@ impl Instance {
                     length: segment.function_indices.len(),
                 })?;
             let table = self
-                .table
-                .as_ref()
-                .ok_or(RuntimeError::TableIndexOutOfBounds(0))?;
+                .tables
+                .get(table_index as usize)
+                .ok_or(RuntimeError::TableIndexOutOfBounds(table_index))?;
             if end > u64::from(table.len()) {
                 return Err(RuntimeError::ElementSegmentOutOfBounds {
                     segment: segment_index,
@@ -2015,14 +2015,18 @@ impl Instance {
         self.preflight_element_segments()?;
 
         for segment in &elements {
-            let ElementMode::Active { offset, .. } = segment.mode else {
+            let ElementMode::Active {
+                table_index,
+                offset,
+            } = segment.mode
+            else {
                 continue;
             };
             let offset = u64::from(offset as u32);
             let table = self
-                .table
-                .as_ref()
-                .ok_or(RuntimeError::TableIndexOutOfBounds(0))?;
+                .tables
+                .get(table_index as usize)
+                .ok_or(RuntimeError::TableIndexOutOfBounds(table_index))?;
             for (slot, &function_index) in segment.function_indices.iter().enumerate() {
                 let index = u32::try_from(offset + slot as u64).map_err(|_| {
                     RuntimeError::ControlInvariant(
@@ -2352,13 +2356,10 @@ impl Instance {
                 0x11 => {
                     let expected_type_index = read_u32_immediate(code, &mut pc)?;
                     let table_index = read_u32_immediate(code, &mut pc)?;
-                    if table_index != 0 || self.table.is_none() {
-                        return Err(RuntimeError::TableIndexOutOfBounds(table_index));
-                    }
                     let element_index = numeric::i32_from_stack(&mut stack)? as u32;
                     let callee = self
-                        .table
-                        .as_ref()
+                        .tables
+                        .get(table_index as usize)
                         .ok_or(RuntimeError::TableIndexOutOfBounds(table_index))?
                         .function_index_for_instance(element_index, &self.identity)
                         .map_err(|error| map_table_element_error(error, element_index))?
@@ -2469,13 +2470,10 @@ impl Instance {
                 }
                 0x25 => {
                     let table_index = read_u32_immediate(code, &mut pc)?;
-                    if table_index != 0 || self.table.is_none() {
-                        return Err(RuntimeError::TableIndexOutOfBounds(table_index));
-                    }
                     let element_index = numeric::i32_from_stack(&mut stack)? as u32;
                     let reference = self
-                        .table
-                        .as_ref()
+                        .tables
+                        .get(table_index as usize)
                         .ok_or(RuntimeError::TableIndexOutOfBounds(table_index))?
                         .function_index_for_instance(element_index, &self.identity)
                         .map_err(|error| map_table_element_error(error, element_index))?;
@@ -2483,9 +2481,6 @@ impl Instance {
                 }
                 0x26 => {
                     let table_index = read_u32_immediate(code, &mut pc)?;
-                    if table_index != 0 || self.table.is_none() {
-                        return Err(RuntimeError::TableIndexOutOfBounds(table_index));
-                    }
                     let reference = match numeric::pop_typed(&mut stack, ValueType::FuncRef)? {
                         Value::FuncRef(reference) => reference,
                         _ => unreachable!("pop_typed established funcref"),
@@ -2495,8 +2490,8 @@ impl Instance {
                         owner: Rc::downgrade(&self.identity),
                         function_index,
                     });
-                    self.table
-                        .as_ref()
+                    self.tables
+                        .get(table_index as usize)
                         .ok_or(RuntimeError::TableIndexOutOfBounds(table_index))?
                         .set(element_index, replacement)
                         .map_err(|error| map_table_element_error(error, element_index))?;
@@ -3021,11 +3016,12 @@ fn validate_table_limits(
     })
 }
 
-fn instantiate_table(
+fn instantiate_tables(
     module: &Module,
     hosts: &HostRegistry,
     identity: &Rc<()>,
-) -> Result<Option<TableHandle>, RuntimeError> {
+) -> Result<Vec<TableHandle>, RuntimeError> {
+    let mut tables = Vec::with_capacity(module.table_count());
     for import in &module.imports {
         let ImportDesc::Table(table_type) = import.desc else {
             continue;
@@ -3048,27 +3044,28 @@ fn instantiate_table(
             },
             other => map_table_element_error(other, 0),
         })?;
-        return Ok(Some(table));
+        tables.push(table);
     }
 
-    let Some(table_type) = module.tables.first() else {
-        return Ok(None);
-    };
-    let table = TableHandle::new(table_type.limits.min, table_type.limits.max).map_err(
-        |error| match error {
-            TableHandleError::AllocationFailed { elements } => {
-                RuntimeError::TableAllocationFailed { elements }
-            }
-            TableHandleError::InvalidLimits { .. } => {
-                RuntimeError::ControlInvariant("validated defined table has inconsistent limits")
-            }
-            other => map_table_element_error(other, 0),
-        },
-    )?;
-    table.bind(identity).map_err(|_| {
-        RuntimeError::ControlInvariant("fresh defined table is unexpectedly already bound")
-    })?;
-    Ok(Some(table))
+    for table_type in &module.tables {
+        let table =
+            TableHandle::new(table_type.limits.min, table_type.limits.max).map_err(|error| {
+                match error {
+                    TableHandleError::AllocationFailed { elements } => {
+                        RuntimeError::TableAllocationFailed { elements }
+                    }
+                    TableHandleError::InvalidLimits { .. } => RuntimeError::ControlInvariant(
+                        "validated defined table has inconsistent limits",
+                    ),
+                    other => map_table_element_error(other, 0),
+                }
+            })?;
+        table.bind(identity).map_err(|_| {
+            RuntimeError::ControlInvariant("fresh defined table is unexpectedly already bound")
+        })?;
+        tables.push(table);
+    }
+    Ok(tables)
 }
 
 fn map_table_element_error(error: TableHandleError, index: u32) -> RuntimeError {
