@@ -96,3 +96,31 @@ fn global_ref_func_rejects_missing_function() {
         ))
     ));
 }
+
+#[test]
+fn function_body_ref_func_requires_reference_declaration() {
+    let mut bytes = b"\0asm\x01\0\0\0".to_vec();
+    section(&mut bytes, 1, &[1, 0x60, 0, 1, 0x7f]);
+    section(&mut bytes, 3, &[2, 0, 0]);
+    section(&mut bytes, 7, &[1, 3, b'r', b'u', b'n', 0, 1]);
+
+    let target = [0, 0x41, 42, 0x0b];
+    let run = [0, 0xd2, 0, 0x1a, 0x41, 0, 0x0b];
+    let mut code = vec![2, target.len() as u8];
+    code.extend_from_slice(&target);
+    code.push(run.len() as u8);
+    code.extend_from_slice(&run);
+    section(&mut bytes, 10, &code);
+
+    let module = parse_module(&bytes).unwrap();
+    assert!(matches!(
+        Instance::new(module),
+        Err(RuntimeError::Validation(
+            ValidationError::UndeclaredFunctionReference {
+                function: 1,
+                target: 0,
+                ..
+            }
+        ))
+    ));
+}

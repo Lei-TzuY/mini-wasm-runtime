@@ -186,6 +186,11 @@ pub enum ValidationError {
         offset: usize,
         target: u32,
     },
+    UndeclaredFunctionReference {
+        function: usize,
+        offset: usize,
+        target: u32,
+    },
     UnsupportedOpcode {
         function: usize,
         offset: usize,
@@ -467,6 +472,14 @@ impl fmt::Display for ValidationError {
                 f,
                 "function {function} call at byte {offset} refers to missing function {target}"
             ),
+            Self::UndeclaredFunctionReference {
+                function,
+                offset,
+                target,
+            } => write!(
+                f,
+                "function {function} ref.func at byte {offset} refers to undeclared function {target}"
+            ),
             Self::UnsupportedOpcode {
                 function,
                 offset,
@@ -693,6 +706,21 @@ pub fn validate(module: &Module) -> Result<(), ValidationError> {
     }
 
     Ok(())
+}
+
+fn is_declared_function_reference(module: &Module, target: u32) -> bool {
+    module
+        .exports
+        .iter()
+        .any(|export| export.kind == ExportKind::Function && export.index == target)
+        || module
+            .elements
+            .iter()
+            .any(|element| element.function_indices.contains(&target))
+        || module
+            .globals
+            .iter()
+            .any(|global| matches!(global.init, Constant::FuncRef(Some(index)) if index == target))
 }
 
 fn validate_defined_global_initializers(module: &Module) -> Result<(), ValidationError> {
