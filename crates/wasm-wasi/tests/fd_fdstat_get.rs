@@ -32,7 +32,20 @@ fn section(module: &mut Vec<u8>, id: u8, payload: &[u8]) {
 
 fn i32_const(out: &mut Vec<u8>, value: u32) {
     out.push(0x41);
-    u32leb(out, value);
+    let mut value = value as i32;
+    loop {
+        let mut byte = (value as u8) & 0x7f;
+        let sign_bit_set = byte & 0x40 != 0;
+        value >>= 7;
+        let done = (value == 0 && !sign_bit_set) || (value == -1 && sign_bit_set);
+        if !done {
+            byte |= 0x80;
+        }
+        out.push(byte);
+        if done {
+            break;
+        }
+    }
 }
 
 fn module(fd: u32, fdstat: u32) -> Vec<u8> {
