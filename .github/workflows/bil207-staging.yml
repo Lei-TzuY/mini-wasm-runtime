@@ -1,0 +1,37 @@
+name: BIL-207 staging
+
+on:
+  push:
+    branches:
+      - conquest/element-expr
+
+permissions:
+  contents: write
+
+jobs:
+  stage:
+    if: github.event.head_commit.message != 'feat: add executable element expression segments'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: conquest/element-expr
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Apply vertical slice
+        run: python tools/bil207_element_expr.py
+      - name: Format
+        run: cargo fmt --all
+      - name: Test workspace
+        run: cargo test --workspace --all-targets
+      - name: Clippy
+        run: cargo clippy --workspace --all-targets -- -D warnings
+      - name: Docs
+        run: cargo doc --workspace --no-deps
+      - name: Commit clean candidate
+        run: |
+          rm -f .github/workflows/bil207-staging.yml tools/bil207_element_expr.py Cargo.lock
+          git config user.name 'LeiZ'
+          git config user.email '52287354+Lei-TzuY@users.noreply.github.com'
+          git add -A
+          git commit -m 'feat: add executable element expression segments'
+          git push origin HEAD:conquest/element-expr
