@@ -24,7 +24,9 @@ jobs:
           rustup toolchain install stable --profile minimal --component rustfmt,clippy
           rustup default stable
       - name: Apply implementation
-        run: test -f crates/wasm-runtime/tests/multi_table_bulk.rs || python .github/bil241_stage.py
+        run: |
+          test -f crates/wasm-runtime/tests/multi_table_bulk.rs || python .github/bil241_stage.py
+          python .github/bil241_cleanup.py
       - name: Format
         run: cargo fmt --all
       - name: Test workspace
