@@ -265,6 +265,27 @@ impl TableHandle {
         Ok(())
     }
 
+    fn grow(&self, delta: u32, fill: Option<FunctionRef>) -> i32 {
+        let previous = self.len();
+        let Some(new_length) = previous.checked_add(delta) else {
+            return -1;
+        };
+        if self.maximum.is_some_and(|maximum| new_length > maximum) {
+            return -1;
+        }
+        if delta == 0 {
+            return previous as i32;
+        }
+        let additional = delta as usize;
+        let new_length = new_length as usize;
+        let mut slots = self.slots.borrow_mut();
+        if slots.try_reserve_exact(additional).is_err() {
+            return -1;
+        }
+        slots.resize(new_length, fill);
+        previous as i32
+    }
+
     fn bind(&self, owner: &Rc<()>) -> Result<(), TableHandleError> {
         let mut binding = self.owner.borrow_mut();
         if let Some(existing) = binding.as_ref().and_then(Weak::upgrade) {
@@ -2723,6 +2744,28 @@ impl Instance {
                                 length,
                             )?;
                         }
+                        15 => {
+                            let table_index = read_u32_immediate(code, &mut pc)?;
+                            if table_index != 0 || self.table.is_none() {
+                                return Err(RuntimeError::TableIndexOutOfBounds(table_index));
+                            }
+                            let delta = numeric::i32_from_stack(&mut stack)? as u32;
+                            let reference =
+                                match numeric::pop_typed(&mut stack, ValueType::FuncRef)? {
+                                    Value::FuncRef(reference) => reference,
+                                    _ => unreachable!("pop_typed established funcref"),
+                                };
+                            let fill = reference.map(|function_index| FunctionRef {
+                                owner: Rc::downgrade(&self.identity),
+                                function_index,
+                            });
+                            let previous = self
+                                .table
+                                .as_ref()
+                                .ok_or(RuntimeError::TableIndexOutOfBounds(table_index))?
+                                .grow(delta, fill);
+                            stack.push(Value::I32(previous));
+                        }
                         16 => {
                             let table_index = read_u32_immediate(code, &mut pc)?;
                             stack.push(Value::I32(self.table_size(table_index)?));
@@ -3325,7 +3368,7 @@ fn build_control_map(module: &Module, code: &[u8]) -> Result<ControlMap, Runtime
                         let _ = read_u32_immediate(code, &mut pc)?;
                         let _ = read_u32_immediate(code, &mut pc)?;
                     }
-                    16 | 17 => {
+                    15..=17 => {
                         let _ = read_u32_immediate(code, &mut pc)?;
                     }
                     _ => {
