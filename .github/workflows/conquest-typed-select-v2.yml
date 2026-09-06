@@ -1,0 +1,44 @@
+name: Conquest typed select v2
+
+on:
+  push:
+    branches:
+      - conquest/typed-select
+
+permissions:
+  contents: write
+
+jobs:
+  implement-and-verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: conquest/typed-select
+          fetch-depth: 0
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - name: Implement
+        run: python .github/conquest_typed_select.py
+      - name: Format
+        run: cargo fmt --all
+      - name: Check formatting
+        run: cargo fmt --all -- --check
+      - name: Test workspace
+        run: cargo test --workspace --all-targets
+      - name: Clippy
+        run: cargo clippy --workspace --all-targets -- -D warnings
+      - name: Docs
+        run: cargo doc --workspace --no-deps
+      - name: Commit clean candidate
+        run: |
+          rm .github/workflows/conquest-typed-select.yml
+          rm .github/workflows/conquest-typed-select-v2.yml
+          rm .github/conquest_typed_select.py
+          rm -f Cargo.lock
+          git config user.name "Lei-TzuY"
+          git config user.email "52287354+Lei-TzuY@users.noreply.github.com"
+          git add -A
+          git commit -m "feat: add executable typed select semantics"
+          git push origin HEAD:conquest/typed-select
