@@ -5,10 +5,8 @@
 //! memory preflight before committing output side effects.
 
 use std::{cell::RefCell, rc::Rc};
-use wasm_runtime::{
-    HostCapabilities, HostError, HostRegistry, HostRegistryError, Value,
-};
 use wasm_parser::ValueType;
+use wasm_runtime::{HostCapabilities, HostError, HostRegistry, HostRegistryError, Value};
 
 pub const ERRNO_SUCCESS: i32 = 0;
 pub const ERRNO_BADF: i32 = 8;
@@ -129,8 +127,10 @@ impl WasiPreview1 {
                         Ok(header) => header,
                         Err(_) => return Ok(vec![Value::I32(ERRNO_FAULT)]),
                     };
-                    let pointer = u32::from_le_bytes(header[0..4].try_into().expect("fixed iovec header"));
-                    let length = u32::from_le_bytes(header[4..8].try_into().expect("fixed iovec header"));
+                    let pointer =
+                        u32::from_le_bytes(header[0..4].try_into().expect("fixed iovec header"));
+                    let length =
+                        u32::from_le_bytes(header[4..8].try_into().expect("fixed iovec header"));
                     let length = length as usize;
                     let Some(next_total) = total.checked_add(length) else {
                         return Ok(vec![Value::I32(ERRNO_INVAL)]);
