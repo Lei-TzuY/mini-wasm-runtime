@@ -35,7 +35,7 @@ jobs:
       - name: Commit clean candidate
         shell: bash
         run: |
-          git rm .github/workflows/bil-252-construction.yml .github/bil252_patch.py .github/bil252_fix.py .github/bil252_followup.py
+          git rm -f .github/workflows/bil-252-construction.yml .github/bil252_patch.py .github/bil252_fix.py .github/bil252_followup.py
           git add crates/wasm-runtime/src/lib.rs crates/wasm-runtime/tests/multi_memory.rs crates/wasm-runtime/tests/phase5c_imports.rs crates/wasm-validator/src/lib.rs fuzz/seeds/manifest.tsv
           git config user.name "LeiZ"
           git config user.email "52287354+Lei-TzuY@users.noreply.github.com"
