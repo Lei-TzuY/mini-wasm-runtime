@@ -2,11 +2,13 @@ name: Conquest table.grow staging
 on:
   push:
     branches: [conquest/table-grow]
+  pull_request:
+    branches: [main]
 permissions:
   contents: write
 jobs:
   stage:
-    if: github.ref_name == 'conquest/table-grow'
+    if: github.head_ref == 'conquest/table-grow' || github.ref_name == 'conquest/table-grow'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
