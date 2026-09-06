@@ -1,0 +1,13 @@
+[package]
+name = "wasm-wasi"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+wasm-parser = { path = "../wasm-parser" }
+wasm-runtime = { path = "../wasm-runtime" }
+
+[lints]
+workspace = true
