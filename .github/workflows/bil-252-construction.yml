@@ -18,7 +18,9 @@ jobs:
         with:
           components: rustfmt, clippy
       - name: Apply bounded multi-memory slice
-        run: python3 .github/bil252_patch.py
+        run: |
+          python3 .github/bil252_fix.py
+          python3 .github/bil252_patch.py
       - name: Format candidate
         run: cargo fmt --all
       - name: Verify diff hygiene
@@ -32,7 +34,7 @@ jobs:
       - name: Commit clean candidate
         shell: bash
         run: |
-          git rm .github/workflows/bil-252-construction.yml .github/bil252_patch.py
+          git rm .github/workflows/bil-252-construction.yml .github/bil252_patch.py .github/bil252_fix.py
           git add crates/wasm-runtime/src/lib.rs crates/wasm-runtime/tests/multi_memory.rs crates/wasm-runtime/tests/phase5c_imports.rs crates/wasm-validator/src/lib.rs
           git config user.name "LeiZ"
           git config user.email "52287354+Lei-TzuY@users.noreply.github.com"
