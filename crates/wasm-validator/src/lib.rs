@@ -4,7 +4,9 @@
 //! Defined code and imported host functions may use ordered i32/i64/f32/f64 multi-value results.
 
 use std::{collections::HashSet, fmt};
-use wasm_parser::{decode_u32, DataMode, ExportKind, FuncType, ImportDesc, Module, ValueType};
+use wasm_parser::{
+    decode_u32, Constant, DataMode, ExportKind, FuncType, ImportDesc, Module, ValueType,
+};
 
 mod phase5;
 mod typed;
@@ -61,6 +63,10 @@ pub enum ValidationError {
         global: usize,
         expected: ValueType,
         actual: ValueType,
+    },
+    GlobalFunctionRefOutOfBounds {
+        global: usize,
+        function_index: u32,
     },
     StartFunctionOutOfBounds {
         function_index: u32,
@@ -176,6 +182,11 @@ pub enum ValidationError {
         local_index: u32,
     },
     CallTargetOutOfBounds {
+        function: usize,
+        offset: usize,
+        target: u32,
+    },
+    UndeclaredFunctionReference {
         function: usize,
         offset: usize,
         target: u32,
@@ -322,6 +333,13 @@ impl fmt::Display for ValidationError {
                 f,
                 "global {global} initializer has type {actual:?}, expected {expected:?}"
             ),
+            Self::GlobalFunctionRefOutOfBounds {
+                global,
+                function_index,
+            } => write!(
+                f,
+                "global {global} initializer refers to missing function {function_index}"
+            ),
             Self::StartFunctionOutOfBounds { function_index } => {
                 write!(f, "start function index {function_index} is out of bounds")
             }
@@ -453,6 +471,14 @@ impl fmt::Display for ValidationError {
             } => write!(
                 f,
                 "function {function} call at byte {offset} refers to missing function {target}"
+            ),
+            Self::UndeclaredFunctionReference {
+                function,
+                offset,
+                target,
+            } => write!(
+                f,
+                "function {function} ref.func at byte {offset} refers to undeclared function {target}"
             ),
             Self::UnsupportedOpcode {
                 function,
@@ -682,6 +708,21 @@ pub fn validate(module: &Module) -> Result<(), ValidationError> {
     Ok(())
 }
 
+fn is_declared_function_reference(module: &Module, target: u32) -> bool {
+    module
+        .exports
+        .iter()
+        .any(|export| export.kind == ExportKind::Function && export.index == target)
+        || module
+            .elements
+            .iter()
+            .any(|element| element.function_indices.contains(&target))
+        || module
+            .globals
+            .iter()
+            .any(|global| matches!(global.init, Constant::FuncRef(Some(index)) if index == target))
+}
+
 fn validate_defined_global_initializers(module: &Module) -> Result<(), ValidationError> {
     for (defined, definition) in module.globals.iter().enumerate() {
         let expected = definition.ty.value_type;
@@ -692,6 +733,14 @@ fn validate_defined_global_initializers(module: &Module) -> Result<(), Validatio
                 expected,
                 actual,
             });
+        }
+        if let Constant::FuncRef(Some(function_index)) = definition.init {
+            if function_index as usize >= module.function_count() {
+                return Err(ValidationError::GlobalFunctionRefOutOfBounds {
+                    global: module.global_import_count() + defined,
+                    function_index,
+                });
+            }
         }
     }
     Ok(())

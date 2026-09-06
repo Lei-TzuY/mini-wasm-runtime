@@ -609,6 +609,13 @@ pub(super) fn validate_code(
                         target,
                     });
                 }
+                if !super::is_declared_function_reference(module, target) {
+                    return Err(ValidationError::UndeclaredFunctionReference {
+                        function,
+                        offset,
+                        target,
+                    });
+                }
                 stack.push(ValueType::FuncRef);
             }
             0xfc => {

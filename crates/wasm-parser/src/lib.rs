@@ -126,6 +126,7 @@ pub enum Constant {
     I64(i64),
     F32(u32),
     F64(u64),
+    FuncRef(Option<u32>),
 }
 
 impl Constant {
@@ -135,6 +136,7 @@ impl Constant {
             Self::I64(_) => ValueType::I64,
             Self::F32(_) => ValueType::F32,
             Self::F64(_) => ValueType::F64,
+            Self::FuncRef(_) => ValueType::FuncRef,
         }
     }
 }
@@ -666,7 +668,7 @@ fn parse_memory_section(cursor: &mut Cursor<'_>, module: &mut Module) -> Result<
 fn parse_global_section(cursor: &mut Cursor<'_>, module: &mut Module) -> Result<(), ParseError> {
     let count = cursor.read_u32()?;
     for _ in 0..count {
-        let value_type = read_value_type(cursor)?;
+        let value_type = read_global_value_type(cursor)?;
         let mutable = read_mutability(cursor)?;
         let init = read_const_expr(cursor)?;
         let actual = init.value_type();
@@ -831,6 +833,14 @@ fn read_const_expr(cursor: &mut Cursor<'_>) -> Result<Constant, ParseError> {
         0x42 => Constant::I64(cursor.read_i64()?),
         0x43 => Constant::F32(cursor.read_u32_le()?),
         0x44 => Constant::F64(cursor.read_u64_le()?),
+        0xd0 => {
+            let reference_type = cursor.read_u8()?;
+            if reference_type != 0x70 {
+                return Err(ParseError::InvalidReferenceType(reference_type));
+            }
+            Constant::FuncRef(None)
+        }
+        0xd2 => Constant::FuncRef(Some(cursor.read_u32()?)),
         other => return Err(ParseError::InvalidConstExprOpcode(other)),
     };
     let terminator = match cursor.read_u8() {
@@ -869,6 +879,17 @@ fn read_value_type(cursor: &mut Cursor<'_>) -> Result<ValueType, ParseError> {
         0x7e => Ok(ValueType::I64),
         0x7d => Ok(ValueType::F32),
         0x7c => Ok(ValueType::F64),
+        other => Err(ParseError::UnsupportedValueType(other)),
+    }
+}
+
+fn read_global_value_type(cursor: &mut Cursor<'_>) -> Result<ValueType, ParseError> {
+    match cursor.read_u8()? {
+        0x7f => Ok(ValueType::I32),
+        0x7e => Ok(ValueType::I64),
+        0x7d => Ok(ValueType::F32),
+        0x7c => Ok(ValueType::F64),
+        0x70 => Ok(ValueType::FuncRef),
         other => Err(ParseError::UnsupportedValueType(other)),
     }
 }
