@@ -183,8 +183,9 @@ fn table_grow_and_size_use_second_table() {
 #[test]
 fn table_fill_targets_second_table() {
     let tables = [2, 0x70, 1, 1, 1, 0x70, 1, 2, 2];
-    let body = [0x41, 0, 0xd2, 0, 0x41, 2, 0xfc, 17, 1, 0x41, 1, 0x25, 1, 0xd1, 0x45, 0x0b];
-    let module = parse_module(&two_table_module(&body, None, &tables)).unwrap();
+    let element = [1, 2, 1, 0x41, 0, 0x0b, 0, 2, 0, 0];
+    let body = [0x41, 0, 0xd0, 0x70, 0x41, 2, 0xfc, 17, 1, 0x41, 1, 0x25, 1, 0xd1, 0x0b];
+    let module = parse_module(&two_table_module(&body, Some(&element), &tables)).unwrap();
     let mut instance = Instance::new(module).unwrap();
     assert_eq!(instance.invoke_export("run", &[]).unwrap(), Some(Value::I32(1)));
 }
