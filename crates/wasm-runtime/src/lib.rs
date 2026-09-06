@@ -2390,6 +2390,13 @@ impl Instance {
                     }
                     stack.push(if condition != 0 { first } else { second });
                 }
+                0x1c => {
+                    let expected = read_typed_select_type(code, &mut pc)?;
+                    let condition = numeric::i32_from_stack(&mut stack)?;
+                    let second = numeric::pop_typed(&mut stack, expected)?;
+                    let first = numeric::pop_typed(&mut stack, expected)?;
+                    stack.push(if condition != 0 { first } else { second });
+                }
                 0x20 => {
                     let index = read_u32_immediate(code, &mut pc)?;
                     let value = *locals
@@ -3236,6 +3243,29 @@ fn branch_to(
     Ok(())
 }
 
+fn read_typed_select_type(code: &[u8], pc: &mut usize) -> Result<ValueType, RuntimeError> {
+    let count = read_u32_immediate(code, pc)?;
+    if count != 1 {
+        return Err(RuntimeError::ControlInvariant(
+            "validated typed select must declare exactly one result type",
+        ));
+    }
+    let tag = *code.get(*pc).ok_or(RuntimeError::ControlInvariant(
+        "validated typed select result type is missing",
+    ))?;
+    *pc += 1;
+    match tag {
+        0x7f => Ok(ValueType::I32),
+        0x7e => Ok(ValueType::I64),
+        0x7d => Ok(ValueType::F32),
+        0x7c => Ok(ValueType::F64),
+        0x70 => Ok(ValueType::FuncRef),
+        _ => Err(RuntimeError::ControlInvariant(
+            "validated typed select result type is unsupported",
+        )),
+    }
+}
+
 fn build_control_map(module: &Module, code: &[u8]) -> Result<ControlMap, RuntimeError> {
     let mut openers = vec![None; code.len()];
     let mut pending = Vec::<PendingControl>::new();
@@ -3301,6 +3331,9 @@ fn build_control_map(module: &Module, code: &[u8]) -> Result<ControlMap, Runtime
             0x11 => {
                 let _ = read_u32_immediate(code, &mut pc)?;
                 let _ = read_u32_immediate(code, &mut pc)?;
+            }
+            0x1c => {
+                let _ = read_typed_select_type(code, &mut pc)?;
             }
             0x28..=0x3e => {
                 let _ = read_memarg(code, &mut pc)?;
@@ -3922,13 +3955,13 @@ mod tests {
     }
 
     #[test]
-    fn unsupported_typed_select_is_rejected_before_execution() {
-        let bytes = module_with_body(0, 1, &[0x1c, 0x0b]);
+    fn malformed_typed_select_is_rejected_before_execution() {
+        let bytes = module_with_body(0, 1, &[0x1c, 0x00, 0x0b]);
         let module = parse_module(&bytes).expect("parse test module");
-        let error = Instance::new(module).expect_err("unsupported opcode must fail validation");
+        let error = Instance::new(module).expect_err("malformed typed select must fail validation");
         assert!(matches!(
             error,
-            RuntimeError::Validation(ValidationError::UnsupportedOpcode { opcode: 0x1c, .. })
+            RuntimeError::Validation(ValidationError::MalformedImmediate { .. })
         ));
     }
 }

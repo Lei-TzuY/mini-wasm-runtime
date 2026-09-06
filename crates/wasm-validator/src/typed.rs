@@ -226,6 +226,13 @@ pub(super) fn validate_code(
                     stack.push(result_type);
                 }
             }
+            0x1c => {
+                let result_type = read_typed_select_type(code, &mut pc, function, offset)?;
+                pop_expect(&mut stack, &controls, ValueType::I32, function, offset)?;
+                pop_expect(&mut stack, &controls, result_type, function, offset)?;
+                pop_expect(&mut stack, &controls, result_type, function, offset)?;
+                stack.push(result_type);
+            }
             0x20 => {
                 let index = read_local(code, &mut pc, function, offset, local_types)?;
                 let ty = local_types[index as usize];
@@ -797,6 +804,30 @@ pub(super) fn validate_code(
         return Err(ValidationError::MissingFunctionEnd { function });
     }
     Ok(())
+}
+
+fn read_typed_select_type(
+    code: &[u8],
+    pc: &mut usize,
+    function: usize,
+    offset: usize,
+) -> Result<ValueType, ValidationError> {
+    let count = read_u32(code, pc, function, offset)?;
+    if count != 1 {
+        return Err(ValidationError::MalformedImmediate { function, offset });
+    }
+    let tag = *code
+        .get(*pc)
+        .ok_or(ValidationError::MalformedImmediate { function, offset })?;
+    *pc += 1;
+    match tag {
+        0x7f => Ok(ValueType::I32),
+        0x7e => Ok(ValueType::I64),
+        0x7d => Ok(ValueType::F32),
+        0x7c => Ok(ValueType::F64),
+        0x70 => Ok(ValueType::FuncRef),
+        _ => Err(ValidationError::MalformedImmediate { function, offset }),
+    }
 }
 
 fn apply_call_signature(

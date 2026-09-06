@@ -8,7 +8,7 @@ This control surface includes `unreachable`, `nop`, `drop`, untyped `select` (`0
 - `drop` consumes one value of any currently supported numeric type and respects unreachable-stack polymorphism.
 - `select` consumes `val1 val2 i32` and produces one value; the two candidate values must have the same type.
 - `br_table` validates every table target plus the default target, requires identical label type vectors, consumes an i32 selector, validates the shared label-result vector, and makes following code unreachable.
-- typed select (`0x1c`) remains unsupported.
+- typed select (`0x1c`) validates its singleton result-type vector and executes typed numeric or `funcref` selection, including nullable/non-null references.
 
 ## Runtime invariants
 
