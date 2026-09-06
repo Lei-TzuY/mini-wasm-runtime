@@ -25,5 +25,7 @@ old='''    fn with_memory<R>(
 if s.count(old)!=1: raise SystemExit('memory-zero wrappers anchor')
 p.write_text(s.replace(old,''))
 p=Path('crates/wasm-runtime/tests/multi_memory_memarg.rs')
-s=p.read_text().replace('let mut i = vec![1, 3, b\'e\', b\'n\', b\'v\', 3, b\'m\', b\'e\', b\'m\', 2, 0, 1];','let i = vec![1, 3, b\'e\', b\'n\', b\'v\', 3, b\'m\', b\'e\', b\'m\', 2, 0, 1];')
-p.write_text(s)
+s=p.read_text()
+old='let mut i=vec!['
+if s.count(old)!=1: raise SystemExit('test mut anchor')
+p.write_text(s.replace(old,'let i=vec![',1))
