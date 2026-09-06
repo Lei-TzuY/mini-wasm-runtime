@@ -246,7 +246,9 @@ impl WasiPreview1 {
                 }
                 let mut bytes_len = 0usize;
                 for arg in &sizes_args {
-                    let Some(next) = bytes_len.checked_add(arg.len()).and_then(|n| n.checked_add(1))
+                    let Some(next) = bytes_len
+                        .checked_add(arg.len())
+                        .and_then(|n| n.checked_add(1))
                     else {
                         return Ok(vec![Value::I32(ERRNO_INVAL)]);
                     };
@@ -308,7 +310,10 @@ impl WasiPreview1 {
                         return Ok(vec![Value::I32(ERRNO_FAULT)]);
                     };
                     pointer_table.extend(pointer.to_le_bytes());
-                    let Some(next_len) = payload.len().checked_add(arg.len()).and_then(|n| n.checked_add(1))
+                    let Some(next_len) = payload
+                        .len()
+                        .checked_add(arg.len())
+                        .and_then(|n| n.checked_add(1))
                     else {
                         return Ok(vec![Value::I32(ERRNO_INVAL)]);
                     };
@@ -332,7 +337,9 @@ impl WasiPreview1 {
                 if context
                     .write_memory(*argv_ptr as u32, &pointer_table)
                     .is_err()
-                    || context.write_memory(*argv_buf_ptr as u32, &payload).is_err()
+                    || context
+                        .write_memory(*argv_buf_ptr as u32, &payload)
+                        .is_err()
                 {
                     return Ok(vec![Value::I32(ERRNO_FAULT)]);
                 }
