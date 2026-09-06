@@ -78,7 +78,9 @@ fn instantiate(
     wasi: &WasiPreview1,
 ) -> Instance {
     let mut hosts = HostRegistry::new();
-    hosts.register_memory("env", "memory", memory.clone()).unwrap();
+    hosts
+        .register_memory("env", "memory", memory.clone())
+        .unwrap();
     wasi.register(&mut hosts).unwrap();
     Instance::with_hosts(
         parse_module(&module(fd, iovs, iovs_len, nwritten)).unwrap(),
