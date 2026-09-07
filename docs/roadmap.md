@@ -165,7 +165,7 @@ The runtime has moved beyond a generic future-WASI placeholder into an executabl
 - [x] deterministic process arguments via `args_sizes_get` / `args_get`
 - [x] deterministic process environment via `environ_sizes_get` / `environ_get`
 - [x] deterministic stdin plus bounded `fd_read` scatter writes, sequential consumption, EOF, and read rights
-- [ ] process termination semantics (`proc_exit`) with a typed non-error exit outcome across the host/runtime boundary
+- [x] process termination semantics (`proc_exit`) with immediate non-local guest termination and a typed non-error WASI invocation outcome
 - [ ] deterministic injected entropy/time capabilities where useful (`random_get`, clock surface) rather than ambient host nondeterminism
 - [ ] evaluate filesystem/preopen capability only after descriptor rights, path bounds, and host-resource lifetime rules have a coherent model
 - [ ] add WASI-specific differential/interop evidence as the supported Preview1 surface becomes broad enough to compare meaningfully
