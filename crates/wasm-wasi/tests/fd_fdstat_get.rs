@@ -2,7 +2,7 @@ use wasm_parser::parse_module;
 use wasm_runtime::{HostRegistry, Instance, MemoryHandle, Value};
 use wasm_wasi::{
     WasiPreview1, ERRNO_BADF, ERRNO_FAULT, ERRNO_SUCCESS, FILETYPE_CHARACTER_DEVICE,
-    FILETYPE_DIRECTORY, RIGHTS_FD_READ, RIGHTS_FD_WRITE,
+    FILETYPE_DIRECTORY, RIGHTS_FD_READ, RIGHTS_FD_WRITE, RIGHTS_PATH_OPEN,
 };
 
 fn u32leb(out: &mut Vec<u8>, mut value: u32) {
@@ -146,7 +146,7 @@ fn fd_fdstat_get_supports_stderr() {
 }
 
 #[test]
-fn fd_fdstat_get_reports_preopen_directory_with_zero_rights() {
+fn fd_fdstat_get_reports_preopen_directory_path_rights() {
     let memory = MemoryHandle::new(1, Some(1)).unwrap();
     let wasi = WasiPreview1::new().with_preopen("/sandbox").unwrap();
     let mut vm = instantiate(3, 128, &memory, &wasi);
@@ -158,8 +158,14 @@ fn fd_fdstat_get_reports_preopen_directory_with_zero_rights() {
     let fdstat = memory.read(128, 24).unwrap();
     assert_eq!(fdstat[0], FILETYPE_DIRECTORY);
     assert_eq!(u16::from_le_bytes(fdstat[2..4].try_into().unwrap()), 0);
-    assert_eq!(u64::from_le_bytes(fdstat[8..16].try_into().unwrap()), 0);
-    assert_eq!(u64::from_le_bytes(fdstat[16..24].try_into().unwrap()), 0);
+    assert_eq!(
+        u64::from_le_bytes(fdstat[8..16].try_into().unwrap()),
+        RIGHTS_PATH_OPEN
+    );
+    assert_eq!(
+        u64::from_le_bytes(fdstat[16..24].try_into().unwrap()),
+        RIGHTS_FD_READ
+    );
 }
 
 #[test]
