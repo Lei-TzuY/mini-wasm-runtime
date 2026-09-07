@@ -188,8 +188,10 @@ enum OpenError {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum LinkError {
+    BadFd,
     NotFound,
     NotCapable,
+    NameTooLong,
     TargetExists,
     TooManyFiles,
     LinkCountOverflow,
@@ -734,12 +736,14 @@ impl Filesystem {
                 let requested_inheriting = *rights_inheriting as u64;
                 let allowed_file_base = RIGHTS_FD_READ | RIGHTS_FD_WRITE | RIGHTS_FD_SEEK
                     | RIGHTS_FD_TELL | RIGHTS_FD_FILESTAT_GET | RIGHTS_FD_FILESTAT_SET_SIZE;
-                let allowed_directory_base = RIGHTS_FD_READDIR
-                    | RIGHTS_PATH_OPEN
-                    | RIGHTS_PATH_CREATE_DIRECTORY
-                    | RIGHTS_PATH_CREATE_FILE
-                    | RIGHTS_PATH_REMOVE_DIRECTORY
-                    | RIGHTS_PATH_UNLINK_FILE;
+                    let allowed_directory_base = RIGHTS_FD_READDIR
+                        | RIGHTS_PATH_OPEN
+                        | RIGHTS_PATH_CREATE_DIRECTORY
+                        | RIGHTS_PATH_CREATE_FILE
+                        | RIGHTS_PATH_LINK_SOURCE
+                        | RIGHTS_PATH_LINK_TARGET
+                        | RIGHTS_PATH_REMOVE_DIRECTORY
+                        | RIGHTS_PATH_UNLINK_FILE;
                 let allowed_base = if directory { allowed_directory_base } else { allowed_file_base };
                 if requested_base & !allowed_base != 0 || requested_inheriting != 0 {
                     return Ok(vec![Value::I32(ERRNO_NOTCAPABLE)]);
@@ -897,16 +901,13 @@ impl Filesystem {
 
                 let old_fd = *old_fd as u32;
                 let new_fd = *new_fd as u32;
-                if !link_filesystem.has_preopen(old_fd) || !link_filesystem.has_preopen(new_fd) {
+                if !link_filesystem.has_directory_descriptor(old_fd)
+                    || !link_filesystem.has_directory_descriptor(new_fd)
+                {
                     return Ok(vec![Value::I32(ERRNO_BADF)]);
                 }
                 if *old_flags != 0 {
                     return Ok(vec![Value::I32(ERRNO_INVAL)]);
-                }
-                if !link_filesystem.is_writable_preopen(old_fd)
-                    || !link_filesystem.is_writable_preopen(new_fd)
-                {
-                    return Ok(vec![Value::I32(ERRNO_NOTCAPABLE)]);
                 }
 
                 let old_path_len = *old_path_len as u32 as usize;
@@ -939,8 +940,10 @@ impl Filesystem {
 
                 match link_filesystem.link(old_fd, &old_path, new_fd, &new_path) {
                     Ok(()) => Ok(vec![Value::I32(ERRNO_SUCCESS)]),
+                    Err(LinkError::BadFd) => Ok(vec![Value::I32(ERRNO_BADF)]),
                     Err(LinkError::NotFound) => Ok(vec![Value::I32(ERRNO_NOENT)]),
                     Err(LinkError::NotCapable) => Ok(vec![Value::I32(ERRNO_NOTCAPABLE)]),
+                    Err(LinkError::NameTooLong) => Ok(vec![Value::I32(ERRNO_NAMETOOLONG)]),
                     Err(LinkError::TargetExists) => Ok(vec![Value::I32(ERRNO_EXIST)]),
                     Err(LinkError::TooManyFiles) => Ok(vec![Value::I32(ERRNO_NOSPC)]),
                     Err(LinkError::LinkCountOverflow) => Ok(vec![Value::I32(ERRNO_OVERFLOW)]),
@@ -1559,30 +1562,34 @@ impl Filesystem {
 
     fn link(
         &self,
-        old_preopen_fd: u32,
+        old_dir_fd: u32,
         old_path: &[u8],
-        new_preopen_fd: u32,
+        new_dir_fd: u32,
         new_path: &[u8],
     ) -> Result<(), LinkError> {
+        let (old_preopen_fd, old_full_path, _) = self
+            .resolve_directory_path(old_dir_fd, old_path, RIGHTS_PATH_LINK_SOURCE)
+            .map_err(link_resolve_error)?;
+        let (new_preopen_fd, new_full_path, _) = self
+            .resolve_directory_path(new_dir_fd, new_path, RIGHTS_PATH_LINK_TARGET)
+            .map_err(link_resolve_error)?;
+
         let mut state = self.state.borrow_mut();
-        if !state.writable_preopens.contains(&old_preopen_fd)
-            || !state.writable_preopens.contains(&new_preopen_fd)
-        {
-            return Err(LinkError::NotCapable);
-        }
-        if state.mounted_files.len() >= MAX_MOUNTED_FILES {
+        if state.mounted_files.len() + state.mounted_directories.len() >= MAX_MOUNTED_FILES {
             return Err(LinkError::TooManyFiles);
         }
-        if state.mounted_files.iter().any(|file| {
-            file.preopen_fd == new_preopen_fd && file.relative_path.as_slice() == new_path
-        }) {
+        if namespace_entry_exists(&state, new_preopen_fd, &new_full_path) {
             return Err(LinkError::TargetExists);
+        }
+        if !parent_directory_exists(&state, new_preopen_fd, &new_full_path) {
+            return Err(LinkError::NotFound);
         }
         let Some((inode, bytes, link_count, writable)) = state
             .mounted_files
             .iter()
             .find(|file| {
-                file.preopen_fd == old_preopen_fd && file.relative_path.as_slice() == old_path
+                file.preopen_fd == old_preopen_fd
+                    && file.relative_path.as_slice() == old_full_path.as_slice()
             })
             .map(|file| {
                 (
@@ -1605,7 +1612,7 @@ impl Filesystem {
 
         state.mounted_files.push(MountedFile {
             preopen_fd: new_preopen_fd,
-            relative_path: new_path.to_vec(),
+            relative_path: new_full_path,
             inode,
             bytes,
             link_count: link_count.clone(),
@@ -1954,6 +1961,14 @@ fn open_resolve_error(error: ResolveDirectoryError) -> OpenError {
     match error {
         ResolveDirectoryError::BadFd | ResolveDirectoryError::NotCapable => OpenError::NotCapable,
         ResolveDirectoryError::NameTooLong => OpenError::NameTooLong,
+    }
+}
+
+fn link_resolve_error(error: ResolveDirectoryError) -> LinkError {
+    match error {
+        ResolveDirectoryError::BadFd => LinkError::BadFd,
+        ResolveDirectoryError::NotCapable => LinkError::NotCapable,
+        ResolveDirectoryError::NameTooLong => LinkError::NameTooLong,
     }
 }
 
