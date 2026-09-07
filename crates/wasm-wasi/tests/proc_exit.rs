@@ -59,11 +59,7 @@ fn proc_exit_module(exit_code: i32, nested: bool) -> Vec<u8> {
     imports.extend([0, 0]);
     section(&mut module, 2, &imports);
 
-    let functions = if nested {
-        vec![2, 1, 1]
-    } else {
-        vec![1, 1]
-    };
+    let functions = if nested { vec![2, 1, 1] } else { vec![1, 1] };
     section(&mut module, 3, &functions);
     section(&mut module, 6, &[1, 0x7f, 1, 0x41, 0, 0x0b]);
 
