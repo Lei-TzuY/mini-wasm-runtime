@@ -99,9 +99,7 @@ fn clock_time_module(clock_id: u32, precision: i64, result: u32) -> Vec<u8> {
     section(
         &mut module,
         1,
-        &[
-            2, 0x60, 3, 0x7f, 0x7e, 0x7f, 1, 0x7f, 0x60, 0, 1, 0x7f,
-        ],
+        &[2, 0x60, 3, 0x7f, 0x7e, 0x7f, 1, 0x7f, 0x60, 0, 1, 0x7f],
     );
 
     let mut imports = vec![2];
