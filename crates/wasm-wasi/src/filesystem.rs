@@ -4,14 +4,15 @@ use wasm_parser::ValueType;
 use wasm_runtime::{HostCapabilities, HostError, HostRegistry, HostRegistryError, Value};
 
 use crate::{
-    ERRNO_BADF, ERRNO_FAULT, ERRNO_FBIG, ERRNO_INVAL, ERRNO_MFILE, ERRNO_NAMETOOLONG, ERRNO_NOENT,
-    ERRNO_NOSPC, ERRNO_NOTCAPABLE, ERRNO_OVERFLOW, ERRNO_SUCCESS, FILETYPE_REGULAR_FILE,
-    OFLAGS_CREAT, RIGHTS_FD_FILESTAT_GET, RIGHTS_FD_FILESTAT_SET_SIZE, RIGHTS_FD_READ,
-    RIGHTS_FD_SEEK, RIGHTS_FD_TELL, RIGHTS_FD_WRITE,
+    ERRNO_BADF, ERRNO_EXIST, ERRNO_FAULT, ERRNO_FBIG, ERRNO_INVAL, ERRNO_IO, ERRNO_MFILE,
+    ERRNO_NAMETOOLONG, ERRNO_NOENT, ERRNO_NOSPC, ERRNO_NOTCAPABLE, ERRNO_OVERFLOW, ERRNO_SUCCESS,
+    FILETYPE_REGULAR_FILE, OFLAGS_CREAT, RIGHTS_FD_FILESTAT_GET, RIGHTS_FD_FILESTAT_SET_SIZE,
+    RIGHTS_FD_READ, RIGHTS_FD_SEEK, RIGHTS_FD_TELL, RIGHTS_FD_WRITE,
 };
 
 const WASI_MODULE: &str = "wasi_snapshot_preview1";
 const PATH_OPEN_NAME: &str = "path_open";
+const PATH_LINK_NAME: &str = "path_link";
 const PATH_UNLINK_FILE_NAME: &str = "path_unlink_file";
 const FD_CLOSE_NAME: &str = "fd_close";
 const FD_SEEK_NAME: &str = "fd_seek";
@@ -157,9 +158,19 @@ enum OpenError {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum LinkError {
+    NotFound,
+    NotCapable,
+    TargetExists,
+    TooManyFiles,
+    LinkCountOverflow,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum UnlinkError {
     NotFound,
     NotCapable,
+    InvalidLinkCount,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -532,6 +543,90 @@ impl Filesystem {
             },
         )?;
 
+        let link_filesystem = self.clone();
+        registry.register_values(
+            WASI_MODULE,
+            PATH_LINK_NAME,
+            vec![
+                ValueType::I32,
+                ValueType::I32,
+                ValueType::I32,
+                ValueType::I32,
+                ValueType::I32,
+                ValueType::I32,
+                ValueType::I32,
+            ],
+            vec![ValueType::I32],
+            HostCapabilities::MEMORY_READ,
+            move |context, args| {
+                let [
+                    Value::I32(old_fd),
+                    Value::I32(old_flags),
+                    Value::I32(old_path_ptr),
+                    Value::I32(old_path_len),
+                    Value::I32(new_fd),
+                    Value::I32(new_path_ptr),
+                    Value::I32(new_path_len),
+                ] = args
+                else {
+                    return Err(HostError::message(
+                        "validated wasi path_link signature received invalid arguments",
+                    ));
+                };
+
+                let old_fd = *old_fd as u32;
+                let new_fd = *new_fd as u32;
+                if !link_filesystem.has_preopen(old_fd) || !link_filesystem.has_preopen(new_fd) {
+                    return Ok(vec![Value::I32(ERRNO_BADF)]);
+                }
+                if *old_flags != 0 {
+                    return Ok(vec![Value::I32(ERRNO_INVAL)]);
+                }
+                if !link_filesystem.is_writable_preopen(old_fd)
+                    || !link_filesystem.is_writable_preopen(new_fd)
+                {
+                    return Ok(vec![Value::I32(ERRNO_NOTCAPABLE)]);
+                }
+
+                let old_path_len = *old_path_len as u32 as usize;
+                let new_path_len = *new_path_len as u32 as usize;
+                if old_path_len > MAX_RELATIVE_PATH_BYTES || new_path_len > MAX_RELATIVE_PATH_BYTES {
+                    return Ok(vec![Value::I32(ERRNO_NAMETOOLONG)]);
+                }
+                let old_path = match context.read_memory(*old_path_ptr as u32, old_path_len) {
+                    Ok(path) => path,
+                    Err(_) => return Ok(vec![Value::I32(ERRNO_FAULT)]),
+                };
+                let new_path = match context.read_memory(*new_path_ptr as u32, new_path_len) {
+                    Ok(path) => path,
+                    Err(_) => return Ok(vec![Value::I32(ERRNO_FAULT)]),
+                };
+                for path in [&old_path, &new_path] {
+                    match validate_guest_path(path) {
+                        Ok(()) => {}
+                        Err(GuestPathError::Empty) => {
+                            return Ok(vec![Value::I32(ERRNO_INVAL)]);
+                        }
+                        Err(GuestPathError::TooLong) => {
+                            return Ok(vec![Value::I32(ERRNO_NAMETOOLONG)]);
+                        }
+                        Err(GuestPathError::Unsafe) => {
+                            return Ok(vec![Value::I32(ERRNO_NOTCAPABLE)]);
+                        }
+                    }
+                }
+
+                match link_filesystem.link(old_fd, &old_path, new_fd, &new_path) {
+                    Ok(()) => Ok(vec![Value::I32(ERRNO_SUCCESS)]),
+                    Err(LinkError::NotFound) => Ok(vec![Value::I32(ERRNO_NOENT)]),
+                    Err(LinkError::NotCapable) => Ok(vec![Value::I32(ERRNO_NOTCAPABLE)]),
+                    Err(LinkError::TargetExists) => Ok(vec![Value::I32(ERRNO_EXIST)]),
+                    Err(LinkError::TooManyFiles) => Ok(vec![Value::I32(ERRNO_NOSPC)]),
+                    Err(LinkError::LinkCountOverflow) => Ok(vec![Value::I32(ERRNO_OVERFLOW)]),
+                }
+            },
+        )?;
+
         let unlink_filesystem = self.clone();
         registry.register_values(
             WASI_MODULE,
@@ -577,6 +672,7 @@ impl Filesystem {
                     Ok(()) => Ok(vec![Value::I32(ERRNO_SUCCESS)]),
                     Err(UnlinkError::NotFound) => Ok(vec![Value::I32(ERRNO_NOENT)]),
                     Err(UnlinkError::NotCapable) => Ok(vec![Value::I32(ERRNO_NOTCAPABLE)]),
+                    Err(UnlinkError::InvalidLinkCount) => Ok(vec![Value::I32(ERRNO_IO)]),
                 }
             },
         )?;
@@ -908,6 +1004,64 @@ impl Filesystem {
         })
     }
 
+    fn link(
+        &self,
+        old_preopen_fd: u32,
+        old_path: &[u8],
+        new_preopen_fd: u32,
+        new_path: &[u8],
+    ) -> Result<(), LinkError> {
+        let mut state = self.state.borrow_mut();
+        if !state.writable_preopens.contains(&old_preopen_fd)
+            || !state.writable_preopens.contains(&new_preopen_fd)
+        {
+            return Err(LinkError::NotCapable);
+        }
+        if state.mounted_files.len() >= MAX_MOUNTED_FILES {
+            return Err(LinkError::TooManyFiles);
+        }
+        if state.mounted_files.iter().any(|file| {
+            file.preopen_fd == new_preopen_fd && file.relative_path.as_slice() == new_path
+        }) {
+            return Err(LinkError::TargetExists);
+        }
+        let Some((inode, bytes, link_count, writable)) = state
+            .mounted_files
+            .iter()
+            .find(|file| {
+                file.preopen_fd == old_preopen_fd && file.relative_path.as_slice() == old_path
+            })
+            .map(|file| {
+                (
+                    file.inode,
+                    file.bytes.clone(),
+                    file.link_count.clone(),
+                    file.writable,
+                )
+            })
+        else {
+            return Err(LinkError::NotFound);
+        };
+        let current_links = *link_count.borrow();
+        let new_links = current_links
+            .checked_add(1)
+            .ok_or(LinkError::LinkCountOverflow)?;
+        if current_links == 0 {
+            return Err(LinkError::NotFound);
+        }
+
+        state.mounted_files.push(MountedFile {
+            preopen_fd: new_preopen_fd,
+            relative_path: new_path.to_vec(),
+            inode,
+            bytes,
+            link_count: link_count.clone(),
+            writable,
+        });
+        *link_count.borrow_mut() = new_links;
+        Ok(())
+    }
+
     fn unlink(&self, preopen_fd: u32, path: &[u8]) -> Result<(), UnlinkError> {
         let mut state = self.state.borrow_mut();
         if !state.writable_preopens.contains(&preopen_fd) {
@@ -918,8 +1072,13 @@ impl Filesystem {
         }) else {
             return Err(UnlinkError::NotFound);
         };
-        let file = state.mounted_files.remove(index);
-        *file.link_count.borrow_mut() = 0;
+        let link_count = state.mounted_files[index].link_count.clone();
+        let current_links = *link_count.borrow();
+        let Some(new_links) = current_links.checked_sub(1) else {
+            return Err(UnlinkError::InvalidLinkCount);
+        };
+        state.mounted_files.remove(index);
+        *link_count.borrow_mut() = new_links;
         Ok(())
     }
 

@@ -3,8 +3,8 @@ use wasm_runtime::{HostRegistry, Instance, MemoryHandle, Value};
 use wasm_wasi::{
     WasiPreview1, ERRNO_BADF, ERRNO_FAULT, ERRNO_SUCCESS, FILETYPE_CHARACTER_DEVICE,
     FILETYPE_DIRECTORY, RIGHTS_FD_FILESTAT_GET, RIGHTS_FD_FILESTAT_SET_SIZE, RIGHTS_FD_READ,
-    RIGHTS_FD_SEEK, RIGHTS_FD_TELL, RIGHTS_FD_WRITE, RIGHTS_PATH_CREATE_FILE, RIGHTS_PATH_OPEN,
-    RIGHTS_PATH_UNLINK_FILE,
+    RIGHTS_FD_SEEK, RIGHTS_FD_TELL, RIGHTS_FD_WRITE, RIGHTS_PATH_CREATE_FILE,
+    RIGHTS_PATH_LINK_SOURCE, RIGHTS_PATH_LINK_TARGET, RIGHTS_PATH_OPEN, RIGHTS_PATH_UNLINK_FILE,
 };
 
 fn u32leb(out: &mut Vec<u8>, mut value: u32) {
@@ -186,7 +186,11 @@ fn fd_fdstat_get_reports_writable_preopen_resize_right() {
     assert_eq!(fdstat[0], FILETYPE_DIRECTORY);
     assert_eq!(
         u64::from_le_bytes(fdstat[8..16].try_into().unwrap()),
-        RIGHTS_PATH_OPEN | RIGHTS_PATH_CREATE_FILE | RIGHTS_PATH_UNLINK_FILE
+        RIGHTS_PATH_OPEN
+            | RIGHTS_PATH_CREATE_FILE
+            | RIGHTS_PATH_LINK_SOURCE
+            | RIGHTS_PATH_LINK_TARGET
+            | RIGHTS_PATH_UNLINK_FILE
     );
     assert_eq!(
         u64::from_le_bytes(fdstat[16..24].try_into().unwrap()),
