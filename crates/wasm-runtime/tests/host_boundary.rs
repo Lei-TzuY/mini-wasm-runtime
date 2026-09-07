@@ -1,5 +1,5 @@
 use wasm_parser::{
-    DataMode, DataSegment, Export, ExportKind, FuncType, FunctionBody, Import, ImportDesc, Limits,
+    DataMode, DataSegment, Export, ExportKind, FuncType, FunctionBody, Import, ImportDesc,
     MemoryType, Module, ValueType,
 };
 use wasm_runtime::{
@@ -19,9 +19,10 @@ fn imported_reader_module() -> Module {
             desc: ImportDesc::Function(0),
         }],
         memories: vec![MemoryType {
-            limits: Limits {
+            limits: wasm_parser::MemoryLimits {
                 min: 1,
                 max: Some(1),
+                memory64: false,
             },
         }],
         exports: vec![Export {

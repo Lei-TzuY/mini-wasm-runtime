@@ -206,9 +206,10 @@ fn expanded_validation_corpus_rejects_cross_index_and_segment_mutations() {
 
     let mut memory_page_limit = seed();
     memory_page_limit.memories.push(MemoryType {
-        limits: Limits {
-            min: MAX_MEMORY_PAGES + 1,
+        limits: wasm_parser::MemoryLimits {
+            min: u64::from(MAX_MEMORY_PAGES) + 1,
             max: None,
+            memory64: false,
         },
     });
     expect_validation(
@@ -218,8 +219,10 @@ fn expanded_validation_corpus_rejects_cross_index_and_segment_mutations() {
                 error,
                 ValidationError::MemoryPageLimitExceeded {
                     memory: 0,
-                    pages
-                } if *pages == MAX_MEMORY_PAGES + 1
+                    pages,
+                    limit,
+                } if *pages == u64::from(MAX_MEMORY_PAGES) + 1
+                    && *limit == u64::from(MAX_MEMORY_PAGES)
             )
         },
         "memory page limit exceeded",
@@ -493,9 +496,10 @@ fn import_binding_failures_are_confined_to_instantiation() {
     );
 
     let memory_type = MemoryType {
-        limits: Limits {
+        limits: wasm_parser::MemoryLimits {
             min: 2,
             max: Some(4),
+            memory64: false,
         },
     };
     let memory_import = import_only(ImportDesc::Memory(memory_type), vec![]);

@@ -159,8 +159,15 @@ pub struct TableType {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct MemoryLimits {
+    pub min: u64,
+    pub max: Option<u64>,
+    pub memory64: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct MemoryType {
-    pub limits: Limits,
+    pub limits: MemoryLimits,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -409,6 +416,23 @@ pub fn decode_u32(input: &[u8]) -> Result<(u32, usize), ParseError> {
     Err(ParseError::InvalidLeb128)
 }
 
+/// Decode a canonical-or-noncanonical unsigned LEB128 u64 value.
+pub fn decode_u64(input: &[u8]) -> Result<(u64, usize), ParseError> {
+    let mut result = 0u64;
+    for index in 0..10 {
+        let byte = *input.get(index).ok_or(ParseError::UnexpectedEof)?;
+        let payload = u64::from(byte & 0x7f);
+        if index == 9 && payload > 0x01 {
+            return Err(ParseError::Leb128Overflow);
+        }
+        result |= payload << (index * 7);
+        if byte & 0x80 == 0 {
+            return Ok((result, index + 1));
+        }
+    }
+    Err(ParseError::InvalidLeb128)
+}
+
 /// Decode a signed LEB128 i32 value.
 pub fn decode_i32(input: &[u8]) -> Result<(i32, usize), ParseError> {
     let mut result = 0i64;
@@ -615,7 +639,7 @@ fn parse_import_section(cursor: &mut Cursor<'_>, module: &mut Module) -> Result<
                 })
             }
             0x02 => ImportDesc::Memory(MemoryType {
-                limits: read_limits(cursor)?,
+                limits: read_memory_limits(cursor)?,
             }),
             0x03 => {
                 let value_type = read_value_type(cursor)?;
@@ -662,7 +686,7 @@ fn parse_memory_section(cursor: &mut Cursor<'_>, module: &mut Module) -> Result<
     let count = cursor.read_u32()?;
     for _ in 0..count {
         module.memories.push(MemoryType {
-            limits: read_limits(cursor)?,
+            limits: read_memory_limits(cursor)?,
         });
     }
     Ok(())
@@ -886,6 +910,30 @@ fn read_limits(cursor: &mut Cursor<'_>) -> Result<Limits, ParseError> {
     Ok(Limits { min, max })
 }
 
+fn read_memory_limits(cursor: &mut Cursor<'_>) -> Result<MemoryLimits, ParseError> {
+    let flags = cursor.read_u8()?;
+    if flags & !0x05 != 0 {
+        return Err(ParseError::InvalidLimitsFlags(flags));
+    }
+    let memory64 = flags & 0x04 != 0;
+    let has_maximum = flags & 0x01 != 0;
+    let min = if memory64 {
+        cursor.read_u64()?
+    } else {
+        u64::from(cursor.read_u32()?)
+    };
+    let max = if has_maximum {
+        Some(if memory64 {
+            cursor.read_u64()?
+        } else {
+            u64::from(cursor.read_u32()?)
+        })
+    } else {
+        None
+    };
+    Ok(MemoryLimits { min, max, memory64 })
+}
+
 fn read_const_expr(cursor: &mut Cursor<'_>) -> Result<Constant, ParseError> {
     let opcode = cursor.read_u8()?;
     let value = match opcode {
@@ -988,6 +1036,12 @@ impl<'a> Cursor<'a> {
 
     fn read_u32(&mut self) -> Result<u32, ParseError> {
         let (value, used) = decode_u32(self.remaining())?;
+        self.offset += used;
+        Ok(value)
+    }
+
+    fn read_u64(&mut self) -> Result<u64, ParseError> {
+        let (value, used) = decode_u64(self.remaining())?;
         self.offset += used;
         Ok(value)
     }

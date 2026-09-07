@@ -24,9 +24,10 @@ fn memory_import() -> Import {
         module: "env".into(),
         name: "mem".into(),
         desc: ImportDesc::Memory(MemoryType {
-            limits: Limits {
+            limits: wasm_parser::MemoryLimits {
                 min: 1,
                 max: Some(1),
+                memory64: false,
             },
         }),
     }
@@ -99,9 +100,10 @@ fn explicit_active_data_targets_memory_zero() {
 fn active_data_still_validates_memory_index() {
     let module = Module {
         memories: vec![MemoryType {
-            limits: Limits {
+            limits: wasm_parser::MemoryLimits {
                 min: 1,
                 max: Some(1),
+                memory64: false,
             },
         }],
         data: vec![DataSegment {
