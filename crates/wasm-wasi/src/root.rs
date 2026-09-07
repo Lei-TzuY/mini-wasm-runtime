@@ -36,6 +36,7 @@ pub const ERRNO_OVERFLOW: i32 = 61;
 pub const RIGHTS_FD_SEEK: u64 = 1 << 2;
 pub const RIGHTS_FD_TELL: u64 = 1 << 5;
 pub const RIGHTS_PATH_CREATE_FILE: u64 = 1 << 10;
+pub const RIGHTS_PATH_UNLINK_FILE: u64 = 1 << 26;
 pub const OFLAGS_CREAT: u32 = 1 << 0;
 
 const PROC_EXIT_MODULE: &str = "wasi_snapshot_preview1";
@@ -176,7 +177,7 @@ impl WasiPreview1 {
         let fd = self.preopens.add(guest_path.as_bytes())?;
         self.filesystem.reserve_preopen(fd, writable);
         let rights_base = if writable {
-            RIGHTS_PATH_OPEN | RIGHTS_PATH_CREATE_FILE
+            RIGHTS_PATH_OPEN | RIGHTS_PATH_CREATE_FILE | RIGHTS_PATH_UNLINK_FILE
         } else {
             RIGHTS_PATH_OPEN
         };
