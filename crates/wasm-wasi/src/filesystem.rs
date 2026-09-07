@@ -5,9 +5,9 @@ use wasm_runtime::{HostCapabilities, HostError, HostRegistry, HostRegistryError,
 
 use crate::{
     ERRNO_BADF, ERRNO_EXIST, ERRNO_FAULT, ERRNO_FBIG, ERRNO_INVAL, ERRNO_IO, ERRNO_MFILE,
-    ERRNO_NAMETOOLONG, ERRNO_NOENT, ERRNO_NOSPC, ERRNO_NOTCAPABLE, ERRNO_OVERFLOW, ERRNO_SUCCESS,
-    FILETYPE_REGULAR_FILE, OFLAGS_CREAT, RIGHTS_FD_FILESTAT_GET, RIGHTS_FD_FILESTAT_SET_SIZE,
-    RIGHTS_FD_READ, RIGHTS_FD_SEEK, RIGHTS_FD_TELL, RIGHTS_FD_WRITE,
+    ERRNO_NAMETOOLONG, ERRNO_NOENT, ERRNO_NOSPC, ERRNO_NOTCAPABLE, ERRNO_NOTSUP, ERRNO_OVERFLOW,
+    ERRNO_SUCCESS, FILETYPE_DIRECTORY, FILETYPE_REGULAR_FILE, OFLAGS_CREAT, RIGHTS_FD_FILESTAT_GET,
+    RIGHTS_FD_FILESTAT_SET_SIZE, RIGHTS_FD_READ, RIGHTS_FD_SEEK, RIGHTS_FD_TELL, RIGHTS_FD_WRITE,
 };
 
 const WASI_MODULE: &str = "wasi_snapshot_preview1";
@@ -15,6 +15,7 @@ const PATH_OPEN_NAME: &str = "path_open";
 const PATH_LINK_NAME: &str = "path_link";
 const PATH_RENAME_NAME: &str = "path_rename";
 const PATH_UNLINK_FILE_NAME: &str = "path_unlink_file";
+const FD_READDIR_NAME: &str = "fd_readdir";
 const FD_CLOSE_NAME: &str = "fd_close";
 const FD_SEEK_NAME: &str = "fd_seek";
 const FD_TELL_NAME: &str = "fd_tell";
@@ -29,6 +30,7 @@ const MAX_RELATIVE_PATH_BYTES: usize = 4 * 1024;
 const MAX_FILE_BYTES: usize = 16 * 1024 * 1024;
 const MAX_OPEN_FILES: usize = 256;
 const MAX_PWRITE_IOVECS: u32 = 1_024;
+const DIRENT_SIZE: usize = 24;
 const SYNTHETIC_DEVICE_ID: u64 = 1;
 const LOGICAL_EPOCH_NS: u64 = 0;
 
@@ -179,6 +181,21 @@ enum RenameError {
     NotFound,
     NotCapable,
     InvalidLinkCount,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ReaddirError {
+    BadFd,
+    NotCapable,
+    NotSupported,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct ReaddirEntry {
+    next: u64,
+    inode: u64,
+    filetype: u8,
+    name: Vec<u8>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -447,6 +464,61 @@ impl Filesystem {
         Ok(())
     }
 
+    fn readdir_snapshot(&self, fd: u32, cookie: u64) -> Result<Vec<ReaddirEntry>, ReaddirError> {
+        let state = self.state.borrow();
+        if !state.reserved_preopens.contains(&fd) {
+            if fd <= 2 || state.open_files.contains_key(&fd) {
+                return Err(ReaddirError::NotCapable);
+            }
+            return Err(ReaddirError::BadFd);
+        }
+
+        let mut files = state
+            .mounted_files
+            .iter()
+            .filter(|file| file.preopen_fd == fd)
+            .collect::<Vec<_>>();
+        if files.iter().any(|file| file.relative_path.contains(&b'/')) {
+            return Err(ReaddirError::NotSupported);
+        }
+        files.sort_by(|left, right| left.relative_path.cmp(&right.relative_path));
+
+        let directory_inode = (1u64 << 63) | u64::from(fd);
+        let mut entries = Vec::with_capacity(files.len() + 2);
+        entries.push(ReaddirEntry {
+            next: 1,
+            inode: directory_inode,
+            filetype: FILETYPE_DIRECTORY,
+            name: b".".to_vec(),
+        });
+        entries.push(ReaddirEntry {
+            next: 2,
+            inode: directory_inode,
+            filetype: FILETYPE_DIRECTORY,
+            name: b"..".to_vec(),
+        });
+        entries.extend(
+            files
+                .into_iter()
+                .enumerate()
+                .map(|(index, file)| ReaddirEntry {
+                    next: (index + 3) as u64,
+                    inode: file.inode,
+                    filetype: FILETYPE_REGULAR_FILE,
+                    name: file.relative_path.clone(),
+                }),
+        );
+
+        let Ok(start) = usize::try_from(cookie) else {
+            return Ok(Vec::new());
+        };
+        if start >= entries.len() {
+            return Ok(Vec::new());
+        }
+
+        Ok(entries.into_iter().skip(start).collect())
+    }
+
     pub(crate) fn register(&self, registry: &mut HostRegistry) -> Result<(), HostRegistryError> {
         let open_filesystem = self.clone();
         registry.register_values(
@@ -547,6 +619,87 @@ impl Filesystem {
                     return Ok(vec![Value::I32(ERRNO_FAULT)]);
                 }
 
+                Ok(vec![Value::I32(ERRNO_SUCCESS)])
+            },
+        )?;
+
+        let readdir_filesystem = self.clone();
+        registry.register_values(
+            WASI_MODULE,
+            FD_READDIR_NAME,
+            vec![
+                ValueType::I32,
+                ValueType::I32,
+                ValueType::I32,
+                ValueType::I64,
+                ValueType::I32,
+            ],
+            vec![ValueType::I32],
+            HostCapabilities::MEMORY_READ_WRITE,
+            move |context, args| {
+                let [
+                    Value::I32(fd),
+                    Value::I32(buf),
+                    Value::I32(buf_len),
+                    Value::I64(cookie),
+                    Value::I32(bufused),
+                ] = args
+                else {
+                    return Err(HostError::message(
+                        "validated wasi fd_readdir signature received invalid arguments",
+                    ));
+                };
+
+                let fd = *fd as u32;
+                let entries = match readdir_filesystem.readdir_snapshot(fd, *cookie as u64) {
+                    Ok(entries) => entries,
+                    Err(ReaddirError::BadFd) => return Ok(vec![Value::I32(ERRNO_BADF)]),
+                    Err(ReaddirError::NotCapable) => {
+                        return Ok(vec![Value::I32(ERRNO_NOTCAPABLE)]);
+                    }
+                    Err(ReaddirError::NotSupported) => {
+                        return Ok(vec![Value::I32(ERRNO_NOTSUP)]);
+                    }
+                };
+
+                let buf_len = *buf_len as u32 as usize;
+                if context.read_memory(*buf as u32, buf_len).is_err()
+                    || context.read_memory(*bufused as u32, 4).is_err()
+                {
+                    return Ok(vec![Value::I32(ERRNO_FAULT)]);
+                }
+
+                let mut payload = Vec::with_capacity(buf_len.min(4096));
+                for entry in entries {
+                    if payload.len() == buf_len {
+                        break;
+                    }
+                    let mut header = [0u8; DIRENT_SIZE];
+                    header[0..8].copy_from_slice(&entry.next.to_le_bytes());
+                    header[8..16].copy_from_slice(&entry.inode.to_le_bytes());
+                    let name_len = u32::try_from(entry.name.len())
+                        .expect("bounded WASI path length fits in a u32");
+                    header[16..20].copy_from_slice(&name_len.to_le_bytes());
+                    header[20] = entry.filetype;
+
+                    for chunk in [&header[..], entry.name.as_slice()] {
+                        let remaining = buf_len.saturating_sub(payload.len());
+                        if remaining == 0 {
+                            break;
+                        }
+                        let take = remaining.min(chunk.len());
+                        payload.extend_from_slice(&chunk[..take]);
+                    }
+                }
+
+                let used = payload.len() as u32;
+                if context.write_memory(*buf as u32, &payload).is_err()
+                    || context
+                        .write_memory(*bufused as u32, &used.to_le_bytes())
+                        .is_err()
+                {
+                    return Ok(vec![Value::I32(ERRNO_FAULT)]);
+                }
                 Ok(vec![Value::I32(ERRNO_SUCCESS)])
             },
         )?;
