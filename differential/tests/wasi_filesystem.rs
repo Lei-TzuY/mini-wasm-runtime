@@ -14,8 +14,6 @@ use wasmtime_wasi::{
     DirPerms, FilePerms, WasiCtxBuilder,
 };
 
-const OPENED_FD: u32 = 32;
-const SEEK_OFFSET: u32 = 40;
 const TELL_OFFSET: u32 = 48;
 const FIRST_FILESTAT: u32 = 64;
 const SECOND_FILESTAT: u32 = 128;
@@ -244,7 +242,6 @@ fn run_reference(engine: &Engine, bytes: &[u8]) -> FilesystemTrace {
         reference_u64(memory, &store, SECOND_FILESTAT + FILESTAT_SIZE_OFFSET),
     ];
     let cursor = reference_u64(memory, &store, TELL_OFFSET);
-    drop(instance);
     drop(store);
     let final_bytes = fs::read(host_file).expect("read Wasmtime WASI differential file");
 
