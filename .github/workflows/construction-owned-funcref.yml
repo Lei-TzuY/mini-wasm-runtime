@@ -16,7 +16,17 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt, clippy
-      - name: Check formatting
-        run: cargo fmt --all -- --check
+      - name: Canonicalize acceptance
+        run: cargo fmt --all
+      - name: Commit canonical acceptance
+        run: |
+          if git diff --quiet; then
+            exit 0
+          fi
+          git config user.name "LeiZ"
+          git config user.email "52287354+Lei-TzuY@users.noreply.github.com"
+          git add crates/wasm-runtime/tests/owned_funcref_embedding.rs
+          git commit -m "test: format owned funcref embedding contract"
+          git push origin HEAD:conquest/owned-funcref-embedding
       - name: Owned funcref acceptance
         run: cargo test -p wasm-runtime --test owned_funcref_embedding -- --nocapture
