@@ -5,13 +5,14 @@
 
 use std::{collections::HashSet, fmt};
 use wasm_parser::{
-    decode_u32, Constant, DataMode, ExportKind, FuncType, ImportDesc, Module, ValueType,
+    decode_u32, decode_u64, Constant, DataMode, ExportKind, FuncType, ImportDesc, Module, ValueType,
 };
 
 mod phase5;
 mod typed;
 
 pub const MAX_MEMORY_PAGES: u32 = 65_536;
+pub const MAX_MEMORY64_PAGES: u64 = 1u64 << 48;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ValidationError {
@@ -121,12 +122,13 @@ pub enum ValidationError {
     },
     InvalidMemoryLimits {
         memory: usize,
-        min: u32,
-        max: u32,
+        min: u64,
+        max: u64,
     },
     MemoryPageLimitExceeded {
         memory: usize,
-        pages: u32,
+        pages: u64,
+        limit: u64,
     },
     DataMemoryOutOfBounds {
         segment: usize,
@@ -164,6 +166,13 @@ pub enum ValidationError {
         offset: usize,
         alignment: u32,
         maximum: u32,
+    },
+    MemoryOffsetOutOfBounds {
+        function: usize,
+        offset: usize,
+        memory_index: u32,
+        displacement: u64,
+        maximum: u64,
     },
     UnsupportedResultArity {
         function: usize,
@@ -390,9 +399,9 @@ impl fmt::Display for ValidationError {
                 f,
                 "memory {memory} has invalid limits: minimum {min} exceeds maximum {max}"
             ),
-            Self::MemoryPageLimitExceeded { memory, pages } => write!(
+            Self::MemoryPageLimitExceeded { memory, pages, limit } => write!(
                 f,
-                "memory {memory} declares {pages} pages, exceeding the WebAssembly limit of {MAX_MEMORY_PAGES}"
+                "memory {memory} declares {pages} pages, exceeding the WebAssembly limit of {limit}"
             ),
             Self::DataMemoryOutOfBounds {
                 segment,
@@ -441,6 +450,16 @@ impl fmt::Display for ValidationError {
             } => write!(
                 f,
                 "function {function} memory instruction at byte {offset} uses alignment exponent {alignment}, maximum is {maximum}"
+            ),
+            Self::MemoryOffsetOutOfBounds {
+                function,
+                offset,
+                memory_index,
+                displacement,
+                maximum,
+            } => write!(
+                f,
+                "function {function} memory instruction at byte {offset} uses static offset {displacement} beyond memory {memory_index} address maximum {maximum}"
             ),
             Self::UnsupportedResultArity { function, results } => write!(
                 f,
@@ -766,7 +785,12 @@ fn validate_imports(module: &Module) -> Result<(), ValidationError> {
                 }
             }
             ImportDesc::Memory(memory_type) => {
-                validate_memory_type(import, memory_type.limits.min, memory_type.limits.max)?;
+                validate_memory_type(
+                    import,
+                    memory_type.limits.min,
+                    memory_type.limits.max,
+                    memory_type.limits.memory64,
+                )?;
             }
             ImportDesc::Global(_) => {}
         }
@@ -779,18 +803,41 @@ fn validate_memories(module: &Module) -> Result<(), ValidationError> {
         let memory_type = module
             .memory_type(memory as u32)
             .expect("memory index is bounded by memory_count");
-        validate_memory_type(memory, memory_type.limits.min, memory_type.limits.max)?;
+        validate_memory_type(
+            memory,
+            memory_type.limits.min,
+            memory_type.limits.max,
+            memory_type.limits.memory64,
+        )?;
     }
     Ok(())
 }
 
-fn validate_memory_type(memory: usize, min: u32, max: Option<u32>) -> Result<(), ValidationError> {
-    if min > MAX_MEMORY_PAGES {
-        return Err(ValidationError::MemoryPageLimitExceeded { memory, pages: min });
+fn validate_memory_type(
+    memory: usize,
+    min: u64,
+    max: Option<u64>,
+    memory64: bool,
+) -> Result<(), ValidationError> {
+    let limit = if memory64 {
+        MAX_MEMORY64_PAGES
+    } else {
+        u64::from(MAX_MEMORY_PAGES)
+    };
+    if min > limit {
+        return Err(ValidationError::MemoryPageLimitExceeded {
+            memory,
+            pages: min,
+            limit,
+        });
     }
     if let Some(max) = max {
-        if max > MAX_MEMORY_PAGES {
-            return Err(ValidationError::MemoryPageLimitExceeded { memory, pages: max });
+        if max > limit {
+            return Err(ValidationError::MemoryPageLimitExceeded {
+                memory,
+                pages: max,
+                limit,
+            });
         }
         if min > max {
             return Err(ValidationError::InvalidMemoryLimits { memory, min, max });
@@ -836,7 +883,7 @@ fn read_memarg(
     function: usize,
     offset: usize,
     maximum_alignment: u32,
-) -> Result<(u32, u32, u32), ValidationError> {
+) -> Result<(u32, u32, u64), ValidationError> {
     let flags = read_u32_immediate(code, pc, function, offset)?;
     if flags >= 0x80 {
         return Err(ValidationError::InvalidMemoryAlignment {
@@ -854,12 +901,24 @@ fn read_memarg(
     } else {
         (flags, 0)
     };
-    let displacement = read_u32_immediate(code, pc, function, offset)?;
+    let displacement = read_u64_immediate(code, pc, function, offset)?;
     if memory_index as usize >= module.memory_count() {
         return Err(ValidationError::MemoryIndexOutOfBounds {
             function,
             offset,
             memory_index,
+        });
+    }
+    let memory_type = module
+        .memory_type(memory_index)
+        .expect("validated memory index is present");
+    if !memory_type.limits.memory64 && displacement > u64::from(u32::MAX) {
+        return Err(ValidationError::MemoryOffsetOutOfBounds {
+            function,
+            offset,
+            memory_index,
+            displacement,
+            maximum: u64::from(u32::MAX),
         });
     }
     if alignment > maximum_alignment {
@@ -904,12 +963,22 @@ fn read_u32_immediate(
     Ok(value)
 }
 
+fn read_u64_immediate(
+    code: &[u8],
+    pc: &mut usize,
+    function: usize,
+    offset: usize,
+) -> Result<u64, ValidationError> {
+    let (value, used) = decode_u64(&code[*pc..])
+        .map_err(|_| ValidationError::MalformedImmediate { function, offset })?;
+    *pc += used;
+    Ok(value)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-    use wasm_parser::{
-        DataMode, DataSegment, Export, FuncType, FunctionBody, Import, Limits, MemoryType,
-    };
+    use wasm_parser::{DataMode, DataSegment, Export, FuncType, FunctionBody, Import, MemoryType};
 
     fn module_with_code(params: usize, results: usize, code: Vec<u8>) -> Module {
         Module {
@@ -933,7 +1002,11 @@ mod tests {
 
     fn with_memory(mut module: Module, min: u32, max: Option<u32>) -> Module {
         module.memories = vec![MemoryType {
-            limits: Limits { min, max },
+            limits: wasm_parser::MemoryLimits {
+                min: u64::from(min),
+                max: max.map(u64::from),
+                memory64: false,
+            },
         }];
         module
     }
@@ -1076,10 +1149,18 @@ mod tests {
         let mut module = valid_module();
         module.memories = vec![
             MemoryType {
-                limits: Limits { min: 1, max: None },
+                limits: wasm_parser::MemoryLimits {
+                    min: 1,
+                    max: None,
+                    memory64: false,
+                },
             },
             MemoryType {
-                limits: Limits { min: 1, max: None },
+                limits: wasm_parser::MemoryLimits {
+                    min: 1,
+                    max: None,
+                    memory64: false,
+                },
             },
         ];
         assert_eq!(validate(&module), Ok(()));

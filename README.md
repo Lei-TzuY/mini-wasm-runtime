@@ -6,7 +6,7 @@ The project intentionally does **not** embed Wasmtime, Wasmer, or another WebAss
 
 ## Current status
 
-The current baseline combines the completed Phase 1–5 implementation, a substantial Phase 6 engineering-hardening layer, and an active Phase 7 bounded WASI Preview1 expansion. It is an experimental interpreter/runtime-engineering project, not a production sandbox.
+The current baseline combines the completed Phase 1–5 implementation, a substantial Phase 6 engineering-hardening layer, an active Phase 7 bounded WASI Preview1 expansion, and initial bounded proposal work beyond the original 32-bit memory model. It is an experimental interpreter/runtime-engineering project, not a production sandbox.
 
 Major implemented surfaces include:
 
@@ -17,10 +17,10 @@ Major implemented surfaces include:
 - ordered multi-value results for defined Wasm functions and structured control
 - i32/i64/f32/f64 values, arithmetic, comparisons, integer bit/sign-extension operations, conversions, reinterpretation, and saturating conversions
 - typed i32/i64/f32/f64 memory loads/stores
-- one 32-bit linear memory with bounds checks, data segments, `memory.size`, and `memory.grow`
+- bounded memory32 plus an initial memory64 address-width slice covering 64-bit memory limits, i64-addressed scalar loads/stores, and i64 `memory.size` / `memory.grow` while preserving the runtime's existing physical memory cap
 - defined and imported numeric globals
 - defined and imported `funcref` tables with instance-bound function references
-- defined and imported memory with shared host-visible backing
+- defined and imported memory with shared host-visible backing for the supported memory32 import boundary
 - active/passive/declarative legacy segment forms supported by the current parser/runtime boundary
 - typed host functions with explicit capability-scoped memory access
 - bounded WASI Preview1 standard I/O, descriptor metadata, process arguments, and process environment capabilities
@@ -53,9 +53,10 @@ This is intentionally incomplete. Important remaining work includes:
 - broader official WAST/spec-suite coverage
 - broader malformed/adversarial runtime corpora
 - recording and periodically checking a reviewed performance baseline on a pinned controlled host
-- broader WASI Preview1 capability beyond the current bounded stdio/process-metadata subset
+- broader WASI Preview1 capability beyond the current bounded subset
 - threads/shared-memory proposal semantics
-- SIMD, memory64, and broader proposal coverage
+- SIMD and broader proposal coverage
+- broader memory64 composition, including bulk-memory address widths and imported memory64
 - JIT compilation
 
 Unsupported binary features, instructions, imports, and execution forms are expected to fail closed rather than being silently approximated.

@@ -7,8 +7,9 @@ use std::{
     rc::{Rc, Weak},
 };
 use wasm_parser::{
-    decode_i32, decode_i64, decode_s33, decode_u32, Constant, DataMode, ElementMode, ExportKind,
-    FuncType, ImportDesc, ImportKind, Module, ParseError, ValueType, NULL_FUNCREF_INDEX,
+    decode_i32, decode_i64, decode_s33, decode_u32, decode_u64, Constant, DataMode, ElementMode,
+    ExportKind, FuncType, ImportDesc, ImportKind, Module, ParseError, ValueType,
+    NULL_FUNCREF_INDEX,
 };
 
 mod numeric;
@@ -1173,24 +1174,30 @@ pub struct LinearMemory {
 
 impl LinearMemory {
     fn new(
-        min_pages: u32,
-        declared_max: Option<u32>,
+        min_pages: u64,
+        declared_max: Option<u64>,
         runtime_max: u32,
     ) -> Result<Self, RuntimeError> {
-        let runtime_max = runtime_max.min(MAX_MEMORY_PAGES);
+        let runtime_max_pages = runtime_max.min(MAX_MEMORY_PAGES);
+        let runtime_max = u64::from(runtime_max_pages);
         if min_pages > runtime_max {
             return Err(RuntimeError::MemoryLimitExceeded {
-                minimum: min_pages,
-                limit: runtime_max,
+                minimum: u32::try_from(min_pages).unwrap_or(u32::MAX),
+                limit: runtime_max_pages,
             });
         }
-        let max_pages = declared_max.unwrap_or(MAX_MEMORY_PAGES).min(runtime_max);
-        let byte_len = pages_to_bytes(min_pages)
-            .ok_or(RuntimeError::MemoryAllocationFailed { pages: min_pages })?;
+        let max_pages = declared_max.unwrap_or(runtime_max).min(runtime_max) as u32;
+        let physical_min = min_pages as u32;
+        let byte_len =
+            pages_to_bytes(physical_min).ok_or(RuntimeError::MemoryAllocationFailed {
+                pages: physical_min,
+            })?;
         let mut bytes = Vec::new();
         bytes
             .try_reserve_exact(byte_len)
-            .map_err(|_| RuntimeError::MemoryAllocationFailed { pages: min_pages })?;
+            .map_err(|_| RuntimeError::MemoryAllocationFailed {
+                pages: physical_min,
+            })?;
         bytes.resize(byte_len, 0);
         Ok(Self { bytes, max_pages })
     }
@@ -1235,10 +1242,16 @@ impl LinearMemory {
     fn checked_range(
         &self,
         address: i32,
-        displacement: u32,
+        displacement: u64,
         width: usize,
     ) -> Result<std::ops::Range<usize>, RuntimeError> {
-        let effective = u64::from(address as u32) + u64::from(displacement);
+        let base = u64::from(address as u32);
+        let effective = base
+            .checked_add(displacement)
+            .ok_or(RuntimeError::MemoryOutOfBounds {
+                address: u64::MAX,
+                width,
+            })?;
         let end = effective
             .checked_add(width as u64)
             .ok_or(RuntimeError::MemoryOutOfBounds {
@@ -1275,7 +1288,7 @@ impl LinearMemory {
         Ok(start as usize..end as usize)
     }
 
-    fn load_i32(&self, address: i32, displacement: u32) -> Result<i32, RuntimeError> {
+    fn load_i32(&self, address: i32, displacement: u64) -> Result<i32, RuntimeError> {
         let range = self.checked_range(address, displacement, 4)?;
         let bytes: [u8; 4] = self.bytes[range]
             .try_into()
@@ -1283,17 +1296,17 @@ impl LinearMemory {
         Ok(i32::from_le_bytes(bytes))
     }
 
-    fn load_i8_s(&self, address: i32, displacement: u32) -> Result<i32, RuntimeError> {
+    fn load_i8_s(&self, address: i32, displacement: u64) -> Result<i32, RuntimeError> {
         let range = self.checked_range(address, displacement, 1)?;
         Ok(i32::from(self.bytes[range.start] as i8))
     }
 
-    fn load_i8_u(&self, address: i32, displacement: u32) -> Result<i32, RuntimeError> {
+    fn load_i8_u(&self, address: i32, displacement: u64) -> Result<i32, RuntimeError> {
         let range = self.checked_range(address, displacement, 1)?;
         Ok(i32::from(self.bytes[range.start]))
     }
 
-    fn load_i16_s(&self, address: i32, displacement: u32) -> Result<i32, RuntimeError> {
+    fn load_i16_s(&self, address: i32, displacement: u64) -> Result<i32, RuntimeError> {
         let range = self.checked_range(address, displacement, 2)?;
         let bytes: [u8; 2] = self.bytes[range]
             .try_into()
@@ -1301,7 +1314,7 @@ impl LinearMemory {
         Ok(i32::from(i16::from_le_bytes(bytes)))
     }
 
-    fn load_i16_u(&self, address: i32, displacement: u32) -> Result<i32, RuntimeError> {
+    fn load_i16_u(&self, address: i32, displacement: u64) -> Result<i32, RuntimeError> {
         let range = self.checked_range(address, displacement, 2)?;
         let bytes: [u8; 2] = self.bytes[range]
             .try_into()
@@ -1309,7 +1322,7 @@ impl LinearMemory {
         Ok(i32::from(u16::from_le_bytes(bytes)))
     }
 
-    fn load_i64(&self, address: i32, displacement: u32) -> Result<i64, RuntimeError> {
+    fn load_i64(&self, address: i32, displacement: u64) -> Result<i64, RuntimeError> {
         let range = self.checked_range(address, displacement, 8)?;
         let bytes: [u8; 8] = self.bytes[range]
             .try_into()
@@ -1317,7 +1330,7 @@ impl LinearMemory {
         Ok(i64::from_le_bytes(bytes))
     }
 
-    fn load_f32(&self, address: i32, displacement: u32) -> Result<f32, RuntimeError> {
+    fn load_f32(&self, address: i32, displacement: u64) -> Result<f32, RuntimeError> {
         let range = self.checked_range(address, displacement, 4)?;
         let bytes: [u8; 4] = self.bytes[range]
             .try_into()
@@ -1325,7 +1338,7 @@ impl LinearMemory {
         Ok(f32::from_bits(u32::from_le_bytes(bytes)))
     }
 
-    fn load_f64(&self, address: i32, displacement: u32) -> Result<f64, RuntimeError> {
+    fn load_f64(&self, address: i32, displacement: u64) -> Result<f64, RuntimeError> {
         let range = self.checked_range(address, displacement, 8)?;
         let bytes: [u8; 8] = self.bytes[range]
             .try_into()
@@ -1333,17 +1346,17 @@ impl LinearMemory {
         Ok(f64::from_bits(u64::from_le_bytes(bytes)))
     }
 
-    fn load_i64_8_s(&self, address: i32, displacement: u32) -> Result<i64, RuntimeError> {
+    fn load_i64_8_s(&self, address: i32, displacement: u64) -> Result<i64, RuntimeError> {
         let range = self.checked_range(address, displacement, 1)?;
         Ok(i64::from(self.bytes[range.start] as i8))
     }
 
-    fn load_i64_8_u(&self, address: i32, displacement: u32) -> Result<i64, RuntimeError> {
+    fn load_i64_8_u(&self, address: i32, displacement: u64) -> Result<i64, RuntimeError> {
         let range = self.checked_range(address, displacement, 1)?;
         Ok(i64::from(self.bytes[range.start]))
     }
 
-    fn load_i64_16_s(&self, address: i32, displacement: u32) -> Result<i64, RuntimeError> {
+    fn load_i64_16_s(&self, address: i32, displacement: u64) -> Result<i64, RuntimeError> {
         let range = self.checked_range(address, displacement, 2)?;
         let bytes: [u8; 2] = self.bytes[range]
             .try_into()
@@ -1351,7 +1364,7 @@ impl LinearMemory {
         Ok(i64::from(i16::from_le_bytes(bytes)))
     }
 
-    fn load_i64_16_u(&self, address: i32, displacement: u32) -> Result<i64, RuntimeError> {
+    fn load_i64_16_u(&self, address: i32, displacement: u64) -> Result<i64, RuntimeError> {
         let range = self.checked_range(address, displacement, 2)?;
         let bytes: [u8; 2] = self.bytes[range]
             .try_into()
@@ -1359,7 +1372,7 @@ impl LinearMemory {
         Ok(i64::from(u16::from_le_bytes(bytes)))
     }
 
-    fn load_i64_32_s(&self, address: i32, displacement: u32) -> Result<i64, RuntimeError> {
+    fn load_i64_32_s(&self, address: i32, displacement: u64) -> Result<i64, RuntimeError> {
         let range = self.checked_range(address, displacement, 4)?;
         let bytes: [u8; 4] = self.bytes[range]
             .try_into()
@@ -1367,7 +1380,7 @@ impl LinearMemory {
         Ok(i64::from(i32::from_le_bytes(bytes)))
     }
 
-    fn load_i64_32_u(&self, address: i32, displacement: u32) -> Result<i64, RuntimeError> {
+    fn load_i64_32_u(&self, address: i32, displacement: u64) -> Result<i64, RuntimeError> {
         let range = self.checked_range(address, displacement, 4)?;
         let bytes: [u8; 4] = self.bytes[range]
             .try_into()
@@ -1378,7 +1391,7 @@ impl LinearMemory {
     fn store_i32(
         &mut self,
         address: i32,
-        displacement: u32,
+        displacement: u64,
         value: i32,
     ) -> Result<(), RuntimeError> {
         let range = self.checked_range(address, displacement, 4)?;
@@ -1389,7 +1402,7 @@ impl LinearMemory {
     fn store_i8(
         &mut self,
         address: i32,
-        displacement: u32,
+        displacement: u64,
         value: i32,
     ) -> Result<(), RuntimeError> {
         let range = self.checked_range(address, displacement, 1)?;
@@ -1400,7 +1413,7 @@ impl LinearMemory {
     fn store_i16(
         &mut self,
         address: i32,
-        displacement: u32,
+        displacement: u64,
         value: i32,
     ) -> Result<(), RuntimeError> {
         let range = self.checked_range(address, displacement, 2)?;
@@ -1410,7 +1423,7 @@ impl LinearMemory {
     fn store_i64(
         &mut self,
         address: i32,
-        displacement: u32,
+        displacement: u64,
         value: i64,
     ) -> Result<(), RuntimeError> {
         let range = self.checked_range(address, displacement, 8)?;
@@ -1421,7 +1434,7 @@ impl LinearMemory {
     fn store_f32(
         &mut self,
         address: i32,
-        displacement: u32,
+        displacement: u64,
         value: f32,
     ) -> Result<(), RuntimeError> {
         let range = self.checked_range(address, displacement, 4)?;
@@ -1432,7 +1445,7 @@ impl LinearMemory {
     fn store_f64(
         &mut self,
         address: i32,
-        displacement: u32,
+        displacement: u64,
         value: f64,
     ) -> Result<(), RuntimeError> {
         let range = self.checked_range(address, displacement, 8)?;
@@ -1443,7 +1456,7 @@ impl LinearMemory {
     fn store_i64_8(
         &mut self,
         address: i32,
-        displacement: u32,
+        displacement: u64,
         value: i64,
     ) -> Result<(), RuntimeError> {
         let range = self.checked_range(address, displacement, 1)?;
@@ -1454,7 +1467,7 @@ impl LinearMemory {
     fn store_i64_16(
         &mut self,
         address: i32,
-        displacement: u32,
+        displacement: u64,
         value: i64,
     ) -> Result<(), RuntimeError> {
         let range = self.checked_range(address, displacement, 2)?;
@@ -1465,7 +1478,7 @@ impl LinearMemory {
     fn store_i64_32(
         &mut self,
         address: i32,
-        displacement: u32,
+        displacement: u64,
         value: i64,
     ) -> Result<(), RuntimeError> {
         let range = self.checked_range(address, displacement, 4)?;
@@ -2509,7 +2522,7 @@ impl Instance {
                 0x28..=0x35 => {
                     let (_, memory_index, displacement) = read_memarg(code, &mut pc)?;
                     ensure_runtime_memory_index(self, memory_index)?;
-                    let address = numeric::i32_from_stack(&mut stack)?;
+                    let address = pop_runtime_memory_address(self, &mut stack, memory_index)?;
                     let value = match opcode {
                         0x28 => Value::I32(self.with_memory_index(memory_index, |memory| {
                             memory.load_i32(address, displacement)
@@ -2563,7 +2576,8 @@ impl Instance {
                     match opcode {
                         0x36 | 0x3a | 0x3b => {
                             let value = numeric::i32_from_stack(&mut stack)?;
-                            let address = numeric::i32_from_stack(&mut stack)?;
+                            let address =
+                                pop_runtime_memory_address(self, &mut stack, memory_index)?;
                             match opcode {
                                 0x36 => self.with_memory_index_mut(memory_index, |memory| {
                                     memory.store_i32(address, displacement, value)
@@ -2582,7 +2596,8 @@ impl Instance {
                                 Value::I64(value) => value,
                                 _ => unreachable!("pop_typed established i64"),
                             };
-                            let address = numeric::i32_from_stack(&mut stack)?;
+                            let address =
+                                pop_runtime_memory_address(self, &mut stack, memory_index)?;
                             match opcode {
                                 0x37 => self.with_memory_index_mut(memory_index, |memory| {
                                     memory.store_i64(address, displacement, value)
@@ -2604,7 +2619,8 @@ impl Instance {
                                 Value::F32(value) => value,
                                 _ => unreachable!("pop_typed established f32"),
                             };
-                            let address = numeric::i32_from_stack(&mut stack)?;
+                            let address =
+                                pop_runtime_memory_address(self, &mut stack, memory_index)?;
                             self.with_memory_index_mut(memory_index, |memory| {
                                 memory.store_f32(address, displacement, value)
                             })?;
@@ -2614,7 +2630,8 @@ impl Instance {
                                 Value::F64(value) => value,
                                 _ => unreachable!("pop_typed established f64"),
                             };
-                            let address = numeric::i32_from_stack(&mut stack)?;
+                            let address =
+                                pop_runtime_memory_address(self, &mut stack, memory_index)?;
                             self.with_memory_index_mut(memory_index, |memory| {
                                 memory.store_f64(address, displacement, value)
                             })?;
@@ -2625,18 +2642,45 @@ impl Instance {
                 0x3f => {
                     let memory_index = read_u32_immediate(code, &mut pc)?;
                     ensure_runtime_memory_index(self, memory_index)?;
-                    stack.push(Value::I32(
-                        self.with_memory_index(memory_index, |memory| Ok(memory.size_pages()))?
-                            as i32,
-                    ));
+                    let pages =
+                        self.with_memory_index(memory_index, |memory| Ok(memory.size_pages()))?;
+                    if self
+                        .module
+                        .memory_type(memory_index)
+                        .expect("validated memory index")
+                        .limits
+                        .memory64
+                    {
+                        stack.push(Value::I64(i64::from(pages)));
+                    } else {
+                        stack.push(Value::I32(pages as i32));
+                    }
                 }
                 0x40 => {
                     let memory_index = read_u32_immediate(code, &mut pc)?;
                     ensure_runtime_memory_index(self, memory_index)?;
-                    let delta = numeric::i32_from_stack(&mut stack)? as u32;
-                    let previous =
-                        self.with_memory_index_mut(memory_index, |memory| Ok(memory.grow(delta)))?;
-                    stack.push(Value::I32(previous));
+                    let memory64 = self
+                        .module
+                        .memory_type(memory_index)
+                        .expect("validated memory index")
+                        .limits
+                        .memory64;
+                    if memory64 {
+                        let delta = numeric::i64_from_stack(&mut stack)? as u64;
+                        let previous = if delta > u64::from(u32::MAX) {
+                            -1
+                        } else {
+                            i64::from(self.with_memory_index_mut(memory_index, |memory| {
+                                Ok(memory.grow(delta as u32))
+                            })?)
+                        };
+                        stack.push(Value::I64(previous));
+                    } else {
+                        let delta = numeric::i32_from_stack(&mut stack)? as u32;
+                        let previous = self
+                            .with_memory_index_mut(memory_index, |memory| Ok(memory.grow(delta)))?;
+                        stack.push(Value::I32(previous));
+                    }
                 }
                 0x41 => {
                     let (value, used) = decode_i32(&code[pc..])?;
@@ -2891,12 +2935,20 @@ fn validate_host_bindings(
                     module: import.module.clone(),
                     name: import.name.clone(),
                 })?;
-        validate_memory_limits(
-            import,
-            memory_type.limits.min,
-            memory_type.limits.max,
-            memory,
-        )?;
+        if memory_type.limits.memory64 {
+            return Err(RuntimeError::UnsupportedObjectImport {
+                module: import.module.clone(),
+                name: import.name.clone(),
+                kind: ImportKind::Memory,
+            });
+        }
+        let expected_minimum =
+            u32::try_from(memory_type.limits.min).expect("validated memory32 minimum fits u32");
+        let expected_maximum = memory_type
+            .limits
+            .max
+            .map(|maximum| u32::try_from(maximum).expect("validated memory32 maximum fits u32"));
+        validate_memory_limits(import, expected_minimum, expected_maximum, memory)?;
         validate_memory_runtime_limit(import, memory, limits.max_memory_pages)?;
     }
 
@@ -2995,12 +3047,20 @@ fn instantiate_memories(
                 name: import.name.clone(),
             }
         })?;
-        validate_memory_limits(
-            import,
-            memory_type.limits.min,
-            memory_type.limits.max,
-            &memory,
-        )?;
+        if memory_type.limits.memory64 {
+            return Err(RuntimeError::UnsupportedObjectImport {
+                module: import.module.clone(),
+                name: import.name.clone(),
+                kind: ImportKind::Memory,
+            });
+        }
+        let expected_minimum =
+            u32::try_from(memory_type.limits.min).expect("validated memory32 minimum fits u32");
+        let expected_maximum = memory_type
+            .limits
+            .max
+            .map(|maximum| u32::try_from(maximum).expect("validated memory32 maximum fits u32"));
+        validate_memory_limits(import, expected_minimum, expected_maximum, &memory)?;
         validate_memory_runtime_limit(import, &memory, limits.max_memory_pages)?;
         memories.push(RuntimeMemory::Imported(memory));
     }
@@ -3154,6 +3214,27 @@ fn instantiate_globals(
             .map(|global| GlobalHandle::new(value_from_constant(global.init), global.ty.mutable)),
     );
     Ok(globals)
+}
+
+fn pop_runtime_memory_address(
+    instance: &Instance,
+    stack: &mut Vec<Value>,
+    memory_index: u32,
+) -> Result<i32, RuntimeError> {
+    let memory64 = instance
+        .module
+        .memory_type(memory_index)
+        .ok_or(RuntimeError::MemoryIndexOutOfBounds(memory_index))?
+        .limits
+        .memory64;
+    if !memory64 {
+        return numeric::i32_from_stack(stack);
+    }
+    let address = numeric::i64_from_stack(stack)? as u64;
+    if address > u64::from(u32::MAX) {
+        return Err(RuntimeError::MemoryOutOfBounds { address, width: 1 });
+    }
+    Ok(address as u32 as i32)
 }
 
 fn ensure_runtime_memory_index(instance: &Instance, index: u32) -> Result<(), RuntimeError> {
@@ -3514,7 +3595,7 @@ fn read_block_signature(
     })
 }
 
-fn read_memarg(code: &[u8], pc: &mut usize) -> Result<(u32, u32, u32), RuntimeError> {
+fn read_memarg(code: &[u8], pc: &mut usize) -> Result<(u32, u32, u64), RuntimeError> {
     let flags = read_u32_immediate(code, pc)?;
     if flags >= 0x80 {
         return Err(RuntimeError::ControlInvariant(
@@ -3526,12 +3607,18 @@ fn read_memarg(code: &[u8], pc: &mut usize) -> Result<(u32, u32, u32), RuntimeEr
     } else {
         (flags, 0)
     };
-    let displacement = read_u32_immediate(code, pc)?;
+    let displacement = read_u64_immediate(code, pc)?;
     Ok((alignment, memory_index, displacement))
 }
 
 fn read_u32_immediate(code: &[u8], pc: &mut usize) -> Result<u32, RuntimeError> {
     let (value, used) = decode_u32(&code[*pc..])?;
+    *pc += used;
+    Ok(value)
+}
+
+fn read_u64_immediate(code: &[u8], pc: &mut usize) -> Result<u64, RuntimeError> {
+    let (value, used) = decode_u64(&code[*pc..])?;
     *pc += used;
     Ok(value)
 }
@@ -3563,7 +3650,7 @@ fn read_fixed_u64(code: &[u8], pc: &mut usize) -> Result<u64, RuntimeError> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use wasm_parser::{parse_module, Export, Import, Limits, MemoryType};
+    use wasm_parser::{parse_module, Export, Import, MemoryType};
 
     fn module_with_body(params: u8, results: u8, body: &[u8]) -> Vec<u8> {
         build_module(params, results, body, None, None)
@@ -3712,9 +3799,10 @@ mod tests {
                 desc: ImportDesc::Function(0),
             }],
             memories: vec![MemoryType {
-                limits: Limits {
+                limits: wasm_parser::MemoryLimits {
                     min: 1,
                     max: Some(1),
+                    memory64: false,
                 },
             }],
             exports: vec![Export {

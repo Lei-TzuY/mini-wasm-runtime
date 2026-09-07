@@ -1,5 +1,5 @@
 use wasm_parser::{
-    parse_module, DataMode, DataSegment, Export, ExportKind, FuncType, Import, ImportDesc, Limits,
+    parse_module, DataMode, DataSegment, Export, ExportKind, FuncType, Import, ImportDesc,
     MemoryType, Module, ValueType,
 };
 use wasm_runtime::{
@@ -93,9 +93,10 @@ fn imported_memory_host_callback_module() -> Module {
                 module: "env".into(),
                 name: "mem".into(),
                 desc: ImportDesc::Memory(MemoryType {
-                    limits: Limits {
+                    limits: wasm_parser::MemoryLimits {
                         min: 2,
                         max: Some(4),
+                        memory64: false,
                     },
                 }),
             },

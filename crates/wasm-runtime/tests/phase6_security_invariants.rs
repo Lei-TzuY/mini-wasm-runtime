@@ -1,8 +1,7 @@
 use std::{cell::Cell, rc::Rc};
 
 use wasm_parser::{
-    Export, ExportKind, FuncType, FunctionBody, Import, ImportDesc, Limits, MemoryType, Module,
-    ValueType,
+    Export, ExportKind, FuncType, FunctionBody, Import, ImportDesc, MemoryType, Module, ValueType,
 };
 use wasm_runtime::{
     HostCapabilities, HostError, HostRegistry, Instance, RuntimeError, RuntimeLimits, Value,
@@ -28,9 +27,10 @@ fn host_write_module() -> Module {
         }],
         function_type_indices: vec![1],
         memories: vec![MemoryType {
-            limits: Limits {
+            limits: wasm_parser::MemoryLimits {
                 min: 1,
                 max: Some(1),
+                memory64: false,
             },
         }],
         exports: vec![
@@ -216,9 +216,10 @@ fn grow_module() -> Module {
         }],
         function_type_indices: vec![0],
         memories: vec![MemoryType {
-            limits: Limits {
+            limits: wasm_parser::MemoryLimits {
                 min: 1,
                 max: Some(2),
+                memory64: false,
             },
         }],
         exports: vec![Export {

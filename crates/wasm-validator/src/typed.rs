@@ -309,7 +309,7 @@ pub(super) fn validate_code(
             }
             0x28..=0x35 => {
                 super::ensure_memory(module, function, offset)?;
-                super::read_memarg(
+                let (_, memory_index, _) = super::read_memarg(
                     code,
                     &mut pc,
                     module,
@@ -317,7 +317,17 @@ pub(super) fn validate_code(
                     offset,
                     super::natural_alignment(opcode),
                 )?;
-                pop_expect(&mut stack, &controls, ValueType::I32, function, offset)?;
+                let address_type = if module
+                    .memory_type(memory_index)
+                    .expect("validated memory index")
+                    .limits
+                    .memory64
+                {
+                    ValueType::I64
+                } else {
+                    ValueType::I32
+                };
+                pop_expect(&mut stack, &controls, address_type, function, offset)?;
                 let result = match opcode {
                     0x28 | 0x2c..=0x2f => ValueType::I32,
                     0x29 | 0x30..=0x35 => ValueType::I64,
@@ -329,7 +339,7 @@ pub(super) fn validate_code(
             }
             0x36..=0x3e => {
                 super::ensure_memory(module, function, offset)?;
-                super::read_memarg(
+                let (_, memory_index, _) = super::read_memarg(
                     code,
                     &mut pc,
                     module,
@@ -337,6 +347,16 @@ pub(super) fn validate_code(
                     offset,
                     super::natural_alignment(opcode),
                 )?;
+                let address_type = if module
+                    .memory_type(memory_index)
+                    .expect("validated memory index")
+                    .limits
+                    .memory64
+                {
+                    ValueType::I64
+                } else {
+                    ValueType::I32
+                };
                 let value_type = match opcode {
                     0x36 | 0x3a | 0x3b => ValueType::I32,
                     0x37 | 0x3c..=0x3e => ValueType::I64,
@@ -345,16 +365,38 @@ pub(super) fn validate_code(
                     _ => unreachable!(),
                 };
                 pop_expect(&mut stack, &controls, value_type, function, offset)?;
-                pop_expect(&mut stack, &controls, ValueType::I32, function, offset)?;
+                pop_expect(&mut stack, &controls, address_type, function, offset)?;
             }
             0x3f => {
-                super::read_memory_index(code, &mut pc, module, function, offset)?;
-                stack.push(ValueType::I32);
+                let memory_index =
+                    super::read_memory_index(code, &mut pc, module, function, offset)?;
+                let address_type = if module
+                    .memory_type(memory_index)
+                    .expect("validated memory index")
+                    .limits
+                    .memory64
+                {
+                    ValueType::I64
+                } else {
+                    ValueType::I32
+                };
+                stack.push(address_type);
             }
             0x40 => {
-                super::read_memory_index(code, &mut pc, module, function, offset)?;
-                pop_expect(&mut stack, &controls, ValueType::I32, function, offset)?;
-                stack.push(ValueType::I32);
+                let memory_index =
+                    super::read_memory_index(code, &mut pc, module, function, offset)?;
+                let address_type = if module
+                    .memory_type(memory_index)
+                    .expect("validated memory index")
+                    .limits
+                    .memory64
+                {
+                    ValueType::I64
+                } else {
+                    ValueType::I32
+                };
+                pop_expect(&mut stack, &controls, address_type, function, offset)?;
+                stack.push(address_type);
             }
             0x41 => {
                 skip_i32(code, &mut pc, function, offset)?;
