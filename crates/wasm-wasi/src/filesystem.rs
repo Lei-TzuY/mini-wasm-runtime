@@ -7,11 +7,12 @@ use crate::{
     ERRNO_BADF, ERRNO_EXIST, ERRNO_FAULT, ERRNO_FBIG, ERRNO_INVAL, ERRNO_IO, ERRNO_MFILE,
     ERRNO_NAMETOOLONG, ERRNO_NOENT, ERRNO_NOSPC, ERRNO_NOTCAPABLE, ERRNO_NOTDIR, ERRNO_NOTEMPTY,
     ERRNO_NOTSUP, ERRNO_OVERFLOW, ERRNO_SUCCESS, FILETYPE_DIRECTORY, FILETYPE_REGULAR_FILE,
-    OFLAGS_CREAT, OFLAGS_DIRECTORY, RIGHTS_FD_FILESTAT_GET, RIGHTS_FD_FILESTAT_SET_SIZE,
-    RIGHTS_FD_READ, RIGHTS_FD_READDIR, RIGHTS_FD_SEEK, RIGHTS_FD_TELL, RIGHTS_FD_WRITE,
-    RIGHTS_PATH_CREATE_DIRECTORY, RIGHTS_PATH_CREATE_FILE, RIGHTS_PATH_LINK_SOURCE,
-    RIGHTS_PATH_LINK_TARGET, RIGHTS_PATH_OPEN, RIGHTS_PATH_REMOVE_DIRECTORY,
-    RIGHTS_PATH_RENAME_SOURCE, RIGHTS_PATH_RENAME_TARGET, RIGHTS_PATH_UNLINK_FILE,
+    FILETYPE_SYMBOLIC_LINK, OFLAGS_CREAT, OFLAGS_DIRECTORY, RIGHTS_FD_FILESTAT_GET,
+    RIGHTS_FD_FILESTAT_SET_SIZE, RIGHTS_FD_READ, RIGHTS_FD_READDIR, RIGHTS_FD_SEEK, RIGHTS_FD_TELL,
+    RIGHTS_FD_WRITE, RIGHTS_PATH_CREATE_DIRECTORY, RIGHTS_PATH_CREATE_FILE,
+    RIGHTS_PATH_LINK_SOURCE, RIGHTS_PATH_LINK_TARGET, RIGHTS_PATH_OPEN, RIGHTS_PATH_READLINK,
+    RIGHTS_PATH_REMOVE_DIRECTORY, RIGHTS_PATH_RENAME_SOURCE, RIGHTS_PATH_RENAME_TARGET,
+    RIGHTS_PATH_SYMLINK, RIGHTS_PATH_UNLINK_FILE,
 };
 
 const WASI_MODULE: &str = "wasi_snapshot_preview1";
@@ -20,6 +21,8 @@ const PATH_REMOVE_DIRECTORY_NAME: &str = "path_remove_directory";
 const PATH_OPEN_NAME: &str = "path_open";
 const PATH_LINK_NAME: &str = "path_link";
 const PATH_RENAME_NAME: &str = "path_rename";
+const PATH_READLINK_NAME: &str = "path_readlink";
+const PATH_SYMLINK_NAME: &str = "path_symlink";
 const PATH_UNLINK_FILE_NAME: &str = "path_unlink_file";
 const FD_READDIR_NAME: &str = "fd_readdir";
 const FD_CLOSE_NAME: &str = "fd_close";
@@ -112,6 +115,14 @@ struct MountedDirectory {
 }
 
 #[derive(Debug, Clone)]
+struct MountedSymlink {
+    preopen_fd: u32,
+    relative_path: Vec<u8>,
+    inode: u64,
+    target: Vec<u8>,
+}
+
+#[derive(Debug, Clone)]
 struct OpenDirectory {
     preopen_fd: u32,
     relative_path: Vec<u8>,
@@ -127,6 +138,7 @@ struct FilesystemState {
     writable_preopens: Vec<u32>,
     mounted_files: Vec<MountedFile>,
     mounted_directories: Vec<MountedDirectory>,
+    mounted_symlinks: Vec<MountedSymlink>,
     open_files: BTreeMap<u32, OpenFile>,
     open_directories: BTreeMap<u32, OpenDirectory>,
 }
@@ -237,6 +249,17 @@ enum DirectoryMutationError {
     NotDirectory,
     NotEmpty,
     TooManyFiles,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum SymlinkError {
+    BadFd,
+    NotFound,
+    NotCapable,
+    NameTooLong,
+    Exists,
+    TooManyFiles,
+    NotLink,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -586,6 +609,15 @@ impl Filesystem {
                 children.push((name.to_vec(), file.inode, FILETYPE_REGULAR_FILE));
             }
         }
+        for symlink in state
+            .mounted_symlinks
+            .iter()
+            .filter(|symlink| symlink.preopen_fd == preopen_fd)
+        {
+            if let Some(name) = immediate_child_name(&base, &symlink.relative_path) {
+                children.push((name.to_vec(), symlink.inode, FILETYPE_SYMBOLIC_LINK));
+            }
+        }
         children.sort_by(|left, right| left.0.cmp(&right.0));
 
         let mut entries = Vec::with_capacity(children.len() + 2);
@@ -691,6 +723,122 @@ impl Filesystem {
             },
         )?;
 
+        let symlink_filesystem = self.clone();
+        registry.register_values(
+            WASI_MODULE,
+            PATH_SYMLINK_NAME,
+            vec![
+                ValueType::I32,
+                ValueType::I32,
+                ValueType::I32,
+                ValueType::I32,
+                ValueType::I32,
+            ],
+            vec![ValueType::I32],
+            HostCapabilities::MEMORY_READ,
+            move |context, args| {
+                let [
+                    Value::I32(target_ptr),
+                    Value::I32(target_len),
+                    Value::I32(dir_fd),
+                    Value::I32(path_ptr),
+                    Value::I32(path_len),
+                ] = args
+                else {
+                    return Err(HostError::message(
+                        "validated wasi path_symlink signature received invalid arguments",
+                    ));
+                };
+                let target_len = *target_len as u32 as usize;
+                let path_len = *path_len as u32 as usize;
+                if target_len > MAX_RELATIVE_PATH_BYTES || path_len > MAX_RELATIVE_PATH_BYTES {
+                    return Ok(vec![Value::I32(ERRNO_NAMETOOLONG)]);
+                }
+                let target = match context.read_memory(*target_ptr as u32, target_len) {
+                    Ok(target) => target,
+                    Err(_) => return Ok(vec![Value::I32(ERRNO_FAULT)]),
+                };
+                let path = match context.read_memory(*path_ptr as u32, path_len) {
+                    Ok(path) => path,
+                    Err(_) => return Ok(vec![Value::I32(ERRNO_FAULT)]),
+                };
+                match validate_guest_path(&path) {
+                    Ok(()) => {}
+                    Err(GuestPathError::Empty) => return Ok(vec![Value::I32(ERRNO_INVAL)]),
+                    Err(GuestPathError::TooLong) => return Ok(vec![Value::I32(ERRNO_NAMETOOLONG)]),
+                    Err(GuestPathError::Unsafe) => return Ok(vec![Value::I32(ERRNO_NOTCAPABLE)]),
+                }
+                match symlink_filesystem.symlink(*dir_fd as u32, &path, &target) {
+                    Ok(()) => Ok(vec![Value::I32(ERRNO_SUCCESS)]),
+                    Err(error) => Ok(vec![Value::I32(symlink_errno(error))]),
+                }
+            },
+        )?;
+
+        let readlink_filesystem = self.clone();
+        registry.register_values(
+            WASI_MODULE,
+            PATH_READLINK_NAME,
+            vec![
+                ValueType::I32,
+                ValueType::I32,
+                ValueType::I32,
+                ValueType::I32,
+                ValueType::I32,
+                ValueType::I32,
+            ],
+            vec![ValueType::I32],
+            HostCapabilities::MEMORY_READ_WRITE,
+            move |context, args| {
+                let [
+                    Value::I32(dir_fd),
+                    Value::I32(path_ptr),
+                    Value::I32(path_len),
+                    Value::I32(buf),
+                    Value::I32(buf_len),
+                    Value::I32(bufused),
+                ] = args
+                else {
+                    return Err(HostError::message(
+                        "validated wasi path_readlink signature received invalid arguments",
+                    ));
+                };
+                let path_len = *path_len as u32 as usize;
+                if path_len > MAX_RELATIVE_PATH_BYTES {
+                    return Ok(vec![Value::I32(ERRNO_NAMETOOLONG)]);
+                }
+                let path = match context.read_memory(*path_ptr as u32, path_len) {
+                    Ok(path) => path,
+                    Err(_) => return Ok(vec![Value::I32(ERRNO_FAULT)]),
+                };
+                match validate_guest_path(&path) {
+                    Ok(()) => {}
+                    Err(GuestPathError::Empty) => return Ok(vec![Value::I32(ERRNO_INVAL)]),
+                    Err(GuestPathError::TooLong) => return Ok(vec![Value::I32(ERRNO_NAMETOOLONG)]),
+                    Err(GuestPathError::Unsafe) => return Ok(vec![Value::I32(ERRNO_NOTCAPABLE)]),
+                }
+                let target = match readlink_filesystem.readlink(*dir_fd as u32, &path) {
+                    Ok(target) => target,
+                    Err(error) => return Ok(vec![Value::I32(symlink_errno(error))]),
+                };
+                let buf_len = *buf_len as u32 as usize;
+                if context.read_memory(*buf as u32, buf_len).is_err()
+                    || context.read_memory(*bufused as u32, 4).is_err()
+                {
+                    return Ok(vec![Value::I32(ERRNO_FAULT)]);
+                }
+                let copied = target.len().min(buf_len);
+                if context.write_memory(*buf as u32, &target[..copied]).is_err()
+                    || context
+                        .write_memory(*bufused as u32, &(copied as u32).to_le_bytes())
+                        .is_err()
+                {
+                    return Ok(vec![Value::I32(ERRNO_FAULT)]);
+                }
+                Ok(vec![Value::I32(ERRNO_SUCCESS)])
+            },
+        )?;
+
         let open_filesystem = self.clone();
         registry.register_values(
             WASI_MODULE,
@@ -742,6 +890,8 @@ impl Filesystem {
                         | RIGHTS_PATH_CREATE_FILE
                         | RIGHTS_PATH_LINK_SOURCE
                         | RIGHTS_PATH_LINK_TARGET
+                        | RIGHTS_PATH_READLINK
+                        | RIGHTS_PATH_SYMLINK
                         | RIGHTS_PATH_REMOVE_DIRECTORY
                         | RIGHTS_PATH_UNLINK_FILE;
                 let allowed_base = if directory { allowed_directory_base } else { allowed_file_base };
@@ -1370,6 +1520,9 @@ impl Filesystem {
         let mut state = self.state.borrow_mut();
         if state.mounted_files.iter().any(|file| {
             file.preopen_fd == preopen_fd && file.relative_path.as_slice() == full_path.as_slice()
+        }) || state.mounted_symlinks.iter().any(|symlink| {
+            symlink.preopen_fd == preopen_fd
+                && symlink.relative_path.as_slice() == full_path.as_slice()
         }) {
             return Err(OpenError::NotDirectory);
         }
@@ -1423,6 +1576,12 @@ impl Filesystem {
         }) {
             return Err(OpenError::NotDirectory);
         }
+        if state.mounted_symlinks.iter().any(|symlink| {
+            symlink.preopen_fd == preopen_fd
+                && symlink.relative_path.as_slice() == full_path.as_slice()
+        }) {
+            return Err(OpenError::NotCapable);
+        }
         let existing = state
             .mounted_files
             .iter()
@@ -1447,7 +1606,7 @@ impl Filesystem {
             if !state.writable_preopens.contains(&preopen_fd) {
                 return Err(OpenError::NotCapable);
             }
-            if state.mounted_files.len() + state.mounted_directories.len() >= MAX_MOUNTED_FILES {
+            if namespace_entry_count(&state) >= MAX_MOUNTED_FILES {
                 return Err(OpenError::TooManyFiles);
             }
             if !parent_directory_exists(&state, preopen_fd, &full_path) {
@@ -1503,7 +1662,7 @@ impl Filesystem {
         if namespace_entry_exists(&state, preopen_fd, &full_path) {
             return Err(DirectoryMutationError::Exists);
         }
-        if state.mounted_files.len() + state.mounted_directories.len() >= MAX_MOUNTED_FILES {
+        if namespace_entry_count(&state) >= MAX_MOUNTED_FILES {
             return Err(DirectoryMutationError::TooManyFiles);
         }
         if !parent_directory_exists(&state, preopen_fd, &full_path) {
@@ -1529,6 +1688,9 @@ impl Filesystem {
         let mut state = self.state.borrow_mut();
         if state.mounted_files.iter().any(|file| {
             file.preopen_fd == preopen_fd && file.relative_path.as_slice() == full_path.as_slice()
+        }) || state.mounted_symlinks.iter().any(|symlink| {
+            symlink.preopen_fd == preopen_fd
+                && symlink.relative_path.as_slice() == full_path.as_slice()
         }) {
             return Err(DirectoryMutationError::NotDirectory);
         }
@@ -1553,11 +1715,59 @@ impl Filesystem {
                         && directory.preopen_fd == preopen_fd
                         && directory.relative_path.starts_with(&prefix)
                 });
-        if has_child_file || has_child_directory {
+        let has_child_symlink = state.mounted_symlinks.iter().any(|symlink| {
+            symlink.preopen_fd == preopen_fd && symlink.relative_path.starts_with(&prefix)
+        });
+        if has_child_file || has_child_directory || has_child_symlink {
             return Err(DirectoryMutationError::NotEmpty);
         }
         state.mounted_directories.remove(index);
         Ok(())
+    }
+
+    fn symlink(&self, dir_fd: u32, path: &[u8], target: &[u8]) -> Result<(), SymlinkError> {
+        let (preopen_fd, full_path, _) = self
+            .resolve_directory_path(dir_fd, path, RIGHTS_PATH_SYMLINK)
+            .map_err(symlink_resolve_error)?;
+        let mut state = self.state.borrow_mut();
+        if namespace_entry_exists(&state, preopen_fd, &full_path) {
+            return Err(SymlinkError::Exists);
+        }
+        if !parent_directory_exists(&state, preopen_fd, &full_path) {
+            return Err(SymlinkError::NotFound);
+        }
+        if namespace_entry_count(&state) >= MAX_MOUNTED_FILES {
+            return Err(SymlinkError::TooManyFiles);
+        }
+        let inode = state
+            .next_inode
+            .checked_add(1)
+            .ok_or(SymlinkError::TooManyFiles)?;
+        state.next_inode = inode;
+        state.mounted_symlinks.push(MountedSymlink {
+            preopen_fd,
+            relative_path: full_path,
+            inode,
+            target: target.to_vec(),
+        });
+        Ok(())
+    }
+
+    fn readlink(&self, dir_fd: u32, path: &[u8]) -> Result<Vec<u8>, SymlinkError> {
+        let (preopen_fd, full_path, _) = self
+            .resolve_directory_path(dir_fd, path, RIGHTS_PATH_READLINK)
+            .map_err(symlink_resolve_error)?;
+        let state = self.state.borrow();
+        if let Some(symlink) = state.mounted_symlinks.iter().find(|symlink| {
+            symlink.preopen_fd == preopen_fd
+                && symlink.relative_path.as_slice() == full_path.as_slice()
+        }) {
+            return Ok(symlink.target.clone());
+        }
+        if namespace_entry_exists(&state, preopen_fd, &full_path) {
+            return Err(SymlinkError::NotLink);
+        }
+        Err(SymlinkError::NotFound)
     }
 
     fn link(
@@ -1575,7 +1785,7 @@ impl Filesystem {
             .map_err(link_resolve_error)?;
 
         let mut state = self.state.borrow_mut();
-        if state.mounted_files.len() + state.mounted_directories.len() >= MAX_MOUNTED_FILES {
+        if namespace_entry_count(&state) >= MAX_MOUNTED_FILES {
             return Err(LinkError::TooManyFiles);
         }
         if namespace_entry_exists(&state, new_preopen_fd, &new_full_path) {
@@ -1635,6 +1845,13 @@ impl Filesystem {
         {
             return Err(RenameError::NotCapable);
         }
+        if state.mounted_symlinks.iter().any(|symlink| {
+            (symlink.preopen_fd == old_preopen_fd && symlink.relative_path.as_slice() == old_path)
+                || (symlink.preopen_fd == new_preopen_fd
+                    && symlink.relative_path.as_slice() == new_path)
+        }) {
+            return Err(RenameError::NotCapable);
+        }
 
         let Some(source_index) = state.mounted_files.iter().position(|file| {
             file.preopen_fd == old_preopen_fd && file.relative_path.as_slice() == old_path
@@ -1681,19 +1898,26 @@ impl Filesystem {
                 Err(ResolveDirectoryError::NameTooLong) => return Err(UnlinkError::NameTooLong),
             };
         let mut state = self.state.borrow_mut();
-        let Some(index) = state.mounted_files.iter().position(|file| {
+        if let Some(index) = state.mounted_files.iter().position(|file| {
             file.preopen_fd == preopen_fd && file.relative_path.as_slice() == full_path.as_slice()
-        }) else {
-            return Err(UnlinkError::NotFound);
-        };
-        let link_count = state.mounted_files[index].link_count.clone();
-        let current_links = *link_count.borrow();
-        let Some(new_links) = current_links.checked_sub(1) else {
-            return Err(UnlinkError::InvalidLinkCount);
-        };
-        state.mounted_files.remove(index);
-        *link_count.borrow_mut() = new_links;
-        Ok(())
+        }) {
+            let link_count = state.mounted_files[index].link_count.clone();
+            let current_links = *link_count.borrow();
+            let Some(new_links) = current_links.checked_sub(1) else {
+                return Err(UnlinkError::InvalidLinkCount);
+            };
+            state.mounted_files.remove(index);
+            *link_count.borrow_mut() = new_links;
+            return Ok(());
+        }
+        if let Some(index) = state.mounted_symlinks.iter().position(|symlink| {
+            symlink.preopen_fd == preopen_fd
+                && symlink.relative_path.as_slice() == full_path.as_slice()
+        }) {
+            state.mounted_symlinks.remove(index);
+            return Ok(());
+        }
+        Err(UnlinkError::NotFound)
     }
 
     fn rollback_open(&self, dir_fd: u32, path: &[u8], opened: OpenedFile) {
@@ -1872,10 +2096,15 @@ fn directory_rights(state: &FilesystemState, fd: u32) -> Option<u64> {
                 | RIGHTS_PATH_CREATE_FILE
                 | RIGHTS_PATH_LINK_SOURCE
                 | RIGHTS_PATH_LINK_TARGET
+                | RIGHTS_PATH_READLINK
                 | RIGHTS_PATH_RENAME_SOURCE
                 | RIGHTS_PATH_RENAME_TARGET
+                | RIGHTS_PATH_SYMLINK
                 | RIGHTS_PATH_REMOVE_DIRECTORY
                 | RIGHTS_PATH_UNLINK_FILE;
+        }
+        if !state.writable_preopens.contains(&fd) {
+            rights |= RIGHTS_PATH_READLINK;
         }
         return Some(rights);
     }
@@ -1929,6 +2158,10 @@ fn parent_directory_exists(state: &FilesystemState, preopen_fd: u32, path: &[u8]
         })
 }
 
+fn namespace_entry_count(state: &FilesystemState) -> usize {
+    state.mounted_files.len() + state.mounted_directories.len() + state.mounted_symlinks.len()
+}
+
 fn namespace_entry_exists(state: &FilesystemState, preopen_fd: u32, path: &[u8]) -> bool {
     state
         .mounted_files
@@ -1936,6 +2169,9 @@ fn namespace_entry_exists(state: &FilesystemState, preopen_fd: u32, path: &[u8])
         .any(|file| file.preopen_fd == preopen_fd && file.relative_path.as_slice() == path)
         || state.mounted_directories.iter().any(|directory| {
             directory.preopen_fd == preopen_fd && directory.relative_path.as_slice() == path
+        })
+        || state.mounted_symlinks.iter().any(|symlink| {
+            symlink.preopen_fd == preopen_fd && symlink.relative_path.as_slice() == path
         })
 }
 
@@ -1969,6 +2205,26 @@ fn link_resolve_error(error: ResolveDirectoryError) -> LinkError {
         ResolveDirectoryError::BadFd => LinkError::BadFd,
         ResolveDirectoryError::NotCapable => LinkError::NotCapable,
         ResolveDirectoryError::NameTooLong => LinkError::NameTooLong,
+    }
+}
+
+fn symlink_resolve_error(error: ResolveDirectoryError) -> SymlinkError {
+    match error {
+        ResolveDirectoryError::BadFd => SymlinkError::BadFd,
+        ResolveDirectoryError::NotCapable => SymlinkError::NotCapable,
+        ResolveDirectoryError::NameTooLong => SymlinkError::NameTooLong,
+    }
+}
+
+fn symlink_errno(error: SymlinkError) -> i32 {
+    match error {
+        SymlinkError::BadFd => ERRNO_BADF,
+        SymlinkError::NotFound => ERRNO_NOENT,
+        SymlinkError::NotCapable => ERRNO_NOTCAPABLE,
+        SymlinkError::NameTooLong => ERRNO_NAMETOOLONG,
+        SymlinkError::Exists => ERRNO_EXIST,
+        SymlinkError::TooManyFiles => ERRNO_NOSPC,
+        SymlinkError::NotLink => ERRNO_INVAL,
     }
 }
 
