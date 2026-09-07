@@ -167,7 +167,8 @@ The runtime has moved beyond a generic future-WASI placeholder into an executabl
 - [x] deterministic stdin plus bounded `fd_read` scatter writes, sequential consumption, EOF, and read rights
 - [x] process termination semantics (`proc_exit`) with immediate non-local guest termination and a typed non-error WASI invocation outcome
 - [x] deterministic injected entropy/time capabilities (`random_get`, `clock_res_get`, and `clock_time_get`) without ambient host nondeterminism
-- [ ] evaluate filesystem/preopen capability only after descriptor rights, path bounds, and host-resource lifetime rules have a coherent model
+- [x] bounded discovery-only preopen directory descriptors via `fd_prestat_get` / `fd_prestat_dir_name`, allocated after stdio with immutable guest namespace names, fixed configuration bounds, directory fdstat metadata, and zero path/inheriting rights
+- [ ] add a path-capable descriptor/resource table only with explicit rights attenuation, traversal-safe relative-path bounds, and deterministic host-resource lifetime/close semantics before enabling `path_open`
 - [ ] add WASI-specific differential/interop evidence as the supported Preview1 surface becomes broad enough to compare meaningfully
 
 A future JIT is intentionally out of scope until the interpreter and validation model are trustworthy.
