@@ -80,6 +80,13 @@ impl PreopenSet {
         Ok(fd)
     }
 
+    pub(crate) fn fd_for_guest_path(&self, guest_path: &[u8]) -> Option<u32> {
+        self.entries
+            .iter()
+            .find(|entry| entry.guest_path.as_slice() == guest_path)
+            .map(|entry| entry.fd)
+    }
+
     fn find(&self, fd: i32) -> Option<&PreopenDir> {
         let fd = fd as u32;
         self.entries.iter().find(|entry| entry.fd == fd)
