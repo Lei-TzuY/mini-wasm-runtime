@@ -5,12 +5,18 @@ use wasm_runtime::{HostCapabilities, HostError, HostRegistry, HostRegistryError,
 
 use crate::{
     ERRNO_BADF, ERRNO_FAULT, ERRNO_INVAL, ERRNO_MFILE, ERRNO_NAMETOOLONG, ERRNO_NOENT,
-    ERRNO_NOTCAPABLE, ERRNO_SUCCESS, FILETYPE_REGULAR_FILE, RIGHTS_FD_READ,
+    ERRNO_NOTCAPABLE, ERRNO_OVERFLOW, ERRNO_SUCCESS, FILETYPE_REGULAR_FILE, RIGHTS_FD_READ,
+    RIGHTS_FD_SEEK, RIGHTS_FD_TELL,
 };
 
 const WASI_MODULE: &str = "wasi_snapshot_preview1";
 const PATH_OPEN_NAME: &str = "path_open";
 const FD_CLOSE_NAME: &str = "fd_close";
+const FD_SEEK_NAME: &str = "fd_seek";
+const FD_TELL_NAME: &str = "fd_tell";
+const WHENCE_SET: u32 = 0;
+const WHENCE_CUR: u32 = 1;
+const WHENCE_END: u32 = 2;
 const FIRST_DYNAMIC_FD: u32 = 3;
 const MAX_MOUNTED_FILES: usize = 4_096;
 const MAX_RELATIVE_PATH_BYTES: usize = 4 * 1024;
@@ -70,7 +76,7 @@ struct MountedFile {
 #[derive(Debug, Clone)]
 struct OpenFile {
     bytes: Rc<Vec<u8>>,
-    offset: usize,
+    offset: u64,
     rights_base: u64,
 }
 
@@ -90,6 +96,15 @@ pub(crate) struct Filesystem {
 pub(crate) enum DescriptorReadError {
     BadFd,
     NotCapable,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum DescriptorPositionError {
+    BadFd,
+    NotCapable,
+    InvalidWhence,
+    InvalidOffset,
+    Overflow,
 }
 
 impl Filesystem {
@@ -154,9 +169,15 @@ impl Filesystem {
         if file.rights_base & RIGHTS_FD_READ == 0 {
             return Err(DescriptorReadError::NotCapable);
         }
-        let remaining = file.bytes.len().saturating_sub(file.offset);
+        let Ok(start) = usize::try_from(file.offset) else {
+            return Ok(Vec::new());
+        };
+        if start >= file.bytes.len() {
+            return Ok(Vec::new());
+        }
+        let remaining = file.bytes.len() - start;
         let len = remaining.min(max_len);
-        Ok(file.bytes[file.offset..file.offset + len].to_vec())
+        Ok(file.bytes[start..start + len].to_vec())
     }
 
     pub(crate) fn advance(&self, fd: u32, len: usize) -> Result<(), DescriptorReadError> {
@@ -167,7 +188,7 @@ impl Filesystem {
         if file.rights_base & RIGHTS_FD_READ == 0 {
             return Err(DescriptorReadError::NotCapable);
         }
-        file.offset = file.offset.saturating_add(len).min(file.bytes.len());
+        file.offset = file.offset.saturating_add(len as u64);
         Ok(())
     }
 
@@ -225,7 +246,8 @@ impl Filesystem {
 
                 let requested_base = *rights_base as u64;
                 let requested_inheriting = *rights_inheriting as u64;
-                if requested_base & !RIGHTS_FD_READ != 0 || requested_inheriting != 0 {
+                let allowed_base = RIGHTS_FD_READ | RIGHTS_FD_SEEK | RIGHTS_FD_TELL;
+                if requested_base & !allowed_base != 0 || requested_inheriting != 0 {
                     return Ok(vec![Value::I32(ERRNO_NOTCAPABLE)]);
                 }
 
@@ -270,6 +292,91 @@ impl Filesystem {
             },
         )?;
 
+        let seek_filesystem = self.clone();
+        registry.register_values(
+            WASI_MODULE,
+            FD_SEEK_NAME,
+            vec![ValueType::I32, ValueType::I64, ValueType::I32, ValueType::I32],
+            vec![ValueType::I32],
+            HostCapabilities::MEMORY_READ_WRITE,
+            move |context, args| {
+                let [
+                    Value::I32(fd),
+                    Value::I64(offset),
+                    Value::I32(whence),
+                    Value::I32(newoffset_ptr),
+                ] = args
+                else {
+                    return Err(HostError::message(
+                        "validated wasi fd_seek signature received invalid arguments",
+                    ));
+                };
+
+                let fd = *fd as u32;
+                if seek_filesystem.is_known_non_file(fd) {
+                    return Ok(vec![Value::I32(ERRNO_NOTCAPABLE)]);
+                }
+                let newoffset = match seek_filesystem.prepare_seek(fd, *offset, *whence as u32) {
+                    Ok(newoffset) => newoffset,
+                    Err(error) => return Ok(vec![Value::I32(position_errno(error))]),
+                };
+
+                if context.read_memory(*newoffset_ptr as u32, 8).is_err() {
+                    return Ok(vec![Value::I32(ERRNO_FAULT)]);
+                }
+                if context
+                    .write_memory(*newoffset_ptr as u32, &newoffset.to_le_bytes())
+                    .is_err()
+                {
+                    return Ok(vec![Value::I32(ERRNO_FAULT)]);
+                }
+                if !seek_filesystem.commit_seek(fd, newoffset) {
+                    return Err(HostError::message(
+                        "WASI read-only descriptor changed during fd_seek",
+                    ));
+                }
+
+                Ok(vec![Value::I32(ERRNO_SUCCESS)])
+            },
+        )?;
+
+        let tell_filesystem = self.clone();
+        registry.register_values(
+            WASI_MODULE,
+            FD_TELL_NAME,
+            vec![ValueType::I32, ValueType::I32],
+            vec![ValueType::I32],
+            HostCapabilities::MEMORY_READ_WRITE,
+            move |context, args| {
+                let [Value::I32(fd), Value::I32(offset_ptr)] = args else {
+                    return Err(HostError::message(
+                        "validated wasi fd_tell signature received invalid arguments",
+                    ));
+                };
+
+                let fd = *fd as u32;
+                if tell_filesystem.is_known_non_file(fd) {
+                    return Ok(vec![Value::I32(ERRNO_NOTCAPABLE)]);
+                }
+                let offset = match tell_filesystem.tell(fd) {
+                    Ok(offset) => offset,
+                    Err(error) => return Ok(vec![Value::I32(position_errno(error))]),
+                };
+
+                if context.read_memory(*offset_ptr as u32, 8).is_err() {
+                    return Ok(vec![Value::I32(ERRNO_FAULT)]);
+                }
+                if context
+                    .write_memory(*offset_ptr as u32, &offset.to_le_bytes())
+                    .is_err()
+                {
+                    return Ok(vec![Value::I32(ERRNO_FAULT)]);
+                }
+
+                Ok(vec![Value::I32(ERRNO_SUCCESS)])
+            },
+        )?;
+
         let close_filesystem = self.clone();
         registry.register_values(
             WASI_MODULE,
@@ -295,6 +402,10 @@ impl Filesystem {
 
     fn has_preopen(&self, fd: u32) -> bool {
         self.state.borrow().reserved_preopens.contains(&fd)
+    }
+
+    fn is_known_non_file(&self, fd: u32) -> bool {
+        fd <= 2 || self.has_preopen(fd)
     }
 
     fn open(&self, preopen_fd: u32, path: &[u8], rights_base: u64) -> Result<Option<u32>, ()> {
@@ -335,6 +446,73 @@ impl Filesystem {
 
     fn close(&self, fd: u32) -> bool {
         self.state.borrow_mut().open_files.remove(&fd).is_some()
+    }
+
+    fn prepare_seek(
+        &self,
+        fd: u32,
+        delta: i64,
+        whence: u32,
+    ) -> Result<u64, DescriptorPositionError> {
+        let state = self.state.borrow();
+        let Some(file) = state.open_files.get(&fd) else {
+            return Err(DescriptorPositionError::BadFd);
+        };
+
+        let base = match whence {
+            WHENCE_SET => 0u64,
+            WHENCE_CUR => file.offset,
+            WHENCE_END => file.bytes.len() as u64,
+            _ => return Err(DescriptorPositionError::InvalidWhence),
+        };
+        let tell_only_operation = whence == WHENCE_CUR && delta == 0;
+        if tell_only_operation {
+            if file.rights_base & (RIGHTS_FD_SEEK | RIGHTS_FD_TELL) == 0 {
+                return Err(DescriptorPositionError::NotCapable);
+            }
+        } else if file.rights_base & RIGHTS_FD_SEEK == 0 {
+            return Err(DescriptorPositionError::NotCapable);
+        }
+
+        let target = i128::from(base) + i128::from(delta);
+        if target < 0 {
+            return Err(DescriptorPositionError::InvalidOffset);
+        }
+        if target > i128::from(u64::MAX) {
+            return Err(DescriptorPositionError::Overflow);
+        }
+        Ok(target as u64)
+    }
+
+    fn commit_seek(&self, fd: u32, offset: u64) -> bool {
+        let mut state = self.state.borrow_mut();
+        let Some(file) = state.open_files.get_mut(&fd) else {
+            return false;
+        };
+        file.offset = offset;
+        true
+    }
+
+    fn tell(&self, fd: u32) -> Result<u64, DescriptorPositionError> {
+        let state = self.state.borrow();
+        let Some(file) = state.open_files.get(&fd) else {
+            return Err(DescriptorPositionError::BadFd);
+        };
+        if file.rights_base & (RIGHTS_FD_SEEK | RIGHTS_FD_TELL) == 0 {
+            return Err(DescriptorPositionError::NotCapable);
+        }
+        Ok(file.offset)
+    }
+}
+
+fn position_errno(error: DescriptorPositionError) -> i32 {
+    match error {
+        DescriptorPositionError::BadFd => ERRNO_BADF,
+        DescriptorPositionError::NotCapable => ERRNO_NOTCAPABLE,
+        DescriptorPositionError::InvalidWhence | DescriptorPositionError::InvalidOffset => {
+            ERRNO_INVAL
+        }
+        DescriptorPositionError::Overflow => ERRNO_OVERFLOW,
     }
 }
 
