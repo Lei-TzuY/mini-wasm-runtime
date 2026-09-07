@@ -34,12 +34,7 @@ pub(crate) struct ClockSet {
 }
 
 impl ClockSet {
-    pub(crate) fn configure(
-        &mut self,
-        id: WasiClockId,
-        resolution_ns: u64,
-        time_ns: u64,
-    ) {
+    pub(crate) fn configure(&mut self, id: WasiClockId, resolution_ns: u64, time_ns: u64) {
         self.snapshots[id.index()] = Some(ClockSnapshot {
             resolution_ns,
             time_ns,
@@ -95,7 +90,8 @@ impl ClockSet {
             vec![ValueType::I32],
             HostCapabilities::MEMORY_READ_WRITE,
             move |context, args| {
-                let [Value::I32(clock_id), Value::I64(_precision), Value::I32(result)] = args else {
+                let [Value::I32(clock_id), Value::I64(_precision), Value::I32(result)] = args
+                else {
                     return Err(HostError::message(
                         "validated wasi clock_time_get signature received invalid arguments",
                     ));
