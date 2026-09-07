@@ -36,7 +36,7 @@ pub struct WasiPreview1 {
 impl Default for WasiPreview1 {
     fn default() -> Self {
         Self {
-            base: base::WasiPreview1::default(),
+            base: base::WasiPreview1::new(),
             exit_code: Rc::new(RefCell::new(None)),
         }
     }
