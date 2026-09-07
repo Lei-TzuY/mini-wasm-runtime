@@ -51,7 +51,7 @@ fn module(import_name: &str, args: &[u32]) -> Vec<u8> {
     let mut module = b"\0asm\x01\0\0\0".to_vec();
 
     let mut types = vec![2, 0x60, args.len() as u8];
-    types.extend(std::iter::repeat_n(0x7f, args.len()));
+    types.extend(std::iter::repeat(0x7f).take(args.len()));
     types.extend([1, 0x7f, 0x60, 0, 1, 0x7f]);
     section(&mut module, 1, &types);
 
