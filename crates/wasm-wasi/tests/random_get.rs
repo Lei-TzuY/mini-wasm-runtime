@@ -1,6 +1,6 @@
 use wasm_parser::parse_module;
 use wasm_runtime::{HostRegistry, Instance, MemoryHandle, Value};
-use wasm_wasi::{WasiPreview1, ERRNO_FAULT, ERRNO_INVAL, ERRNO_SUCCESS};
+use wasm_wasi::{WasiPreview1, ERRNO_FAULT, ERRNO_INVAL, ERRNO_IO, ERRNO_SUCCESS};
 
 fn u32leb(out: &mut Vec<u8>, mut value: u32) {
     loop {
@@ -119,7 +119,7 @@ fn random_get_without_injected_entropy_fails_closed() {
 
     assert_eq!(
         vm.invoke_export("run", &[]).unwrap(),
-        Some(Value::I32(ERRNO_INVAL))
+        Some(Value::I32(ERRNO_IO))
     );
     assert_eq!(memory.read(32, 2).unwrap(), vec![0xaa; 2]);
 }
@@ -177,7 +177,7 @@ fn random_get_short_source_is_atomic_and_does_not_consume_entropy() {
 
     assert_eq!(
         bad.invoke_export("run", &[]).unwrap(),
-        Some(Value::I32(ERRNO_INVAL))
+        Some(Value::I32(ERRNO_IO))
     );
     assert_eq!(memory.read(32, 4).unwrap(), vec![0xaa; 4]);
 
