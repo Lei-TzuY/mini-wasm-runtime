@@ -85,7 +85,7 @@ fn module_bytes() -> Vec<u8> {
                 i32.const 0
                 i32.const 8
                 i32.const 0
-                i64.const 6291492
+                i64.const 6291556
                 i64.const 0
                 i32.const 0
                 i32.const 32
