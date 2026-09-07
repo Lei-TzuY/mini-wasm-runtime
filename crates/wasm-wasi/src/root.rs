@@ -18,6 +18,8 @@ use wasm_runtime::{
     HostCapabilities, HostError, HostRegistry, HostRegistryError, Instance, RuntimeError, Value,
 };
 
+pub const ERRNO_IO: i32 = 29;
+
 const PROC_EXIT_MODULE: &str = "wasi_snapshot_preview1";
 const PROC_EXIT_NAME: &str = "proc_exit";
 const PROC_EXIT_CONTROL_TRANSFER: &str = "wasi proc_exit control transfer";
@@ -152,7 +154,7 @@ impl WasiPreview1 {
                     let state = entropy.borrow();
                     let remaining = state.bytes.len().saturating_sub(state.offset);
                     if len > remaining {
-                        return Ok(vec![Value::I32(ERRNO_INVAL)]);
+                        return Ok(vec![Value::I32(ERRNO_IO)]);
                     }
                     state.bytes[state.offset..state.offset + len].to_vec()
                 };
