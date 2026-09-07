@@ -108,7 +108,7 @@ fn environ_sizes_get_reports_configured_count_and_payload_bytes() {
         Some(Value::I32(ERRNO_SUCCESS))
     );
     assert_eq!(read_u32(&memory, 0), 2);
-    assert_eq!(read_u32(&memory, 4), 16);
+    assert_eq!(read_u32(&memory, 4), 17);
 }
 
 #[test]
@@ -123,7 +123,7 @@ fn environ_get_writes_pointer_table_and_nul_terminated_entries() {
     );
     assert_eq!(read_u32(&memory, 0), 32);
     assert_eq!(read_u32(&memory, 4), 42);
-    assert_eq!(memory.read(32, 16).unwrap(), b"MODE=test\0EMPTY=\0");
+    assert_eq!(memory.read(32, 17).unwrap(), b"MODE=test\0EMPTY=\0");
 }
 
 #[test]
