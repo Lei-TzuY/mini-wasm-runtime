@@ -6,7 +6,7 @@ The project intentionally does **not** embed Wasmtime, Wasmer, or another WebAss
 
 ## Current status
 
-The current baseline combines the completed Phase 1–5 implementation with a substantial Phase 6 engineering-hardening layer. It is an experimental interpreter/runtime-engineering project, not a production sandbox.
+The current baseline combines the completed Phase 1–5 implementation, a substantial Phase 6 engineering-hardening layer, and an active Phase 7 bounded WASI Preview1 expansion. It is an experimental interpreter/runtime-engineering project, not a production sandbox.
 
 Major implemented surfaces include:
 
@@ -23,6 +23,7 @@ Major implemented surfaces include:
 - defined and imported memory with shared host-visible backing
 - active/passive/declarative legacy segment forms supported by the current parser/runtime boundary
 - typed host functions with explicit capability-scoped memory access
+- bounded WASI Preview1 standard I/O, descriptor metadata, process arguments, and process environment capabilities
 - configurable call-depth, memory-page, instruction-fuel, and host-call limits
 - CLI inspect/run support with typed arguments and ordered multi-value output
 
@@ -52,9 +53,9 @@ This is intentionally incomplete. Important remaining work includes:
 - broader official WAST/spec-suite coverage
 - broader malformed/adversarial runtime corpora
 - recording and periodically checking a reviewed performance baseline on a pinned controlled host
-- WASI
+- broader WASI Preview1 capability beyond the current bounded stdio/process-metadata subset
 - threads/shared-memory proposal semantics
-- SIMD, memory64, multi-memory/multi-table
+- SIMD, memory64, and broader proposal coverage
 - JIT compilation
 
 Unsupported binary features, instructions, imports, and execution forms are expected to fail closed rather than being silently approximated.

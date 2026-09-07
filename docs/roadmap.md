@@ -156,4 +156,18 @@ The roadmap favors complete vertical slices over a broad but shallow decoder.
 - [x] initial runtime security invariants and threat model
 - [ ] revisit the threat model as host capabilities, concurrency, WASI-like interfaces, or JIT execution expand
 
+## Phase 7 — bounded WASI Preview1 host surface
+
+The runtime has moved beyond a generic future-WASI placeholder into an executable, capability-scoped Preview1 subset. This phase expands that subset one bounded host contract at a time while preserving deterministic tests, explicit resource limits, and fail-closed guest-memory preflight.
+
+- [x] bounded `fd_write` for stdout/stderr with iovec gathering and atomic host-output commit
+- [x] bounded `fd_fdstat_get` metadata for standard descriptors
+- [x] deterministic process arguments via `args_sizes_get` / `args_get`
+- [x] deterministic process environment via `environ_sizes_get` / `environ_get`
+- [x] deterministic stdin plus bounded `fd_read` scatter writes, sequential consumption, EOF, and read rights
+- [ ] process termination semantics (`proc_exit`) with a typed non-error exit outcome across the host/runtime boundary
+- [ ] deterministic injected entropy/time capabilities where useful (`random_get`, clock surface) rather than ambient host nondeterminism
+- [ ] evaluate filesystem/preopen capability only after descriptor rights, path bounds, and host-resource lifetime rules have a coherent model
+- [ ] add WASI-specific differential/interop evidence as the supported Preview1 surface becomes broad enough to compare meaningfully
+
 A future JIT is intentionally out of scope until the interpreter and validation model are trustworthy.
