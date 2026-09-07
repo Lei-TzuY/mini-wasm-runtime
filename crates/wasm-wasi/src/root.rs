@@ -33,18 +33,23 @@ pub const ERRNO_MFILE: i32 = 33;
 pub const ERRNO_NAMETOOLONG: i32 = 37;
 pub const ERRNO_NOENT: i32 = 44;
 pub const ERRNO_NOSPC: i32 = 51;
+pub const ERRNO_NOTDIR: i32 = 54;
+pub const ERRNO_NOTEMPTY: i32 = 55;
 pub const ERRNO_NOTSUP: i32 = 58;
 pub const ERRNO_OVERFLOW: i32 = 61;
 pub const RIGHTS_FD_SEEK: u64 = 1 << 2;
 pub const RIGHTS_FD_TELL: u64 = 1 << 5;
 pub const RIGHTS_FD_READDIR: u64 = 1 << 14;
+pub const RIGHTS_PATH_CREATE_DIRECTORY: u64 = 1 << 9;
 pub const RIGHTS_PATH_CREATE_FILE: u64 = 1 << 10;
 pub const RIGHTS_PATH_LINK_SOURCE: u64 = 1 << 11;
 pub const RIGHTS_PATH_LINK_TARGET: u64 = 1 << 12;
 pub const RIGHTS_PATH_RENAME_SOURCE: u64 = 1 << 16;
 pub const RIGHTS_PATH_RENAME_TARGET: u64 = 1 << 17;
+pub const RIGHTS_PATH_REMOVE_DIRECTORY: u64 = 1 << 25;
 pub const RIGHTS_PATH_UNLINK_FILE: u64 = 1 << 26;
 pub const OFLAGS_CREAT: u32 = 1 << 0;
+pub const OFLAGS_DIRECTORY: u32 = 1 << 1;
 
 const PROC_EXIT_MODULE: &str = "wasi_snapshot_preview1";
 const PROC_EXIT_NAME: &str = "proc_exit";
@@ -186,11 +191,13 @@ impl WasiPreview1 {
         let rights_base = if writable {
             RIGHTS_PATH_OPEN
                 | RIGHTS_FD_READDIR
+                | RIGHTS_PATH_CREATE_DIRECTORY
                 | RIGHTS_PATH_CREATE_FILE
                 | RIGHTS_PATH_LINK_SOURCE
                 | RIGHTS_PATH_LINK_TARGET
                 | RIGHTS_PATH_RENAME_SOURCE
                 | RIGHTS_PATH_RENAME_TARGET
+                | RIGHTS_PATH_REMOVE_DIRECTORY
                 | RIGHTS_PATH_UNLINK_FILE
         } else {
             RIGHTS_PATH_OPEN | RIGHTS_FD_READDIR
