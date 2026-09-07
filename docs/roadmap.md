@@ -174,10 +174,12 @@ The runtime has moved beyond a generic future-WASI placeholder into an executabl
 - [x] cursor-preserving positioned regular-file reads via `fd_pread` with `FD_READ` + `FD_SEEK` attenuation, explicit `u64` offsets, bounded scatter writes, EOF/partial-read behavior, shared read limits, and fail-closed guest-memory preflight
 - [x] stable regular-file metadata identity via `fd_filestat_get` with `FD_FILESTAT_GET` attenuation, deterministic synthetic device/inode identity, live shared size, fixed logical-epoch timestamps, and 64-byte fail-closed guest-memory preflight
 - [x] bounded regular-file resizing via `fd_filestat_set_size` with `FD_FILESTAT_SET_SIZE` attenuation, shrink/zero-fill extension semantics, cursor preservation, writable-file policy enforcement, and the existing fixed 16 MiB file-size ceiling
+- [x] capability-scoped pathname unlink lifecycle via `path_unlink_file` with `PATH_UNLINK_FILE` attenuation, namespace/open-descriptor separation, live `nlink` transition, and fail-closed path handling
 - [x] capability-scoped writable/create filesystem semantics with writable preopens, bounded `path_open(O_CREAT)`, sequential cursor-based `fd_write`, cursor-preserving `fd_pwrite`, sparse zero-fill, rights attenuation, and no ambient host paths
 - [x] initial WASI-specific differential/interop evidence for deterministic process arguments and environment against pinned Wasmtime-WASI 37.0.3, comparing errno results and exact guest-memory layouts
 - [x] deterministic WASI descriptor I/O differential/interop evidence against pinned Wasmtime-WASI 37.0.3 for sequential stdin reads, EOF, `nread` / `nwritten`, exact guest-memory state, and captured stdout
 - [x] deterministic writable regular-file resize lifecycle differential/interop evidence against pinned Wasmtime-WASI 37.0.3 using an isolated writable preopen, comparing errno results, live sizes, cursor preservation, and final zero-filled file bytes
+- [x] deterministic pathname-unlink/open-handle lifecycle differential/interop evidence against pinned Wasmtime-WASI 37.0.3 using an isolated writable preopen, comparing unlink/reopen errno, live link count, preserved open-handle I/O, and pathname disappearance
 - [ ] broaden WASI differential/interop coverage to clocks/entropy with controllable reference providers and additional filesystem semantics where host resources can be isolated deterministically
 
 A future JIT is intentionally out of scope until the interpreter and validation model are trustworthy.

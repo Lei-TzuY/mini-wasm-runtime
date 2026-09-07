@@ -12,6 +12,7 @@ use crate::{
 
 const WASI_MODULE: &str = "wasi_snapshot_preview1";
 const PATH_OPEN_NAME: &str = "path_open";
+const PATH_UNLINK_FILE_NAME: &str = "path_unlink_file";
 const FD_CLOSE_NAME: &str = "fd_close";
 const FD_SEEK_NAME: &str = "fd_seek";
 const FD_TELL_NAME: &str = "fd_tell";
@@ -80,6 +81,7 @@ struct MountedFile {
     relative_path: Vec<u8>,
     inode: u64,
     bytes: Rc<RefCell<Vec<u8>>>,
+    link_count: Rc<RefCell<u64>>,
     writable: bool,
 }
 
@@ -87,6 +89,7 @@ struct MountedFile {
 struct OpenFile {
     inode: u64,
     bytes: Rc<RefCell<Vec<u8>>>,
+    link_count: Rc<RefCell<u64>>,
     offset: u64,
     rights_base: u64,
 }
@@ -154,6 +157,12 @@ enum OpenError {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum UnlinkError {
+    NotFound,
+    NotCapable,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct OpenedFile {
     fd: u32,
     created: bool,
@@ -207,11 +216,13 @@ impl Filesystem {
             .checked_add(1)
             .expect("bounded mounted-file count prevents inode exhaustion");
         state.next_inode = inode;
+        let link_count = Rc::new(RefCell::new(1));
         state.mounted_files.push(MountedFile {
             preopen_fd,
             relative_path: relative_path.to_vec(),
             inode,
             bytes: Rc::new(RefCell::new(bytes.to_vec())),
+            link_count,
             writable,
         });
         Ok(())
@@ -388,11 +399,12 @@ impl Filesystem {
             return Err(DescriptorFilestatError::NotCapable);
         }
         let size = file.bytes.borrow().len() as u64;
+        let nlink = *file.link_count.borrow();
         Ok(DescriptorFilestat {
             dev: SYNTHETIC_DEVICE_ID,
             ino: file.inode,
             filetype: FILETYPE_REGULAR_FILE,
-            nlink: 1,
+            nlink,
             size,
             atim: LOGICAL_EPOCH_NS,
             mtim: LOGICAL_EPOCH_NS,
@@ -517,6 +529,55 @@ impl Filesystem {
                 }
 
                 Ok(vec![Value::I32(ERRNO_SUCCESS)])
+            },
+        )?;
+
+        let unlink_filesystem = self.clone();
+        registry.register_values(
+            WASI_MODULE,
+            PATH_UNLINK_FILE_NAME,
+            vec![ValueType::I32, ValueType::I32, ValueType::I32],
+            vec![ValueType::I32],
+            HostCapabilities::MEMORY_READ,
+            move |context, args| {
+                let [Value::I32(dir_fd), Value::I32(path_ptr), Value::I32(path_len)] = args else {
+                    return Err(HostError::message(
+                        "validated wasi path_unlink_file signature received invalid arguments",
+                    ));
+                };
+
+                let dir_fd = *dir_fd as u32;
+                if !unlink_filesystem.has_preopen(dir_fd) {
+                    return Ok(vec![Value::I32(ERRNO_BADF)]);
+                }
+                if !unlink_filesystem.is_writable_preopen(dir_fd) {
+                    return Ok(vec![Value::I32(ERRNO_NOTCAPABLE)]);
+                }
+
+                let path_len = *path_len as u32 as usize;
+                if path_len > MAX_RELATIVE_PATH_BYTES {
+                    return Ok(vec![Value::I32(ERRNO_NAMETOOLONG)]);
+                }
+                let path = match context.read_memory(*path_ptr as u32, path_len) {
+                    Ok(path) => path,
+                    Err(_) => return Ok(vec![Value::I32(ERRNO_FAULT)]),
+                };
+                match validate_guest_path(&path) {
+                    Ok(()) => {}
+                    Err(GuestPathError::Empty) => return Ok(vec![Value::I32(ERRNO_INVAL)]),
+                    Err(GuestPathError::TooLong) => {
+                        return Ok(vec![Value::I32(ERRNO_NAMETOOLONG)]);
+                    }
+                    Err(GuestPathError::Unsafe) => {
+                        return Ok(vec![Value::I32(ERRNO_NOTCAPABLE)]);
+                    }
+                }
+
+                match unlink_filesystem.unlink(dir_fd, &path) {
+                    Ok(()) => Ok(vec![Value::I32(ERRNO_SUCCESS)]),
+                    Err(UnlinkError::NotFound) => Ok(vec![Value::I32(ERRNO_NOENT)]),
+                    Err(UnlinkError::NotCapable) => Ok(vec![Value::I32(ERRNO_NOTCAPABLE)]),
+                }
             },
         )?;
 
@@ -781,35 +842,45 @@ impl Filesystem {
             .mounted_files
             .iter()
             .find(|file| file.preopen_fd == preopen_fd && file.relative_path.as_slice() == path)
-            .map(|file| (file.inode, file.bytes.clone(), file.writable));
-
-        let (inode, bytes, writable, created) = if let Some((inode, bytes, writable)) = existing {
-            (inode, bytes, writable, false)
-        } else {
-            if !create {
-                return Err(OpenError::NotFound);
-            }
-            if !state.writable_preopens.contains(&preopen_fd) {
-                return Err(OpenError::NotCapable);
-            }
-            if state.mounted_files.len() >= MAX_MOUNTED_FILES {
-                return Err(OpenError::TooManyFiles);
-            }
-            let inode = state
-                .next_inode
-                .checked_add(1)
-                .ok_or(OpenError::TooManyFiles)?;
-            state.next_inode = inode;
-            let bytes = Rc::new(RefCell::new(Vec::new()));
-            state.mounted_files.push(MountedFile {
-                preopen_fd,
-                relative_path: path.to_vec(),
-                inode,
-                bytes: bytes.clone(),
-                writable: true,
+            .map(|file| {
+                (
+                    file.inode,
+                    file.bytes.clone(),
+                    file.link_count.clone(),
+                    file.writable,
+                )
             });
-            (inode, bytes, true, true)
-        };
+
+        let (inode, bytes, link_count, writable, created) =
+            if let Some((inode, bytes, link_count, writable)) = existing {
+                (inode, bytes, link_count, writable, false)
+            } else {
+                if !create {
+                    return Err(OpenError::NotFound);
+                }
+                if !state.writable_preopens.contains(&preopen_fd) {
+                    return Err(OpenError::NotCapable);
+                }
+                if state.mounted_files.len() >= MAX_MOUNTED_FILES {
+                    return Err(OpenError::TooManyFiles);
+                }
+                let inode = state
+                    .next_inode
+                    .checked_add(1)
+                    .ok_or(OpenError::TooManyFiles)?;
+                state.next_inode = inode;
+                let bytes = Rc::new(RefCell::new(Vec::new()));
+                let link_count = Rc::new(RefCell::new(1));
+                state.mounted_files.push(MountedFile {
+                    preopen_fd,
+                    relative_path: path.to_vec(),
+                    inode,
+                    bytes: bytes.clone(),
+                    link_count: link_count.clone(),
+                    writable: true,
+                });
+                (inode, bytes, link_count, true, true)
+            };
 
         let mutation_rights = RIGHTS_FD_WRITE | RIGHTS_FD_FILESTAT_SET_SIZE;
         if rights_base & mutation_rights != 0
@@ -826,6 +897,7 @@ impl Filesystem {
             OpenFile {
                 inode,
                 bytes,
+                link_count,
                 offset: 0,
                 rights_base,
             },
@@ -834,6 +906,21 @@ impl Filesystem {
             fd: candidate,
             created,
         })
+    }
+
+    fn unlink(&self, preopen_fd: u32, path: &[u8]) -> Result<(), UnlinkError> {
+        let mut state = self.state.borrow_mut();
+        if !state.writable_preopens.contains(&preopen_fd) {
+            return Err(UnlinkError::NotCapable);
+        }
+        let Some(index) = state.mounted_files.iter().position(|file| {
+            file.preopen_fd == preopen_fd && file.relative_path.as_slice() == path
+        }) else {
+            return Err(UnlinkError::NotFound);
+        };
+        let file = state.mounted_files.remove(index);
+        *file.link_count.borrow_mut() = 0;
+        Ok(())
     }
 
     fn rollback_open(&self, preopen_fd: u32, path: &[u8], opened: OpenedFile) {
