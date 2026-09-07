@@ -273,6 +273,19 @@ fn writable_policy_and_pwrite_fail_closed_without_mutating_file_or_results() {
     );
     assert_eq!(wasi.file_snapshot("/scratch", "seed.bin").unwrap(), b"abc");
 
+    memory.write(132, &0u32.to_le_bytes()).unwrap();
+    memory.write(160, &0xdeadbeefu32.to_le_bytes()).unwrap();
+    assert_eq!(
+        errno(&mut vm, "pwrite", &pwrite_args(fd, 100, 160)),
+        ERRNO_SUCCESS
+    );
+    assert_eq!(
+        u32::from_le_bytes(memory.read(160, 4).unwrap().try_into().unwrap()),
+        0
+    );
+    assert_eq!(wasi.file_snapshot("/scratch", "seed.bin").unwrap(), b"abc");
+
+    memory.write(132, &1u32.to_le_bytes()).unwrap();
     assert_eq!(
         errno(&mut vm, "pwrite", &pwrite_args(fd, 1, 65_534)),
         ERRNO_FAULT
