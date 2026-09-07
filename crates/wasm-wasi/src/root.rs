@@ -1,7 +1,8 @@
 //! Bounded WASI Preview1 host capabilities for `mini-wasm-runtime`.
 //!
 //! Existing descriptor, argument, and environment capabilities remain isolated in the original
-//! implementation module. This crate root layers typed process termination over that stable API.
+//! implementation module. This crate root layers typed process termination and deterministic
+//! injected entropy over that stable API.
 
 #[path = "lib.rs"]
 mod base;
@@ -17,9 +18,19 @@ use wasm_runtime::{
     HostCapabilities, HostError, HostRegistry, HostRegistryError, Instance, RuntimeError, Value,
 };
 
+pub const ERRNO_IO: i32 = 29;
+
 const PROC_EXIT_MODULE: &str = "wasi_snapshot_preview1";
 const PROC_EXIT_NAME: &str = "proc_exit";
 const PROC_EXIT_CONTROL_TRANSFER: &str = "wasi proc_exit control transfer";
+const RANDOM_GET_NAME: &str = "random_get";
+const DEFAULT_MAX_RANDOM_BYTES: usize = 1024 * 1024;
+
+#[derive(Debug, Default)]
+struct EntropyState {
+    bytes: Vec<u8>,
+    offset: usize,
+}
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum WasiInvocationOutcome {
@@ -31,6 +42,8 @@ pub enum WasiInvocationOutcome {
 pub struct WasiPreview1 {
     base: base::WasiPreview1,
     exit_code: Rc<RefCell<Option<u32>>>,
+    entropy: Rc<RefCell<EntropyState>>,
+    max_random_bytes: usize,
 }
 
 impl Default for WasiPreview1 {
@@ -38,6 +51,8 @@ impl Default for WasiPreview1 {
         Self {
             base: base::WasiPreview1::new(),
             exit_code: Rc::new(RefCell::new(None)),
+            entropy: Rc::new(RefCell::new(EntropyState::default())),
+            max_random_bytes: DEFAULT_MAX_RANDOM_BYTES,
         }
     }
 }
@@ -99,8 +114,62 @@ impl WasiPreview1 {
         self
     }
 
+    pub fn with_random_bytes<B: AsRef<[u8]>>(mut self, bytes: B) -> Self {
+        self.entropy = Rc::new(RefCell::new(EntropyState {
+            bytes: bytes.as_ref().to_vec(),
+            offset: 0,
+        }));
+        self
+    }
+
+    pub fn with_random_limit(mut self, max_random_bytes: usize) -> Self {
+        self.max_random_bytes = max_random_bytes;
+        self
+    }
+
     pub fn register(&self, registry: &mut HostRegistry) -> Result<(), HostRegistryError> {
         self.base.register(registry)?;
+
+        let entropy = self.entropy.clone();
+        let max_random_bytes = self.max_random_bytes;
+        registry.register_values(
+            PROC_EXIT_MODULE,
+            RANDOM_GET_NAME,
+            vec![ValueType::I32, ValueType::I32],
+            vec![ValueType::I32],
+            HostCapabilities::MEMORY_READ_WRITE,
+            move |context, args| {
+                let [Value::I32(buffer), Value::I32(buffer_len)] = args else {
+                    return Err(HostError::message(
+                        "validated wasi random_get signature received non-i32 arguments",
+                    ));
+                };
+
+                let len = *buffer_len as u32 as usize;
+                if len > max_random_bytes {
+                    return Ok(vec![Value::I32(ERRNO_INVAL)]);
+                }
+
+                let bytes = {
+                    let state = entropy.borrow();
+                    let remaining = state.bytes.len().saturating_sub(state.offset);
+                    if len > remaining {
+                        return Ok(vec![Value::I32(ERRNO_IO)]);
+                    }
+                    state.bytes[state.offset..state.offset + len].to_vec()
+                };
+
+                if context.read_memory(*buffer as u32, len).is_err() {
+                    return Ok(vec![Value::I32(ERRNO_FAULT)]);
+                }
+                if context.write_memory(*buffer as u32, &bytes).is_err() {
+                    return Ok(vec![Value::I32(ERRNO_FAULT)]);
+                }
+                entropy.borrow_mut().offset += len;
+
+                Ok(vec![Value::I32(ERRNO_SUCCESS)])
+            },
+        )?;
 
         let exit_code = self.exit_code.clone();
         registry.register_values(
