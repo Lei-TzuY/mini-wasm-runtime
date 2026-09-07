@@ -5,6 +5,8 @@
 //! bounded and fail closed before externally visible I/O side effects are committed.
 
 use std::{cell::RefCell, rc::Rc};
+
+use crate::filesystem::{DescriptorReadError, Filesystem};
 use wasm_parser::ValueType;
 use wasm_runtime::{HostCapabilities, HostError, HostRegistry, HostRegistryError, Value};
 
@@ -12,11 +14,14 @@ pub const ERRNO_SUCCESS: i32 = 0;
 pub const ERRNO_BADF: i32 = 8;
 pub const ERRNO_FAULT: i32 = 21;
 pub const ERRNO_INVAL: i32 = 28;
+pub const ERRNO_NOTCAPABLE: i32 = 76;
 
 pub const FILETYPE_CHARACTER_DEVICE: u8 = 2;
 pub const FILETYPE_DIRECTORY: u8 = 3;
+pub const FILETYPE_REGULAR_FILE: u8 = 4;
 pub const RIGHTS_FD_READ: u64 = 1 << 1;
 pub const RIGHTS_FD_WRITE: u64 = 1 << 6;
+pub const RIGHTS_PATH_OPEN: u64 = 1 << 13;
 
 const FDSTAT_SIZE: usize = 24;
 const DEFAULT_MAX_IOVECS: u32 = 1_024;
@@ -100,6 +105,7 @@ pub struct WasiPreview1 {
     args: Vec<Vec<u8>>,
     env: Vec<Vec<u8>>,
     extra_fd_stats: Vec<ExtraFdStat>,
+    filesystem: Filesystem,
     max_iovecs: u32,
     max_write_bytes: usize,
     max_read_iovecs: u32,
@@ -119,6 +125,7 @@ impl Default for WasiPreview1 {
             args: Vec::new(),
             env: Vec::new(),
             extra_fd_stats: Vec::new(),
+            filesystem: Filesystem::default(),
             max_iovecs: DEFAULT_MAX_IOVECS,
             max_write_bytes: DEFAULT_MAX_WRITE_BYTES,
             max_read_iovecs: DEFAULT_MAX_IOVECS,
@@ -224,6 +231,11 @@ impl WasiPreview1 {
         self
     }
 
+    pub(crate) fn with_filesystem(mut self, filesystem: Filesystem) -> Self {
+        self.filesystem = filesystem;
+        self
+    }
+
     pub fn register(&self, registry: &mut HostRegistry) -> Result<(), HostRegistryError> {
         let stdout = self.stdout.clone();
         let stderr = self.stderr.clone();
@@ -313,6 +325,7 @@ impl WasiPreview1 {
         )?;
 
         let stdin = self.stdin.clone();
+        let filesystem = self.filesystem.clone();
         let max_read_iovecs = self.max_read_iovecs;
         let max_read_bytes = self.max_read_bytes;
         registry.register_values(
@@ -335,9 +348,20 @@ impl WasiPreview1 {
                     ));
                 };
 
-                if *fd != 0 {
-                    return Ok(vec![Value::I32(ERRNO_BADF)]);
-                }
+                let file_fd = if *fd == 0 {
+                    None
+                } else {
+                    let fd = *fd as u32;
+                    match filesystem.ensure_readable(fd) {
+                        Ok(()) => Some(fd),
+                        Err(DescriptorReadError::BadFd) => {
+                            return Ok(vec![Value::I32(ERRNO_BADF)]);
+                        }
+                        Err(DescriptorReadError::NotCapable) => {
+                            return Ok(vec![Value::I32(ERRNO_NOTCAPABLE)]);
+                        }
+                    }
+                };
 
                 let iovs_len = *iovs_len as u32;
                 if iovs_len > max_read_iovecs {
@@ -379,7 +403,20 @@ impl WasiPreview1 {
                     return Ok(vec![Value::I32(ERRNO_FAULT)]);
                 }
 
-                let bytes = stdin.peek(total_capacity);
+                let bytes = if let Some(fd) = file_fd {
+                    match filesystem.peek(fd, total_capacity) {
+                        Ok(bytes) => bytes,
+                        Err(DescriptorReadError::BadFd) => {
+                            return Ok(vec![Value::I32(ERRNO_BADF)]);
+                        }
+                        Err(DescriptorReadError::NotCapable) => {
+                            return Ok(vec![Value::I32(ERRNO_NOTCAPABLE)]);
+                        }
+                    }
+                } else {
+                    stdin.peek(total_capacity)
+                };
+
                 let mut copied = 0usize;
                 for (pointer, length) in destinations {
                     if copied == bytes.len() {
@@ -403,13 +440,23 @@ impl WasiPreview1 {
                 {
                     return Ok(vec![Value::I32(ERRNO_FAULT)]);
                 }
-                stdin.advance(copied);
+
+                if let Some(fd) = file_fd {
+                    if filesystem.advance(fd, copied).is_err() {
+                        return Err(HostError::message(
+                            "WASI read-only descriptor changed during fd_read",
+                        ));
+                    }
+                } else {
+                    stdin.advance(copied);
+                }
 
                 Ok(vec![Value::I32(ERRNO_SUCCESS)])
             },
         )?;
 
         let extra_fd_stats = self.extra_fd_stats.clone();
+        let fdstat_filesystem = self.filesystem.clone();
         registry.register_values(
             "wasi_snapshot_preview1",
             "fd_fdstat_get",
@@ -427,12 +474,15 @@ impl WasiPreview1 {
                     0 => (FILETYPE_CHARACTER_DEVICE, RIGHTS_FD_READ, 0),
                     1 | 2 => (FILETYPE_CHARACTER_DEVICE, RIGHTS_FD_WRITE, 0),
                     other => {
-                        let Some(entry) =
+                        if let Some(entry) =
                             extra_fd_stats.iter().find(|entry| entry.fd == other as u32)
-                        else {
+                        {
+                            (entry.filetype, entry.rights_base, entry.rights_inheriting)
+                        } else if let Some(stat) = fdstat_filesystem.fdstat(other as u32) {
+                            stat
+                        } else {
                             return Ok(vec![Value::I32(ERRNO_BADF)]);
-                        };
-                        (entry.filetype, entry.rights_base, entry.rights_inheriting)
+                        }
                     }
                 };
 
