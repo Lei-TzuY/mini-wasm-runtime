@@ -111,7 +111,8 @@ fn reference_errno(
 }
 
 fn run_reference(engine: &Engine, bytes: &[u8], args: &[&str], env: &[(&str, &str)]) -> Snapshot {
-    let module = ReferenceModule::new(engine, bytes).expect("compile WASI interop module in Wasmtime");
+    let module =
+        ReferenceModule::new(engine, bytes).expect("compile WASI interop module in Wasmtime");
     let mut builder = WasiCtxBuilder::new();
     builder.args(args).envs(env);
     let mut store = Store::new(engine, builder.build_p1());
@@ -162,9 +163,15 @@ fn write_string_vector(memory: &mut [u8], pointers: usize, payload: usize, value
 fn expected_snapshot(args: &[&str], env: &[(&str, &str)]) -> Snapshot {
     let mut memory = vec![0_u8; SNAPSHOT_BYTES];
     let arg_values: Vec<String> = args.iter().map(|arg| (*arg).to_owned()).collect();
-    let env_values: Vec<String> = env.iter().map(|(key, value)| format!("{key}={value}")).collect();
+    let env_values: Vec<String> = env
+        .iter()
+        .map(|(key, value)| format!("{key}={value}"))
+        .collect();
     let args_bytes = arg_values.iter().map(|arg| arg.len() + 1).sum::<usize>();
-    let env_bytes = env_values.iter().map(|entry| entry.len() + 1).sum::<usize>();
+    let env_bytes = env_values
+        .iter()
+        .map(|entry| entry.len() + 1)
+        .sum::<usize>();
 
     write_u32(&mut memory, ARGS_COUNT_PTR, arg_values.len() as u32);
     write_u32(&mut memory, ARGS_SIZE_PTR, args_bytes as u32);
@@ -187,16 +194,16 @@ fn assert_case_matches_reference(args: &[&str], env: &[(&str, &str)]) {
     let expected = expected_snapshot(args, env);
 
     assert_eq!(mini, expected, "mini WASI Preview1 layout mismatch");
-    assert_eq!(reference, expected, "Wasmtime WASI Preview1 layout mismatch");
+    assert_eq!(
+        reference, expected,
+        "Wasmtime WASI Preview1 layout mismatch"
+    );
     assert_eq!(mini, reference, "WASI Preview1 differential mismatch");
 }
 
 #[test]
 fn deterministic_args_and_environment_match_wasmtime_wasi() {
-    assert_case_matches_reference(
-        &["app", "--flag"],
-        &[("MODE", "test"), ("EMPTY", "")],
-    );
+    assert_case_matches_reference(&["app", "--flag"], &[("MODE", "test"), ("EMPTY", "")]);
 }
 
 #[test]
