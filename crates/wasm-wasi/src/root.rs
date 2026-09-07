@@ -33,9 +33,11 @@ pub const ERRNO_MFILE: i32 = 33;
 pub const ERRNO_NAMETOOLONG: i32 = 37;
 pub const ERRNO_NOENT: i32 = 44;
 pub const ERRNO_NOSPC: i32 = 51;
+pub const ERRNO_NOTSUP: i32 = 58;
 pub const ERRNO_OVERFLOW: i32 = 61;
 pub const RIGHTS_FD_SEEK: u64 = 1 << 2;
 pub const RIGHTS_FD_TELL: u64 = 1 << 5;
+pub const RIGHTS_FD_READDIR: u64 = 1 << 14;
 pub const RIGHTS_PATH_CREATE_FILE: u64 = 1 << 10;
 pub const RIGHTS_PATH_LINK_SOURCE: u64 = 1 << 11;
 pub const RIGHTS_PATH_LINK_TARGET: u64 = 1 << 12;
@@ -183,6 +185,7 @@ impl WasiPreview1 {
         self.filesystem.reserve_preopen(fd, writable);
         let rights_base = if writable {
             RIGHTS_PATH_OPEN
+                | RIGHTS_FD_READDIR
                 | RIGHTS_PATH_CREATE_FILE
                 | RIGHTS_PATH_LINK_SOURCE
                 | RIGHTS_PATH_LINK_TARGET
@@ -190,7 +193,7 @@ impl WasiPreview1 {
                 | RIGHTS_PATH_RENAME_TARGET
                 | RIGHTS_PATH_UNLINK_FILE
         } else {
-            RIGHTS_PATH_OPEN
+            RIGHTS_PATH_OPEN | RIGHTS_FD_READDIR
         };
         let rights_inheriting = if writable {
             RIGHTS_FD_READ
