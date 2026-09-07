@@ -131,12 +131,7 @@ impl WasiPreview1 {
         self
     }
 
-    pub fn with_clock(
-        mut self,
-        id: WasiClockId,
-        resolution_ns: u64,
-        time_ns: u64,
-    ) -> Self {
+    pub fn with_clock(mut self, id: WasiClockId, resolution_ns: u64, time_ns: u64) -> Self {
         self.clocks.configure(id, resolution_ns, time_ns);
         self
     }
