@@ -6,7 +6,9 @@
 
 use std::{cell::RefCell, rc::Rc};
 
-use crate::filesystem::{DescriptorReadError, DescriptorWriteError, Filesystem};
+use crate::filesystem::{
+    DescriptorFilestatError, DescriptorReadError, DescriptorWriteError, Filesystem,
+};
 use wasm_parser::ValueType;
 use wasm_runtime::{HostCapabilities, HostError, HostRegistry, HostRegistryError, Value};
 
@@ -21,9 +23,11 @@ pub const FILETYPE_DIRECTORY: u8 = 3;
 pub const FILETYPE_REGULAR_FILE: u8 = 4;
 pub const RIGHTS_FD_READ: u64 = 1 << 1;
 pub const RIGHTS_FD_WRITE: u64 = 1 << 6;
+pub const RIGHTS_FD_FILESTAT_GET: u64 = 1 << 21;
 pub const RIGHTS_PATH_OPEN: u64 = 1 << 13;
 
 const FDSTAT_SIZE: usize = 24;
+const FILESTAT_SIZE: usize = 64;
 const DEFAULT_MAX_IOVECS: u32 = 1_024;
 const DEFAULT_MAX_READ_BYTES: usize = 16 * 1024 * 1024;
 const DEFAULT_MAX_WRITE_BYTES: usize = 16 * 1024 * 1024;
@@ -610,6 +614,7 @@ impl WasiPreview1 {
 )?;
 
         let extra_fd_stats = self.extra_fd_stats.clone();
+        let filestat_non_files = self.extra_fd_stats.clone();
         let fdstat_filesystem = self.filesystem.clone();
         registry.register_values(
             "wasi_snapshot_preview1",
@@ -646,6 +651,56 @@ impl WasiPreview1 {
                 bytes[16..24].copy_from_slice(&rights_inheriting.to_le_bytes());
 
                 if context.write_memory(*fdstat as u32, &bytes).is_err() {
+                    return Ok(vec![Value::I32(ERRNO_FAULT)]);
+                }
+
+                Ok(vec![Value::I32(ERRNO_SUCCESS)])
+            },
+        )?;
+
+        let filestat_filesystem = self.filesystem.clone();
+        registry.register_values(
+            "wasi_snapshot_preview1",
+            "fd_filestat_get",
+            vec![ValueType::I32, ValueType::I32],
+            vec![ValueType::I32],
+            HostCapabilities::MEMORY_READ_WRITE,
+            move |context, args| {
+                let [Value::I32(fd), Value::I32(filestat_ptr)] = args else {
+                    return Err(HostError::message(
+                        "validated wasi fd_filestat_get signature received non-i32 arguments",
+                    ));
+                };
+
+                let fd = *fd as u32;
+                if fd <= 2 || filestat_non_files.iter().any(|entry| entry.fd == fd) {
+                    return Ok(vec![Value::I32(ERRNO_NOTCAPABLE)]);
+                }
+                let stat = match filestat_filesystem.filestat(fd) {
+                    Ok(stat) => stat,
+                    Err(DescriptorFilestatError::BadFd) => {
+                        return Ok(vec![Value::I32(ERRNO_BADF)]);
+                    }
+                    Err(DescriptorFilestatError::NotCapable) => {
+                        return Ok(vec![Value::I32(ERRNO_NOTCAPABLE)]);
+                    }
+                };
+
+                let ptr = *filestat_ptr as u32;
+                if context.read_memory(ptr, FILESTAT_SIZE).is_err() {
+                    return Ok(vec![Value::I32(ERRNO_FAULT)]);
+                }
+
+                let mut bytes = [0u8; FILESTAT_SIZE];
+                bytes[0..8].copy_from_slice(&stat.dev.to_le_bytes());
+                bytes[8..16].copy_from_slice(&stat.ino.to_le_bytes());
+                bytes[16] = stat.filetype;
+                bytes[24..32].copy_from_slice(&stat.nlink.to_le_bytes());
+                bytes[32..40].copy_from_slice(&stat.size.to_le_bytes());
+                bytes[40..48].copy_from_slice(&stat.atim.to_le_bytes());
+                bytes[48..56].copy_from_slice(&stat.mtim.to_le_bytes());
+                bytes[56..64].copy_from_slice(&stat.ctim.to_le_bytes());
+                if context.write_memory(ptr, &bytes).is_err() {
                     return Ok(vec![Value::I32(ERRNO_FAULT)]);
                 }
 

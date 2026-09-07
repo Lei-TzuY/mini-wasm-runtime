@@ -6,7 +6,8 @@ use wasm_runtime::{HostCapabilities, HostError, HostRegistry, HostRegistryError,
 use crate::{
     ERRNO_BADF, ERRNO_FAULT, ERRNO_FBIG, ERRNO_INVAL, ERRNO_MFILE, ERRNO_NAMETOOLONG, ERRNO_NOENT,
     ERRNO_NOSPC, ERRNO_NOTCAPABLE, ERRNO_OVERFLOW, ERRNO_SUCCESS, FILETYPE_REGULAR_FILE,
-    OFLAGS_CREAT, RIGHTS_FD_READ, RIGHTS_FD_SEEK, RIGHTS_FD_TELL, RIGHTS_FD_WRITE,
+    OFLAGS_CREAT, RIGHTS_FD_FILESTAT_GET, RIGHTS_FD_READ, RIGHTS_FD_SEEK, RIGHTS_FD_TELL,
+    RIGHTS_FD_WRITE,
 };
 
 const WASI_MODULE: &str = "wasi_snapshot_preview1";
@@ -24,6 +25,8 @@ const MAX_RELATIVE_PATH_BYTES: usize = 4 * 1024;
 const MAX_FILE_BYTES: usize = 16 * 1024 * 1024;
 const MAX_OPEN_FILES: usize = 256;
 const MAX_PWRITE_IOVECS: u32 = 1_024;
+const SYNTHETIC_DEVICE_ID: u64 = 1;
+const LOGICAL_EPOCH_NS: u64 = 0;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum WasiFilesystemError {
@@ -74,12 +77,14 @@ impl std::error::Error for WasiFilesystemError {}
 struct MountedFile {
     preopen_fd: u32,
     relative_path: Vec<u8>,
+    inode: u64,
     bytes: Rc<RefCell<Vec<u8>>>,
     writable: bool,
 }
 
 #[derive(Debug, Clone)]
 struct OpenFile {
+    inode: u64,
     bytes: Rc<RefCell<Vec<u8>>>,
     offset: u64,
     rights_base: u64,
@@ -87,6 +92,7 @@ struct OpenFile {
 
 #[derive(Debug, Default)]
 struct FilesystemState {
+    next_inode: u64,
     reserved_preopens: Vec<u32>,
     writable_preopens: Vec<u32>,
     mounted_files: Vec<MountedFile>,
@@ -118,6 +124,24 @@ pub(crate) enum DescriptorWriteError {
     BadFd,
     NotCapable,
     FileTooLarge,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum DescriptorFilestatError {
+    BadFd,
+    NotCapable,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct DescriptorFilestat {
+    pub(crate) dev: u64,
+    pub(crate) ino: u64,
+    pub(crate) filetype: u8,
+    pub(crate) nlink: u64,
+    pub(crate) size: u64,
+    pub(crate) atim: u64,
+    pub(crate) mtim: u64,
+    pub(crate) ctim: u64,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -177,9 +201,15 @@ impl Filesystem {
             return Err(WasiFilesystemError::DuplicateFile);
         }
 
+        let inode = state
+            .next_inode
+            .checked_add(1)
+            .expect("bounded mounted-file count prevents inode exhaustion");
+        state.next_inode = inode;
         state.mounted_files.push(MountedFile {
             preopen_fd,
             relative_path: relative_path.to_vec(),
+            inode,
             bytes: Rc::new(RefCell::new(bytes.to_vec())),
             writable,
         });
@@ -348,6 +378,27 @@ impl Filesystem {
             .map(|file| (FILETYPE_REGULAR_FILE, file.rights_base, 0))
     }
 
+    pub(crate) fn filestat(&self, fd: u32) -> Result<DescriptorFilestat, DescriptorFilestatError> {
+        let state = self.state.borrow();
+        let Some(file) = state.open_files.get(&fd) else {
+            return Err(DescriptorFilestatError::BadFd);
+        };
+        if file.rights_base & RIGHTS_FD_FILESTAT_GET == 0 {
+            return Err(DescriptorFilestatError::NotCapable);
+        }
+        let size = file.bytes.borrow().len() as u64;
+        Ok(DescriptorFilestat {
+            dev: SYNTHETIC_DEVICE_ID,
+            ino: file.inode,
+            filetype: FILETYPE_REGULAR_FILE,
+            nlink: 1,
+            size,
+            atim: LOGICAL_EPOCH_NS,
+            mtim: LOGICAL_EPOCH_NS,
+            ctim: LOGICAL_EPOCH_NS,
+        })
+    }
+
     pub(crate) fn register(&self, registry: &mut HostRegistry) -> Result<(), HostRegistryError> {
         let open_filesystem = self.clone();
         registry.register_values(
@@ -399,8 +450,11 @@ impl Filesystem {
 
                 let requested_base = *rights_base as u64;
                 let requested_inheriting = *rights_inheriting as u64;
-                let allowed_base =
-                    RIGHTS_FD_READ | RIGHTS_FD_WRITE | RIGHTS_FD_SEEK | RIGHTS_FD_TELL;
+                let allowed_base = RIGHTS_FD_READ
+                    | RIGHTS_FD_WRITE
+                    | RIGHTS_FD_SEEK
+                    | RIGHTS_FD_TELL
+                    | RIGHTS_FD_FILESTAT_GET;
                 if requested_base & !allowed_base != 0 || requested_inheriting != 0 {
                     return Ok(vec![Value::I32(ERRNO_NOTCAPABLE)]);
                 }
@@ -684,10 +738,10 @@ impl Filesystem {
             .mounted_files
             .iter()
             .find(|file| file.preopen_fd == preopen_fd && file.relative_path.as_slice() == path)
-            .map(|file| (file.bytes.clone(), file.writable));
+            .map(|file| (file.inode, file.bytes.clone(), file.writable));
 
-        let (bytes, writable, created) = if let Some((bytes, writable)) = existing {
-            (bytes, writable, false)
+        let (inode, bytes, writable, created) = if let Some((inode, bytes, writable)) = existing {
+            (inode, bytes, writable, false)
         } else {
             if !create {
                 return Err(OpenError::NotFound);
@@ -698,14 +752,20 @@ impl Filesystem {
             if state.mounted_files.len() >= MAX_MOUNTED_FILES {
                 return Err(OpenError::TooManyFiles);
             }
+            let inode = state
+                .next_inode
+                .checked_add(1)
+                .ok_or(OpenError::TooManyFiles)?;
+            state.next_inode = inode;
             let bytes = Rc::new(RefCell::new(Vec::new()));
             state.mounted_files.push(MountedFile {
                 preopen_fd,
                 relative_path: path.to_vec(),
+                inode,
                 bytes: bytes.clone(),
                 writable: true,
             });
-            (bytes, true, true)
+            (inode, bytes, true, true)
         };
 
         if rights_base & RIGHTS_FD_WRITE != 0
@@ -720,6 +780,7 @@ impl Filesystem {
         state.open_files.insert(
             candidate,
             OpenFile {
+                inode,
                 bytes,
                 offset: 0,
                 rights_base,
@@ -738,7 +799,11 @@ impl Filesystem {
             if let Some(index) = state.mounted_files.iter().position(|file| {
                 file.preopen_fd == preopen_fd && file.relative_path.as_slice() == path
             }) {
+                let inode = state.mounted_files[index].inode;
                 state.mounted_files.remove(index);
+                if state.next_inode == inode {
+                    state.next_inode = inode.saturating_sub(1);
+                }
             }
         }
     }
