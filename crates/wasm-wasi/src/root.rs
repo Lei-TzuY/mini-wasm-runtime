@@ -2,17 +2,19 @@
 //!
 //! Existing descriptor, argument, and environment capabilities remain isolated in the original
 //! implementation module. This crate root layers typed process termination plus deterministic
-//! injected entropy and clock snapshots over that stable API.
+//! injected entropy, clock snapshots, and bounded preopen discovery over that stable API.
 
 #[path = "lib.rs"]
 mod base;
 mod clock;
+mod preopen;
 
 pub use base::{
     OutputBuffer, ERRNO_BADF, ERRNO_FAULT, ERRNO_INVAL, ERRNO_SUCCESS, FILETYPE_CHARACTER_DEVICE,
-    RIGHTS_FD_READ, RIGHTS_FD_WRITE,
+    FILETYPE_DIRECTORY, RIGHTS_FD_READ, RIGHTS_FD_WRITE,
 };
 pub use clock::WasiClockId;
+pub use preopen::WasiPreopenError;
 
 use std::{cell::RefCell, rc::Rc};
 use wasm_parser::ValueType;
@@ -21,6 +23,7 @@ use wasm_runtime::{
 };
 
 pub const ERRNO_IO: i32 = 29;
+pub const ERRNO_NAMETOOLONG: i32 = 37;
 
 const PROC_EXIT_MODULE: &str = "wasi_snapshot_preview1";
 const PROC_EXIT_NAME: &str = "proc_exit";
@@ -47,6 +50,7 @@ pub struct WasiPreview1 {
     entropy: Rc<RefCell<EntropyState>>,
     max_random_bytes: usize,
     clocks: clock::ClockSet,
+    preopens: preopen::PreopenSet,
 }
 
 impl Default for WasiPreview1 {
@@ -57,6 +61,7 @@ impl Default for WasiPreview1 {
             entropy: Rc::new(RefCell::new(EntropyState::default())),
             max_random_bytes: DEFAULT_MAX_RANDOM_BYTES,
             clocks: clock::ClockSet::default(),
+            preopens: preopen::PreopenSet::default(),
         }
     }
 }
@@ -136,8 +141,15 @@ impl WasiPreview1 {
         self
     }
 
+    pub fn with_preopen<S: AsRef<str>>(mut self, guest_path: S) -> Result<Self, WasiPreopenError> {
+        let fd = self.preopens.add(guest_path.as_ref().as_bytes())?;
+        self.base = self.base.with_fdstat(fd, FILETYPE_DIRECTORY, 0, 0);
+        Ok(self)
+    }
+
     pub fn register(&self, registry: &mut HostRegistry) -> Result<(), HostRegistryError> {
         self.base.register(registry)?;
+        self.preopens.register(registry)?;
 
         let entropy = self.entropy.clone();
         let max_random_bytes = self.max_random_bytes;

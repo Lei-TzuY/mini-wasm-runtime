@@ -14,6 +14,7 @@ pub const ERRNO_FAULT: i32 = 21;
 pub const ERRNO_INVAL: i32 = 28;
 
 pub const FILETYPE_CHARACTER_DEVICE: u8 = 2;
+pub const FILETYPE_DIRECTORY: u8 = 3;
 pub const RIGHTS_FD_READ: u64 = 1 << 1;
 pub const RIGHTS_FD_WRITE: u64 = 1 << 6;
 
@@ -83,6 +84,14 @@ impl InputBuffer {
     }
 }
 
+#[derive(Debug, Clone, Copy)]
+struct ExtraFdStat {
+    fd: u32,
+    filetype: u8,
+    rights_base: u64,
+    rights_inheriting: u64,
+}
+
 #[derive(Debug, Clone)]
 pub struct WasiPreview1 {
     stdin: InputBuffer,
@@ -90,6 +99,7 @@ pub struct WasiPreview1 {
     stderr: OutputBuffer,
     args: Vec<Vec<u8>>,
     env: Vec<Vec<u8>>,
+    extra_fd_stats: Vec<ExtraFdStat>,
     max_iovecs: u32,
     max_write_bytes: usize,
     max_read_iovecs: u32,
@@ -108,6 +118,7 @@ impl Default for WasiPreview1 {
             stderr: OutputBuffer::default(),
             args: Vec::new(),
             env: Vec::new(),
+            extra_fd_stats: Vec::new(),
             max_iovecs: DEFAULT_MAX_IOVECS,
             max_write_bytes: DEFAULT_MAX_WRITE_BYTES,
             max_read_iovecs: DEFAULT_MAX_IOVECS,
@@ -193,6 +204,23 @@ impl WasiPreview1 {
     pub fn with_env_limits(mut self, max_env: usize, max_env_bytes: usize) -> Self {
         self.max_env = max_env;
         self.max_env_bytes = max_env_bytes;
+        self
+    }
+
+    pub(crate) fn with_fdstat(
+        mut self,
+        fd: u32,
+        filetype: u8,
+        rights_base: u64,
+        rights_inheriting: u64,
+    ) -> Self {
+        self.extra_fd_stats.retain(|entry| entry.fd != fd);
+        self.extra_fd_stats.push(ExtraFdStat {
+            fd,
+            filetype,
+            rights_base,
+            rights_inheriting,
+        });
         self
     }
 
@@ -381,6 +409,7 @@ impl WasiPreview1 {
             },
         )?;
 
+        let extra_fd_stats = self.extra_fd_stats.clone();
         registry.register_values(
             "wasi_snapshot_preview1",
             "fd_fdstat_get",
@@ -394,15 +423,23 @@ impl WasiPreview1 {
                     ));
                 };
 
-                let rights = match *fd {
-                    0 => RIGHTS_FD_READ,
-                    1 | 2 => RIGHTS_FD_WRITE,
-                    _ => return Ok(vec![Value::I32(ERRNO_BADF)]),
+                let (filetype, rights_base, rights_inheriting) = match *fd {
+                    0 => (FILETYPE_CHARACTER_DEVICE, RIGHTS_FD_READ, 0),
+                    1 | 2 => (FILETYPE_CHARACTER_DEVICE, RIGHTS_FD_WRITE, 0),
+                    other => {
+                        let Some(entry) =
+                            extra_fd_stats.iter().find(|entry| entry.fd == other as u32)
+                        else {
+                            return Ok(vec![Value::I32(ERRNO_BADF)]);
+                        };
+                        (entry.filetype, entry.rights_base, entry.rights_inheriting)
+                    }
                 };
 
                 let mut bytes = [0u8; FDSTAT_SIZE];
-                bytes[0] = FILETYPE_CHARACTER_DEVICE;
-                bytes[8..16].copy_from_slice(&rights.to_le_bytes());
+                bytes[0] = filetype;
+                bytes[8..16].copy_from_slice(&rights_base.to_le_bytes());
+                bytes[16..24].copy_from_slice(&rights_inheriting.to_le_bytes());
 
                 if context.write_memory(*fdstat as u32, &bytes).is_err() {
                     return Ok(vec![Value::I32(ERRNO_FAULT)]);
