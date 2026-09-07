@@ -2,10 +2,9 @@ use wasm_parser::parse_module;
 use wasm_runtime::{HostRegistry, Instance, MemoryHandle, Value};
 use wasm_wasi::{
     WasiPreview1, ERRNO_BADF, ERRNO_FBIG, ERRNO_NOTCAPABLE, ERRNO_SUCCESS, OFLAGS_CREAT,
-    RIGHTS_FD_SEEK, RIGHTS_FD_TELL,
+    RIGHTS_FD_FILESTAT_SET_SIZE, RIGHTS_FD_SEEK, RIGHTS_FD_TELL,
 };
 
-const RIGHTS_FD_FILESTAT_SET_SIZE: u64 = 1 << 22;
 const MAX_FILE_BYTES: u64 = 16 * 1024 * 1024;
 
 fn u32leb(out: &mut Vec<u8>, mut value: u32) {
