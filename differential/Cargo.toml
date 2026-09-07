@@ -11,7 +11,9 @@ publish = false
 [dependencies]
 wasm-parser = { path = "../crates/wasm-parser" }
 wasm-runtime = { path = "../crates/wasm-runtime" }
+wasm-wasi = { path = "../crates/wasm-wasi" }
 wasmtime = "=37.0.3"
+wasmtime-wasi = { version = "=37.0.3", default-features = false, features = ["p1"] }
 wat = "=1.257.1"
 
 [lints.rust]
