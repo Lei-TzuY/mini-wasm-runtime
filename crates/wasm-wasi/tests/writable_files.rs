@@ -206,11 +206,7 @@ fn writable_preopen_creates_sparse_file_and_pwrite_preserves_descriptor_cursor()
         3
     );
     assert_eq!(
-        errno(
-            &mut vm,
-            "tell",
-            &[Value::I32(fd as i32), Value::I32(168)],
-        ),
+        errno(&mut vm, "tell", &[Value::I32(fd as i32), Value::I32(168)],),
         ERRNO_SUCCESS
     );
     assert_eq!(
@@ -268,11 +264,7 @@ fn writable_policy_and_pwrite_fail_closed_without_mutating_file_or_results() {
 
     memory.write(160, &0xdeadbeefu32.to_le_bytes()).unwrap();
     assert_eq!(
-        errno(
-            &mut vm,
-            "pwrite",
-            &pwrite_args(fd, 16 * 1024 * 1024, 160),
-        ),
+        errno(&mut vm, "pwrite", &pwrite_args(fd, 16 * 1024 * 1024, 160),),
         ERRNO_FBIG
     );
     assert_eq!(
