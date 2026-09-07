@@ -197,8 +197,10 @@ enum LinkError {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum UnlinkError {
+    BadFd,
     NotFound,
     NotCapable,
+    NameTooLong,
     InvalidLinkCount,
 }
 
@@ -736,7 +738,8 @@ impl Filesystem {
                     | RIGHTS_PATH_OPEN
                     | RIGHTS_PATH_CREATE_DIRECTORY
                     | RIGHTS_PATH_CREATE_FILE
-                    | RIGHTS_PATH_REMOVE_DIRECTORY;
+                    | RIGHTS_PATH_REMOVE_DIRECTORY
+                    | RIGHTS_PATH_UNLINK_FILE;
                 let allowed_base = if directory { allowed_directory_base } else { allowed_file_base };
                 if requested_base & !allowed_base != 0 || requested_inheriting != 0 {
                     return Ok(vec![Value::I32(ERRNO_NOTCAPABLE)]);
@@ -1039,11 +1042,8 @@ impl Filesystem {
                 };
 
                 let dir_fd = *dir_fd as u32;
-                if !unlink_filesystem.has_preopen(dir_fd) {
+                if !unlink_filesystem.has_directory_descriptor(dir_fd) {
                     return Ok(vec![Value::I32(ERRNO_BADF)]);
-                }
-                if !unlink_filesystem.is_writable_preopen(dir_fd) {
-                    return Ok(vec![Value::I32(ERRNO_NOTCAPABLE)]);
                 }
 
                 let path_len = *path_len as u32 as usize;
@@ -1067,8 +1067,10 @@ impl Filesystem {
 
                 match unlink_filesystem.unlink(dir_fd, &path) {
                     Ok(()) => Ok(vec![Value::I32(ERRNO_SUCCESS)]),
+                    Err(UnlinkError::BadFd) => Ok(vec![Value::I32(ERRNO_BADF)]),
                     Err(UnlinkError::NotFound) => Ok(vec![Value::I32(ERRNO_NOENT)]),
                     Err(UnlinkError::NotCapable) => Ok(vec![Value::I32(ERRNO_NOTCAPABLE)]),
+                    Err(UnlinkError::NameTooLong) => Ok(vec![Value::I32(ERRNO_NAMETOOLONG)]),
                     Err(UnlinkError::InvalidLinkCount) => Ok(vec![Value::I32(ERRNO_IO)]),
                 }
             },
@@ -1663,13 +1665,17 @@ impl Filesystem {
         Ok(())
     }
 
-    fn unlink(&self, preopen_fd: u32, path: &[u8]) -> Result<(), UnlinkError> {
+    fn unlink(&self, dir_fd: u32, path: &[u8]) -> Result<(), UnlinkError> {
+        let (preopen_fd, full_path, _) =
+            match self.resolve_directory_path(dir_fd, path, RIGHTS_PATH_UNLINK_FILE) {
+                Ok(resolved) => resolved,
+                Err(ResolveDirectoryError::BadFd) => return Err(UnlinkError::BadFd),
+                Err(ResolveDirectoryError::NotCapable) => return Err(UnlinkError::NotCapable),
+                Err(ResolveDirectoryError::NameTooLong) => return Err(UnlinkError::NameTooLong),
+            };
         let mut state = self.state.borrow_mut();
-        if !state.writable_preopens.contains(&preopen_fd) {
-            return Err(UnlinkError::NotCapable);
-        }
         let Some(index) = state.mounted_files.iter().position(|file| {
-            file.preopen_fd == preopen_fd && file.relative_path.as_slice() == path
+            file.preopen_fd == preopen_fd && file.relative_path.as_slice() == full_path.as_slice()
         }) else {
             return Err(UnlinkError::NotFound);
         };

@@ -232,27 +232,12 @@ fn nested_directory_lifecycle_is_visible_through_directory_descriptors() {
 
     assert_eq!(errno(&mut vm, "mkdir", &path_args(3, 96, 4)), ERRNO_SUCCESS);
 
-    assert_eq!(
-        errno(
-            &mut vm,
-            "open",
-            &open_args(
-                3,
-                96,
-                4,
-                OFLAGS_DIRECTORY,
-                RIGHTS_FD_READDIR | RIGHTS_PATH_UNLINK_FILE,
-                28,
-            ),
-        ),
-        ERRNO_NOTCAPABLE
-    );
-
     let directory_rights = RIGHTS_FD_READDIR
         | RIGHTS_PATH_OPEN
         | RIGHTS_PATH_CREATE_FILE
         | RIGHTS_PATH_CREATE_DIRECTORY
-        | RIGHTS_PATH_REMOVE_DIRECTORY;
+        | RIGHTS_PATH_REMOVE_DIRECTORY
+        | RIGHTS_PATH_UNLINK_FILE;
     assert_eq!(
         errno(
             &mut vm,
@@ -336,8 +321,15 @@ fn nested_directory_lifecycle_is_visible_through_directory_descriptors() {
         ERRNO_NOTEMPTY
     );
     assert_eq!(
-        errno(&mut vm, "unlink", &path_args(3, 128, 13)),
+        errno(&mut vm, "unlink", &path_args(docs_fd, 112, 8)),
         ERRNO_SUCCESS
+    );
+    assert_eq!(
+        read_dir(&memory, &mut vm, docs_fd, 2048, 52)
+            .into_iter()
+            .map(|entry| entry.name)
+            .collect::<Vec<_>>(),
+        vec![b".".to_vec(), b"..".to_vec()]
     );
     assert_eq!(errno(&mut vm, "rmdir", &path_args(3, 96, 4)), ERRNO_SUCCESS);
 
