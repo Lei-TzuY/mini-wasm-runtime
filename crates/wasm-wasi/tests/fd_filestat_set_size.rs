@@ -85,12 +85,7 @@ fn module() -> Vec<u8> {
     section(&mut module, 3, &[4, 0, 1, 2, 3]);
 
     let mut exports = vec![4];
-    for (export_name, function_index) in [
-        ("open", 4),
-        ("resize", 5),
-        ("seek", 6),
-        ("tell", 7),
-    ] {
+    for (export_name, function_index) in [("open", 4), ("resize", 5), ("seek", 6), ("tell", 7)] {
         name(&mut exports, export_name);
         exports.push(0);
         u32leb(&mut exports, function_index);
@@ -190,30 +185,18 @@ fn fd_filestat_set_size_shrinks_extends_with_zero_fill_and_preserves_cursor() {
     assert_eq!(read_u64(&memory, 120), 4);
 
     assert_eq!(
-        errno(
-            &mut vm,
-            "resize",
-            &[Value::I32(fd as i32), Value::I64(2)]
-        ),
+        errno(&mut vm, "resize", &[Value::I32(fd as i32), Value::I64(2)]),
         ERRNO_SUCCESS
     );
     assert_eq!(wasi.file_snapshot("/sandbox", "data.bin").unwrap(), b"ab");
     assert_eq!(
-        errno(
-            &mut vm,
-            "tell",
-            &[Value::I32(fd as i32), Value::I32(136)]
-        ),
+        errno(&mut vm, "tell", &[Value::I32(fd as i32), Value::I32(136)]),
         ERRNO_SUCCESS
     );
     assert_eq!(read_u64(&memory, 136), 4);
 
     assert_eq!(
-        errno(
-            &mut vm,
-            "resize",
-            &[Value::I32(fd as i32), Value::I64(5)]
-        ),
+        errno(&mut vm, "resize", &[Value::I32(fd as i32), Value::I64(5)]),
         ERRNO_SUCCESS
     );
     assert_eq!(
@@ -221,11 +204,7 @@ fn fd_filestat_set_size_shrinks_extends_with_zero_fill_and_preserves_cursor() {
         vec![b'a', b'b', 0, 0, 0]
     );
     assert_eq!(
-        errno(
-            &mut vm,
-            "tell",
-            &[Value::I32(fd as i32), Value::I32(144)]
-        ),
+        errno(&mut vm, "tell", &[Value::I32(fd as i32), Value::I32(144)]),
         ERRNO_SUCCESS
     );
     assert_eq!(read_u64(&memory, 144), 4);
@@ -243,20 +222,12 @@ fn fd_filestat_set_size_enforces_rights_fd_class_and_size_limit() {
     let mut vm = instantiate(&memory, &wasi);
 
     assert_eq!(
-        errno(
-            &mut vm,
-            "open",
-            &open_args(64, 8, 0, RIGHTS_FD_SEEK, 100)
-        ),
+        errno(&mut vm, "open", &open_args(64, 8, 0, RIGHTS_FD_SEEK, 100)),
         ERRNO_SUCCESS
     );
     let fd = read_u32(&memory, 100);
     assert_eq!(
-        errno(
-            &mut vm,
-            "resize",
-            &[Value::I32(fd as i32), Value::I64(1)]
-        ),
+        errno(&mut vm, "resize", &[Value::I32(fd as i32), Value::I64(1)]),
         ERRNO_NOTCAPABLE
     );
     assert_eq!(wasi.file_snapshot("/sandbox", "data.bin").unwrap(), b"abc");
@@ -340,23 +311,13 @@ fn created_file_can_be_resized_with_zero_fill() {
         errno(
             &mut vm,
             "open",
-            &open_args(
-                64,
-                7,
-                OFLAGS_CREAT,
-                RIGHTS_FD_FILESTAT_SET_SIZE,
-                100,
-            )
+            &open_args(64, 7, OFLAGS_CREAT, RIGHTS_FD_FILESTAT_SET_SIZE, 100,)
         ),
         ERRNO_SUCCESS
     );
     let fd = read_u32(&memory, 100);
     assert_eq!(
-        errno(
-            &mut vm,
-            "resize",
-            &[Value::I32(fd as i32), Value::I64(4)]
-        ),
+        errno(&mut vm, "resize", &[Value::I32(fd as i32), Value::I64(4)]),
         ERRNO_SUCCESS
     );
     assert_eq!(
