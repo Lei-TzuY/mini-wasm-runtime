@@ -1,19 +1,22 @@
 //! Bounded WASI Preview1 host capabilities for `mini-wasm-runtime`.
 //!
 //! Existing descriptor, argument, and environment capabilities remain isolated in the original
-//! implementation module. This crate root layers typed process termination plus deterministic
-//! injected entropy, clock snapshots, and bounded preopen discovery over that stable API.
+//! implementation module. This crate root layers typed process termination, deterministic
+//! entropy/clocks, preopen discovery, and an injected read-only path capability over that API.
 
 #[path = "lib.rs"]
 mod base;
 mod clock;
+mod filesystem;
 mod preopen;
 
 pub use base::{
-    OutputBuffer, ERRNO_BADF, ERRNO_FAULT, ERRNO_INVAL, ERRNO_SUCCESS, FILETYPE_CHARACTER_DEVICE,
-    FILETYPE_DIRECTORY, RIGHTS_FD_READ, RIGHTS_FD_WRITE,
+    OutputBuffer, ERRNO_BADF, ERRNO_FAULT, ERRNO_INVAL, ERRNO_NOTCAPABLE, ERRNO_SUCCESS,
+    FILETYPE_CHARACTER_DEVICE, FILETYPE_DIRECTORY, FILETYPE_REGULAR_FILE, RIGHTS_FD_READ,
+    RIGHTS_FD_WRITE, RIGHTS_PATH_OPEN,
 };
 pub use clock::WasiClockId;
+pub use filesystem::WasiFilesystemError;
 pub use preopen::WasiPreopenError;
 
 use std::{cell::RefCell, rc::Rc};
@@ -23,7 +26,9 @@ use wasm_runtime::{
 };
 
 pub const ERRNO_IO: i32 = 29;
+pub const ERRNO_MFILE: i32 = 33;
 pub const ERRNO_NAMETOOLONG: i32 = 37;
+pub const ERRNO_NOENT: i32 = 44;
 
 const PROC_EXIT_MODULE: &str = "wasi_snapshot_preview1";
 const PROC_EXIT_NAME: &str = "proc_exit";
@@ -51,17 +56,20 @@ pub struct WasiPreview1 {
     max_random_bytes: usize,
     clocks: clock::ClockSet,
     preopens: preopen::PreopenSet,
+    filesystem: filesystem::Filesystem,
 }
 
 impl Default for WasiPreview1 {
     fn default() -> Self {
+        let filesystem = filesystem::Filesystem::default();
         Self {
-            base: base::WasiPreview1::new(),
+            base: base::WasiPreview1::new().with_filesystem(filesystem.clone()),
             exit_code: Rc::new(RefCell::new(None)),
             entropy: Rc::new(RefCell::new(EntropyState::default())),
             max_random_bytes: DEFAULT_MAX_RANDOM_BYTES,
             clocks: clock::ClockSet::default(),
             preopens: preopen::PreopenSet::default(),
+            filesystem,
         }
     }
 }
@@ -143,13 +151,43 @@ impl WasiPreview1 {
 
     pub fn with_preopen<S: AsRef<str>>(mut self, guest_path: S) -> Result<Self, WasiPreopenError> {
         let fd = self.preopens.add(guest_path.as_ref().as_bytes())?;
-        self.base = self.base.with_fdstat(fd, FILETYPE_DIRECTORY, 0, 0);
+        self.filesystem.reserve_preopen(fd);
+        self.base = self
+            .base
+            .with_fdstat(fd, FILETYPE_DIRECTORY, RIGHTS_PATH_OPEN, RIGHTS_FD_READ);
+        Ok(self)
+    }
+
+    pub fn with_read_only_file<P, S, B>(
+        self,
+        preopen_guest_path: P,
+        relative_path: S,
+        bytes: B,
+    ) -> Result<Self, WasiFilesystemError>
+    where
+        P: AsRef<str>,
+        S: AsRef<str>,
+        B: AsRef<[u8]>,
+    {
+        let guest_path = preopen_guest_path.as_ref();
+        let Some(preopen_fd) = self.preopens.fd_for_guest_path(guest_path.as_bytes()) else {
+            return Err(WasiFilesystemError::UnknownPreopen {
+                guest_path: guest_path.to_owned(),
+            });
+        };
+
+        self.filesystem.mount_file(
+            preopen_fd,
+            relative_path.as_ref().as_bytes(),
+            bytes.as_ref(),
+        )?;
         Ok(self)
     }
 
     pub fn register(&self, registry: &mut HostRegistry) -> Result<(), HostRegistryError> {
         self.base.register(registry)?;
         self.preopens.register(registry)?;
+        self.filesystem.register(registry)?;
 
         let entropy = self.entropy.clone();
         let max_random_bytes = self.max_random_bytes;
