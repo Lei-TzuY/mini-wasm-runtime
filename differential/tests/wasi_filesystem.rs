@@ -215,12 +215,7 @@ fn run_reference(engine: &Engine, bytes: &[u8]) -> FilesystemTrace {
     let module = ReferenceModule::new(engine, bytes).expect("compile WASI filesystem module");
     let mut builder = WasiCtxBuilder::new();
     builder
-        .preopened_dir(
-            root.path(),
-            "/sandbox",
-            DirPerms::all(),
-            FilePerms::all(),
-        )
+        .preopened_dir(root.path(), "/sandbox", DirPerms::all(), FilePerms::all())
         .expect("configure isolated Wasmtime writable preopen");
     let mut store = Store::new(engine, builder.build_p1());
     let memory = Memory::new(&mut store, MemoryType::new(1, Some(1)))
@@ -245,16 +240,8 @@ fn run_reference(engine: &Engine, bytes: &[u8]) -> FilesystemTrace {
         reference_errno(&instance, &mut store, "stat_after_extend"),
     ];
     let sizes = [
-        reference_u64(
-            memory,
-            &store,
-            FIRST_FILESTAT + FILESTAT_SIZE_OFFSET,
-        ),
-        reference_u64(
-            memory,
-            &store,
-            SECOND_FILESTAT + FILESTAT_SIZE_OFFSET,
-        ),
+        reference_u64(memory, &store, FIRST_FILESTAT + FILESTAT_SIZE_OFFSET),
+        reference_u64(memory, &store, SECOND_FILESTAT + FILESTAT_SIZE_OFFSET),
     ];
     let cursor = reference_u64(memory, &store, TELL_OFFSET);
     drop(instance);
@@ -290,5 +277,8 @@ fn deterministic_regular_file_resize_trace_matches_wasmtime_wasi() {
         reference, expected,
         "Wasmtime WASI filesystem resize trace mismatch"
     );
-    assert_eq!(mini, reference, "WASI filesystem resize differential mismatch");
+    assert_eq!(
+        mini, reference,
+        "WASI filesystem resize differential mismatch"
+    );
 }
