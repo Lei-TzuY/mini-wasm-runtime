@@ -171,6 +171,7 @@ The runtime has moved beyond a generic future-WASI placeholder into an executabl
 - [x] bounded injected read-only path descriptors via `path_open` -> `fd_read` -> `fd_close` with `PATH_OPEN` / `FD_READ` rights attenuation, traversal-safe relative paths, bounded dynamic descriptor allocation/reuse, and no ambient host filesystem access
 - [x] read-only descriptor positioning via `fd_seek` / `fd_tell` with one shared `u64` cursor, Preview1 `SET` / `CUR` / `END` semantics, `FD_SEEK` / `FD_TELL` rights attenuation, seek-beyond-EOF preservation, and fail-closed invalid/overflow/OOB handling
 - [ ] add writable/create filesystem semantics only with an explicit host-resource policy; do not expose ambient host paths
-- [ ] add WASI-specific differential/interop evidence as the supported Preview1 surface becomes broad enough to compare meaningfully
+- [x] initial WASI-specific differential/interop evidence for deterministic process arguments and environment against pinned Wasmtime-WASI 37.0.3, comparing errno results and exact guest-memory layouts
+- [ ] broaden WASI differential/interop coverage to descriptor I/O, clocks/entropy with controllable reference providers, and filesystem semantics where host resources can be isolated deterministically
 
 A future JIT is intentionally out of scope until the interpreter and validation model are trustworthy.
