@@ -198,10 +198,7 @@ fn seek_tell_and_read_share_one_descriptor_cursor() {
 
     assert_eq!(errno(&mut vm, "read", &read_args(fd)), ERRNO_SUCCESS);
     assert_eq!(memory.read(256, 2).unwrap(), b"ab");
-    assert_eq!(
-        errno(&mut vm, "tell", &tell_args(fd, 192)),
-        ERRNO_SUCCESS
-    );
+    assert_eq!(errno(&mut vm, "tell", &tell_args(fd, 192)), ERRNO_SUCCESS);
     assert_eq!(read_u64(&memory, 192), 2);
 
     assert_eq!(
@@ -243,10 +240,7 @@ fn seek_tell_and_read_share_one_descriptor_cursor() {
         0
     );
     assert_eq!(memory.read(264, 2).unwrap(), vec![0xaa; 2]);
-    assert_eq!(
-        errno(&mut vm, "tell", &tell_args(fd, 192)),
-        ERRNO_SUCCESS
-    );
+    assert_eq!(errno(&mut vm, "tell", &tell_args(fd, 192)), ERRNO_SUCCESS);
     assert_eq!(read_u64(&memory, 192), 10);
 }
 
@@ -301,10 +295,7 @@ fn rejected_seek_calls_leave_cursor_and_output_unchanged() {
     let fd = opened_fd(&mut vm, &memory, RIGHTS_FD_READ | RIGHTS_FD_SEEK);
 
     assert_eq!(errno(&mut vm, "read", &read_args(fd)), ERRNO_SUCCESS);
-    assert_eq!(
-        errno(&mut vm, "tell", &tell_args(fd, 192)),
-        ERRNO_SUCCESS
-    );
+    assert_eq!(errno(&mut vm, "tell", &tell_args(fd, 192)), ERRNO_SUCCESS);
     assert_eq!(read_u64(&memory, 192), 2);
 
     write_u64(&memory, 200, 0xdeadbeefdeadbeef);
@@ -323,10 +314,7 @@ fn rejected_seek_calls_leave_cursor_and_output_unchanged() {
         errno(&mut vm, "seek", &seek_args(fd, 4, WHENCE_SET, 65_532)),
         ERRNO_FAULT
     );
-    assert_eq!(
-        errno(&mut vm, "tell", &tell_args(fd, 192)),
-        ERRNO_SUCCESS
-    );
+    assert_eq!(errno(&mut vm, "tell", &tell_args(fd, 192)), ERRNO_SUCCESS);
     assert_eq!(read_u64(&memory, 192), 2);
 
     assert_eq!(
@@ -343,10 +331,7 @@ fn rejected_seek_calls_leave_cursor_and_output_unchanged() {
         ERRNO_OVERFLOW
     );
     assert_eq!(read_u64(&memory, 200), 0xaaaaaaaaaaaaaaaa);
-    assert_eq!(
-        errno(&mut vm, "tell", &tell_args(fd, 192)),
-        ERRNO_SUCCESS
-    );
+    assert_eq!(errno(&mut vm, "tell", &tell_args(fd, 192)), ERRNO_SUCCESS);
     assert_eq!(read_u64(&memory, 192), u64::MAX - 1);
 
     write_u64(&memory, 200, 0xbbbbbbbbbbbbbbbb);
