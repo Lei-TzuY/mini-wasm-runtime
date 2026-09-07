@@ -427,7 +427,8 @@ impl WasiPreview1 {
                     0 => (FILETYPE_CHARACTER_DEVICE, RIGHTS_FD_READ, 0),
                     1 | 2 => (FILETYPE_CHARACTER_DEVICE, RIGHTS_FD_WRITE, 0),
                     other => {
-                        let Some(entry) = extra_fd_stats.iter().find(|entry| entry.fd == other as u32)
+                        let Some(entry) =
+                            extra_fd_stats.iter().find(|entry| entry.fd == other as u32)
                         else {
                             return Ok(vec![Value::I32(ERRNO_BADF)]);
                         };
