@@ -185,12 +185,9 @@ impl WasiPreview1 {
         } else {
             RIGHTS_FD_READ | RIGHTS_FD_SEEK | RIGHTS_FD_TELL
         };
-        self.base = self.base.with_fdstat(
-            fd,
-            FILETYPE_DIRECTORY,
-            rights_base,
-            rights_inheriting,
-        );
+        self.base = self
+            .base
+            .with_fdstat(fd, FILETYPE_DIRECTORY, rights_base, rights_inheriting);
         Ok(self)
     }
 
