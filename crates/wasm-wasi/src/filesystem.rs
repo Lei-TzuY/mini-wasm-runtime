@@ -4,10 +4,9 @@ use wasm_parser::ValueType;
 use wasm_runtime::{HostCapabilities, HostError, HostRegistry, HostRegistryError, Value};
 
 use crate::{
-    ERRNO_BADF, ERRNO_FAULT, ERRNO_FBIG, ERRNO_INVAL, ERRNO_MFILE, ERRNO_NAMETOOLONG,
-    ERRNO_NOENT, ERRNO_NOSPC, ERRNO_NOTCAPABLE, ERRNO_OVERFLOW, ERRNO_SUCCESS,
-    FILETYPE_REGULAR_FILE, OFLAGS_CREAT, RIGHTS_FD_READ, RIGHTS_FD_SEEK, RIGHTS_FD_TELL,
-    RIGHTS_FD_WRITE,
+    ERRNO_BADF, ERRNO_FAULT, ERRNO_FBIG, ERRNO_INVAL, ERRNO_MFILE, ERRNO_NAMETOOLONG, ERRNO_NOENT,
+    ERRNO_NOSPC, ERRNO_NOTCAPABLE, ERRNO_OVERFLOW, ERRNO_SUCCESS, FILETYPE_REGULAR_FILE,
+    OFLAGS_CREAT, RIGHTS_FD_READ, RIGHTS_FD_SEEK, RIGHTS_FD_TELL, RIGHTS_FD_WRITE,
 };
 
 const WASI_MODULE: &str = "wasi_snapshot_preview1";
@@ -646,12 +645,7 @@ impl Filesystem {
         self.state.borrow_mut().open_files.remove(&fd).is_some()
     }
 
-    fn prepare_pwrite(
-        &self,
-        fd: u32,
-        offset: u64,
-        len: usize,
-    ) -> Result<(), DescriptorWriteError> {
+    fn prepare_pwrite(&self, fd: u32, offset: u64, len: usize) -> Result<(), DescriptorWriteError> {
         let state = self.state.borrow();
         let Some(file) = state.open_files.get(&fd) else {
             return Err(DescriptorWriteError::BadFd);
@@ -669,12 +663,7 @@ impl Filesystem {
         Ok(())
     }
 
-    fn pwrite(
-        &self,
-        fd: u32,
-        offset: u64,
-        bytes: &[u8],
-    ) -> Result<(), DescriptorWriteError> {
+    fn pwrite(&self, fd: u32, offset: u64, bytes: &[u8]) -> Result<(), DescriptorWriteError> {
         self.prepare_pwrite(fd, offset, bytes.len())?;
         let state = self.state.borrow();
         let file = state
