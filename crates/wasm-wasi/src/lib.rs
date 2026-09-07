@@ -126,7 +126,8 @@ impl WasiPreview1 {
             .map(|(key, value)| {
                 let key = key.as_ref().as_bytes();
                 let value = value.as_ref().as_bytes();
-                let mut entry = Vec::with_capacity(key.len().saturating_add(value.len()).saturating_add(1));
+                let mut entry =
+                    Vec::with_capacity(key.len().saturating_add(value.len()).saturating_add(1));
                 entry.extend_from_slice(key);
                 entry.push(b'=');
                 entry.extend_from_slice(value);
