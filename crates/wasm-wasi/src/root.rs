@@ -152,12 +152,9 @@ impl WasiPreview1 {
     pub fn with_preopen<S: AsRef<str>>(mut self, guest_path: S) -> Result<Self, WasiPreopenError> {
         let fd = self.preopens.add(guest_path.as_ref().as_bytes())?;
         self.filesystem.reserve_preopen(fd);
-        self.base = self.base.with_fdstat(
-            fd,
-            FILETYPE_DIRECTORY,
-            RIGHTS_PATH_OPEN,
-            RIGHTS_FD_READ,
-        );
+        self.base = self
+            .base
+            .with_fdstat(fd, FILETYPE_DIRECTORY, RIGHTS_PATH_OPEN, RIGHTS_FD_READ);
         Ok(self)
     }
 
@@ -173,10 +170,7 @@ impl WasiPreview1 {
         B: AsRef<[u8]>,
     {
         let guest_path = preopen_guest_path.as_ref();
-        let Some(preopen_fd) = self
-            .preopens
-            .fd_for_guest_path(guest_path.as_bytes())
-        else {
+        let Some(preopen_fd) = self.preopens.fd_for_guest_path(guest_path.as_bytes()) else {
             return Err(WasiFilesystemError::UnknownPreopen {
                 guest_path: guest_path.to_owned(),
             });
