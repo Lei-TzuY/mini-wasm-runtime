@@ -1,16 +1,18 @@
 //! Bounded WASI Preview1 host capabilities for `mini-wasm-runtime`.
 //!
 //! Existing descriptor, argument, and environment capabilities remain isolated in the original
-//! implementation module. This crate root layers typed process termination and deterministic
-//! injected entropy over that stable API.
+//! implementation module. This crate root layers typed process termination plus deterministic
+//! injected entropy and clock snapshots over that stable API.
 
 #[path = "lib.rs"]
 mod base;
+mod clock;
 
 pub use base::{
     OutputBuffer, ERRNO_BADF, ERRNO_FAULT, ERRNO_INVAL, ERRNO_SUCCESS, FILETYPE_CHARACTER_DEVICE,
     RIGHTS_FD_READ, RIGHTS_FD_WRITE,
 };
+pub use clock::WasiClockId;
 
 use std::{cell::RefCell, rc::Rc};
 use wasm_parser::ValueType;
@@ -44,6 +46,7 @@ pub struct WasiPreview1 {
     exit_code: Rc<RefCell<Option<u32>>>,
     entropy: Rc<RefCell<EntropyState>>,
     max_random_bytes: usize,
+    clocks: clock::ClockSet,
 }
 
 impl Default for WasiPreview1 {
@@ -53,6 +56,7 @@ impl Default for WasiPreview1 {
             exit_code: Rc::new(RefCell::new(None)),
             entropy: Rc::new(RefCell::new(EntropyState::default())),
             max_random_bytes: DEFAULT_MAX_RANDOM_BYTES,
+            clocks: clock::ClockSet::default(),
         }
     }
 }
@@ -127,6 +131,16 @@ impl WasiPreview1 {
         self
     }
 
+    pub fn with_clock(
+        mut self,
+        id: WasiClockId,
+        resolution_ns: u64,
+        time_ns: u64,
+    ) -> Self {
+        self.clocks.configure(id, resolution_ns, time_ns);
+        self
+    }
+
     pub fn register(&self, registry: &mut HostRegistry) -> Result<(), HostRegistryError> {
         self.base.register(registry)?;
 
@@ -170,6 +184,8 @@ impl WasiPreview1 {
                 Ok(vec![Value::I32(ERRNO_SUCCESS)])
             },
         )?;
+
+        self.clocks.register(registry)?;
 
         let exit_code = self.exit_code.clone();
         registry.register_values(
