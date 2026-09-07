@@ -76,6 +76,7 @@ fn module_bytes() -> Vec<u8> {
             (import "wasi_snapshot_preview1" "fd_tell"
                 (func $fd_tell (param i32 i32) (result i32)))
             (import "env" "memory" (memory 1 1))
+            (export "memory" (memory 0))
             (data (i32.const 0) "data.bin")
 
             (func (export "open") (result i32)
