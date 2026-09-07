@@ -14,21 +14,7 @@ fn owned_funcref_module() -> Vec<u8> {
     section(
         &mut module,
         1,
-        &[
-            3,
-            0x60,
-            0,
-            0,
-            0x60,
-            0,
-            1,
-            0x70,
-            0x60,
-            1,
-            0x70,
-            1,
-            0x70,
-        ],
+        &[3, 0x60, 0, 0, 0x60, 0, 1, 0x70, 0x60, 1, 0x70, 1, 0x70],
     );
     section(&mut module, 3, &[3, 0, 1, 2]);
 
