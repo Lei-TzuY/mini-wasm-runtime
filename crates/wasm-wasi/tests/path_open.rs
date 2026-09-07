@@ -1,8 +1,8 @@
 use wasm_parser::parse_module;
 use wasm_runtime::{HostRegistry, Instance, MemoryHandle, Value};
 use wasm_wasi::{
-    WasiFilesystemError, WasiPreview1, ERRNO_BADF, ERRNO_FAULT, ERRNO_NOENT, ERRNO_NOTCAPABLE,
-    ERRNO_SUCCESS, FILETYPE_REGULAR_FILE, RIGHTS_FD_READ, RIGHTS_FD_WRITE,
+    WasiFilesystemError, WasiPreview1, ERRNO_BADF, ERRNO_FAULT, ERRNO_MFILE, ERRNO_NOENT,
+    ERRNO_NOTCAPABLE, ERRNO_SUCCESS, FILETYPE_REGULAR_FILE, RIGHTS_FD_READ, RIGHTS_FD_WRITE,
 };
 
 fn u32leb(out: &mut Vec<u8>, mut value: u32) {
@@ -311,6 +311,45 @@ fn child_descriptor_rights_are_attenuated_by_path_open_request() {
     );
     let fdstat = memory.read(192, 24).unwrap();
     assert_eq!(u64::from_le_bytes(fdstat[8..16].try_into().unwrap()), 0);
+}
+
+#[test]
+fn open_descriptor_limit_is_bounded_and_reuses_closed_slots() {
+    let memory = MemoryHandle::new(1, Some(1)).unwrap();
+    memory.write(64, b"docs/hello.txt").unwrap();
+    let wasi = configured_wasi();
+    let mut vm = instantiate(&memory, &wasi);
+
+    for expected_fd in 4..260u32 {
+        assert_eq!(
+            errno(&mut vm, "open", &open_args(64, 14, RIGHTS_FD_READ, 100)),
+            ERRNO_SUCCESS
+        );
+        assert_eq!(
+            u32::from_le_bytes(memory.read(100, 4).unwrap().try_into().unwrap()),
+            expected_fd
+        );
+    }
+
+    memory.write(100, &0xdeadbeefu32.to_le_bytes()).unwrap();
+    assert_eq!(
+        errno(&mut vm, "open", &open_args(64, 14, RIGHTS_FD_READ, 100)),
+        ERRNO_MFILE
+    );
+    assert_eq!(
+        u32::from_le_bytes(memory.read(100, 4).unwrap().try_into().unwrap()),
+        0xdeadbeef
+    );
+
+    assert_eq!(errno(&mut vm, "close", &[Value::I32(100)]), ERRNO_SUCCESS);
+    assert_eq!(
+        errno(&mut vm, "open", &open_args(64, 14, RIGHTS_FD_READ, 100)),
+        ERRNO_SUCCESS
+    );
+    assert_eq!(
+        u32::from_le_bytes(memory.read(100, 4).unwrap().try_into().unwrap()),
+        100
+    );
 }
 
 #[test]
