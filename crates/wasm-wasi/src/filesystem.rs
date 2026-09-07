@@ -665,6 +665,9 @@ impl Filesystem {
 
     fn pwrite(&self, fd: u32, offset: u64, bytes: &[u8]) -> Result<(), DescriptorWriteError> {
         self.prepare_pwrite(fd, offset, bytes.len())?;
+        if bytes.is_empty() {
+            return Ok(());
+        }
         let state = self.state.borrow();
         let file = state
             .open_files
