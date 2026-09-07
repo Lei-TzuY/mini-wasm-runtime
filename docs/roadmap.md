@@ -79,6 +79,7 @@ The roadmap favors complete vertical slices over a broad but shallow decoder.
 - [x] broader data/element modes
 - [x] defined-function and structured-control multi-value results
 - [x] host callback multi-result ABI with backward-compatible zero-or-one-result registration
+- [x] nullable `funcref` defined-function params/results/locals and direct calls, with reference-valued host functions/globals and unowned non-null embedding arguments explicitly fail-closed pending instance-ownership semantics
 - [x] MVP `nop`, `drop`, `select`, and `br_table` control/parametric instructions
 - [x] MVP i32/i64 count, div/rem, bitwise, shift, and rotate operators
 - [x] core sign-extension integer operators (`i32.extend8_s`, `i32.extend16_s`, `i64.extend8_s`, `i64.extend16_s`, `i64.extend32_s`)

@@ -562,7 +562,7 @@ impl fmt::Display for HostRegistryError {
             }
             Self::UnsupportedSignature => write!(
                 f,
-                "HostRegistry::register supports numeric value types with at most one result; use register_values for multi-result callbacks"
+                "reference-typed host bindings remain unsupported until instance ownership is represented"
             ),
         }
     }
@@ -632,6 +632,13 @@ impl HostRegistry {
     where
         F: for<'a> FnMut(&mut HostContext<'a>, &[Value]) -> Result<Vec<Value>, HostError> + 'static,
     {
+        if params
+            .iter()
+            .chain(results.iter())
+            .any(|value_type| *value_type == ValueType::FuncRef)
+        {
+            return Err(HostRegistryError::UnsupportedSignature);
+        }
         let module = module.into();
         let name = name.into();
         let key = (module.clone(), name.clone());
@@ -665,6 +672,9 @@ impl HostRegistry {
         name: impl Into<String>,
         global: GlobalHandle,
     ) -> Result<(), HostRegistryError> {
+        if global.value_type() == ValueType::FuncRef {
+            return Err(HostRegistryError::UnsupportedSignature);
+        }
         let module = module.into();
         let name = name.into();
         let key = (module.clone(), name.clone());
@@ -747,6 +757,7 @@ pub enum RuntimeError {
         expected: ValueType,
         actual: ValueType,
     },
+    UnownedFunctionReferenceArgument,
     UnsupportedOpcode(u8),
     Unreachable,
     IntegerDivisionByZero,
@@ -931,6 +942,10 @@ impl fmt::Display for RuntimeError {
             Self::ValueTypeMismatch { expected, actual } => {
                 write!(f, "runtime expected {expected:?}, got {actual:?}")
             }
+            Self::UnownedFunctionReferenceArgument => write!(
+                f,
+                "non-null function references cannot cross the embedding boundary until instance ownership is represented"
+            ),
             Self::UnsupportedOpcode(opcode) => write!(f, "unsupported opcode 0x{opcode:02x}"),
             Self::Unreachable => write!(f, "unreachable instruction executed"),
             Self::IntegerDivisionByZero => write!(f, "integer division by zero"),
@@ -1664,7 +1679,9 @@ impl Instance {
         args: &[Value],
     ) -> Result<Option<Value>, RuntimeError> {
         let function_index = self.exported_function_index(name)?;
-        let result_count = self.function_type(function_index)?.results.len();
+        let function_type = self.function_type(function_index)?;
+        validate_embedding_arguments(&function_type.params, args)?;
+        let result_count = function_type.results.len();
         if result_count > 1 {
             return Err(RuntimeError::MultiValueResultRequiresValuesApi {
                 results: result_count,
@@ -1681,6 +1698,8 @@ impl Instance {
         args: &[Value],
     ) -> Result<Vec<Value>, RuntimeError> {
         let function_index = self.exported_function_index(name)?;
+        let function_type = self.function_type(function_index)?;
+        validate_embedding_arguments(&function_type.params, args)?;
         let mut budget = ExecutionBudget::new(self.limits);
         self.invoke_function(function_index, args, 0, &mut budget)
     }
@@ -3154,6 +3173,16 @@ fn validate_values(types: &[ValueType], values: &[Value]) -> Result<(), RuntimeE
     }
     for (&expected, &value) in types.iter().zip(values) {
         numeric::expect_type(value, expected)?;
+    }
+    Ok(())
+}
+
+fn validate_embedding_arguments(types: &[ValueType], values: &[Value]) -> Result<(), RuntimeError> {
+    validate_values(types, values)?;
+    if types.iter().zip(values).any(|(&expected, &value)| {
+        expected == ValueType::FuncRef && matches!(value, Value::FuncRef(Some(_)))
+    }) {
+        return Err(RuntimeError::UnownedFunctionReferenceArgument);
     }
     Ok(())
 }
