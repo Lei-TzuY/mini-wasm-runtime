@@ -177,6 +177,7 @@ The runtime has moved beyond a generic future-WASI placeholder into an executabl
 - [x] capability-scoped writable/create filesystem semantics with writable preopens, bounded `path_open(O_CREAT)`, sequential cursor-based `fd_write`, cursor-preserving `fd_pwrite`, sparse zero-fill, rights attenuation, and no ambient host paths
 - [x] initial WASI-specific differential/interop evidence for deterministic process arguments and environment against pinned Wasmtime-WASI 37.0.3, comparing errno results and exact guest-memory layouts
 - [x] deterministic WASI descriptor I/O differential/interop evidence against pinned Wasmtime-WASI 37.0.3 for sequential stdin reads, EOF, `nread` / `nwritten`, exact guest-memory state, and captured stdout
-- [ ] broaden WASI differential/interop coverage to clocks/entropy with controllable reference providers and filesystem semantics where host resources can be isolated deterministically
+- [x] deterministic writable regular-file resize lifecycle differential/interop evidence against pinned Wasmtime-WASI 37.0.3 using an isolated writable preopen, comparing errno results, live sizes, cursor preservation, and final zero-filled file bytes
+- [ ] broaden WASI differential/interop coverage to clocks/entropy with controllable reference providers and additional filesystem semantics where host resources can be isolated deterministically
 
 A future JIT is intentionally out of scope until the interpreter and validation model are trustworthy.
