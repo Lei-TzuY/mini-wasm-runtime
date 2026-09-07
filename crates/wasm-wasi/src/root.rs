@@ -2,7 +2,8 @@
 //!
 //! Existing descriptor, argument, and environment capabilities remain isolated in the original
 //! implementation module. This crate root layers typed process termination, deterministic
-//! entropy/clocks, preopen discovery, and an injected read-only path capability over that API.
+//! entropy/clocks, preopen discovery, and injected path capabilities over that API. Filesystem
+//! resources are in-memory and capability scoped; no ambient host paths are exposed.
 
 #[path = "lib.rs"]
 mod base;
@@ -25,13 +26,17 @@ use wasm_runtime::{
     HostCapabilities, HostError, HostRegistry, HostRegistryError, Instance, RuntimeError, Value,
 };
 
+pub const ERRNO_FBIG: i32 = 22;
 pub const ERRNO_IO: i32 = 29;
 pub const ERRNO_MFILE: i32 = 33;
 pub const ERRNO_NAMETOOLONG: i32 = 37;
 pub const ERRNO_NOENT: i32 = 44;
+pub const ERRNO_NOSPC: i32 = 51;
 pub const ERRNO_OVERFLOW: i32 = 61;
 pub const RIGHTS_FD_SEEK: u64 = 1 << 2;
 pub const RIGHTS_FD_TELL: u64 = 1 << 5;
+pub const RIGHTS_PATH_CREATE_FILE: u64 = 1 << 10;
+pub const OFLAGS_CREAT: u32 = 1 << 0;
 
 const PROC_EXIT_MODULE: &str = "wasi_snapshot_preview1";
 const PROC_EXIT_NAME: &str = "proc_exit";
@@ -152,15 +157,37 @@ impl WasiPreview1 {
         self
     }
 
-    pub fn with_preopen<S: AsRef<str>>(mut self, guest_path: S) -> Result<Self, WasiPreopenError> {
-        let fd = self.preopens.add(guest_path.as_ref().as_bytes())?;
-        self.filesystem.reserve_preopen(fd);
-        self.base = self.base.with_fdstat(
-            fd,
-            FILETYPE_DIRECTORY,
-            RIGHTS_PATH_OPEN,
-            RIGHTS_FD_READ | RIGHTS_FD_SEEK | RIGHTS_FD_TELL,
-        );
+    pub fn with_preopen<S: AsRef<str>>(self, guest_path: S) -> Result<Self, WasiPreopenError> {
+        self.with_preopen_policy(guest_path.as_ref(), false)
+    }
+
+    pub fn with_writable_preopen<S: AsRef<str>>(
+        self,
+        guest_path: S,
+    ) -> Result<Self, WasiPreopenError> {
+        self.with_preopen_policy(guest_path.as_ref(), true)
+    }
+
+    fn with_preopen_policy(
+        mut self,
+        guest_path: &str,
+        writable: bool,
+    ) -> Result<Self, WasiPreopenError> {
+        let fd = self.preopens.add(guest_path.as_bytes())?;
+        self.filesystem.reserve_preopen(fd, writable);
+        let rights_base = if writable {
+            RIGHTS_PATH_OPEN | RIGHTS_PATH_CREATE_FILE
+        } else {
+            RIGHTS_PATH_OPEN
+        };
+        let rights_inheriting = if writable {
+            RIGHTS_FD_READ | RIGHTS_FD_WRITE | RIGHTS_FD_SEEK | RIGHTS_FD_TELL
+        } else {
+            RIGHTS_FD_READ | RIGHTS_FD_SEEK | RIGHTS_FD_TELL
+        };
+        self.base = self
+            .base
+            .with_fdstat(fd, FILETYPE_DIRECTORY, rights_base, rights_inheriting);
         Ok(self)
     }
 
@@ -169,6 +196,35 @@ impl WasiPreview1 {
         preopen_guest_path: P,
         relative_path: S,
         bytes: B,
+    ) -> Result<Self, WasiFilesystemError>
+    where
+        P: AsRef<str>,
+        S: AsRef<str>,
+        B: AsRef<[u8]>,
+    {
+        self.with_file_policy(preopen_guest_path, relative_path, bytes, false)
+    }
+
+    pub fn with_writable_file<P, S, B>(
+        self,
+        preopen_guest_path: P,
+        relative_path: S,
+        bytes: B,
+    ) -> Result<Self, WasiFilesystemError>
+    where
+        P: AsRef<str>,
+        S: AsRef<str>,
+        B: AsRef<[u8]>,
+    {
+        self.with_file_policy(preopen_guest_path, relative_path, bytes, true)
+    }
+
+    fn with_file_policy<P, S, B>(
+        self,
+        preopen_guest_path: P,
+        relative_path: S,
+        bytes: B,
+        writable: bool,
     ) -> Result<Self, WasiFilesystemError>
     where
         P: AsRef<str>,
@@ -186,8 +242,21 @@ impl WasiPreview1 {
             preopen_fd,
             relative_path.as_ref().as_bytes(),
             bytes.as_ref(),
+            writable,
         )?;
         Ok(self)
+    }
+
+    pub fn file_snapshot<P, S>(&self, preopen_guest_path: P, relative_path: S) -> Option<Vec<u8>>
+    where
+        P: AsRef<str>,
+        S: AsRef<str>,
+    {
+        let preopen_fd = self
+            .preopens
+            .fd_for_guest_path(preopen_guest_path.as_ref().as_bytes())?;
+        self.filesystem
+            .snapshot(preopen_fd, relative_path.as_ref().as_bytes())
     }
 
     pub fn register(&self, registry: &mut HostRegistry) -> Result<(), HostRegistryError> {
