@@ -114,7 +114,7 @@ enum DescriptorPositionError {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum DescriptorWriteError {
+pub(crate) enum DescriptorWriteError {
     BadFd,
     NotCapable,
     FileTooLarge,
@@ -235,6 +235,70 @@ impl Filesystem {
             return Err(DescriptorReadError::NotCapable);
         }
         file.offset = file.offset.saturating_add(len as u64);
+        Ok(())
+    }
+
+    pub(crate) fn ensure_writable(&self, fd: u32) -> Result<(), DescriptorWriteError> {
+        let state = self.state.borrow();
+        let Some(file) = state.open_files.get(&fd) else {
+            return Err(DescriptorWriteError::BadFd);
+        };
+        if file.rights_base & RIGHTS_FD_WRITE == 0 {
+            return Err(DescriptorWriteError::NotCapable);
+        }
+        Ok(())
+    }
+
+    pub(crate) fn prepare_write(&self, fd: u32, len: usize) -> Result<(), DescriptorWriteError> {
+        let state = self.state.borrow();
+        let Some(file) = state.open_files.get(&fd) else {
+            return Err(DescriptorWriteError::BadFd);
+        };
+        if file.rights_base & RIGHTS_FD_WRITE == 0 {
+            return Err(DescriptorWriteError::NotCapable);
+        }
+        let len = u64::try_from(len).map_err(|_| DescriptorWriteError::FileTooLarge)?;
+        let end = file
+            .offset
+            .checked_add(len)
+            .ok_or(DescriptorWriteError::FileTooLarge)?;
+        if end > MAX_FILE_BYTES as u64 {
+            return Err(DescriptorWriteError::FileTooLarge);
+        }
+        Ok(())
+    }
+
+    pub(crate) fn write(&self, fd: u32, bytes: &[u8]) -> Result<(), DescriptorWriteError> {
+        self.prepare_write(fd, bytes.len())?;
+        if bytes.is_empty() {
+            return Ok(());
+        }
+
+        let mut state = self.state.borrow_mut();
+        let Some(file) = state.open_files.get_mut(&fd) else {
+            return Err(DescriptorWriteError::BadFd);
+        };
+        if file.rights_base & RIGHTS_FD_WRITE == 0 {
+            return Err(DescriptorWriteError::NotCapable);
+        }
+        let start = usize::try_from(file.offset).map_err(|_| DescriptorWriteError::FileTooLarge)?;
+        let end = start
+            .checked_add(bytes.len())
+            .ok_or(DescriptorWriteError::FileTooLarge)?;
+        if end > MAX_FILE_BYTES {
+            return Err(DescriptorWriteError::FileTooLarge);
+        }
+        {
+            let mut file_bytes = file.bytes.borrow_mut();
+            if file_bytes.len() < start {
+                file_bytes.resize(start, 0);
+            }
+            if file_bytes.len() < end {
+                file_bytes.resize(end, 0);
+            }
+            file_bytes[start..end].copy_from_slice(bytes);
+        }
+        file.offset = end as u64;
         Ok(())
     }
 

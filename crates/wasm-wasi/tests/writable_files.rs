@@ -70,26 +70,28 @@ fn module() -> Vec<u8> {
     function_type(&mut types, &[0x7f]);
     section(&mut module, 1, &types);
 
-    let mut imports = vec![6];
+    let mut imports = vec![7];
     add_function_import(&mut imports, "path_open", 0);
     add_function_import(&mut imports, "fd_pwrite", 1);
     add_function_import(&mut imports, "fd_read", 2);
     add_function_import(&mut imports, "fd_tell", 3);
     add_function_import(&mut imports, "fd_close", 4);
+    add_function_import(&mut imports, "fd_write", 2);
     name(&mut imports, "env");
     name(&mut imports, "memory");
     imports.extend([2, 0, 1]);
     section(&mut module, 2, &imports);
 
-    section(&mut module, 3, &[5, 0, 1, 2, 3, 4]);
+    section(&mut module, 3, &[6, 0, 1, 2, 3, 4, 2]);
 
-    let mut exports = vec![5];
+    let mut exports = vec![6];
     for (export_name, function_index) in [
-        ("open", 5),
-        ("pwrite", 6),
-        ("read", 7),
-        ("tell", 8),
-        ("close", 9),
+        ("open", 6),
+        ("pwrite", 7),
+        ("read", 8),
+        ("tell", 9),
+        ("close", 10),
+        ("write", 11),
     ] {
         name(&mut exports, export_name);
         exports.push(0);
@@ -103,8 +105,9 @@ fn module() -> Vec<u8> {
         forwarder(4, 2),
         forwarder(2, 3),
         forwarder(1, 4),
+        forwarder(4, 5),
     ];
-    let mut code = vec![5];
+    let mut code = vec![6];
     for body in bodies {
         u32leb(&mut code, body.len() as u32);
         code.extend(body);
@@ -167,6 +170,15 @@ fn read_args(fd: u32) -> [Value; 4] {
         Value::I32(176),
         Value::I32(1),
         Value::I32(184),
+    ]
+}
+
+fn write_args(fd: u32, nwritten_ptr: i32) -> [Value; 4] {
+    [
+        Value::I32(fd as i32),
+        Value::I32(128),
+        Value::I32(1),
+        Value::I32(nwritten_ptr),
     ]
 }
 
@@ -324,4 +336,132 @@ fn writable_policy_and_pwrite_fail_closed_without_mutating_file_or_results() {
         0xfeedface
     );
     assert!(readonly.file_snapshot("/ro", "new.bin").is_none());
+}
+
+#[test]
+fn regular_fd_write_uses_and_advances_cursor_without_seek_right() {
+    let memory = MemoryHandle::new(1, Some(1)).unwrap();
+    memory.write(64, b"seed.bin").unwrap();
+    memory.write(128, &256u32.to_le_bytes()).unwrap();
+    memory.write(132, &2u32.to_le_bytes()).unwrap();
+    memory.write(256, b"XYZ").unwrap();
+
+    let wasi = WasiPreview1::new()
+        .with_writable_preopen("/scratch")
+        .unwrap()
+        .with_writable_file("/scratch", "seed.bin", b"abcdef")
+        .unwrap();
+    let mut vm = instantiate(&memory, &wasi);
+
+    assert_eq!(
+        errno(
+            &mut vm,
+            "open",
+            &open_args(3, 64, 8, 0, RIGHTS_FD_WRITE, 100),
+        ),
+        ERRNO_SUCCESS
+    );
+    let fd = u32::from_le_bytes(memory.read(100, 4).unwrap().try_into().unwrap());
+
+    assert_eq!(errno(&mut vm, "write", &write_args(fd, 160)), ERRNO_SUCCESS);
+    assert_eq!(
+        u32::from_le_bytes(memory.read(160, 4).unwrap().try_into().unwrap()),
+        2
+    );
+    assert_eq!(
+        wasi.file_snapshot("/scratch", "seed.bin").unwrap(),
+        b"XYcdef"
+    );
+
+    memory.write(128, &258u32.to_le_bytes()).unwrap();
+    memory.write(132, &1u32.to_le_bytes()).unwrap();
+    assert_eq!(errno(&mut vm, "write", &write_args(fd, 160)), ERRNO_SUCCESS);
+    assert_eq!(
+        wasi.file_snapshot("/scratch", "seed.bin").unwrap(),
+        b"XYZdef"
+    );
+
+    memory.write(128, &0u32.to_le_bytes()).unwrap();
+    memory.write(132, &0u32.to_le_bytes()).unwrap();
+    memory.write(160, &0xdeadbeefu32.to_le_bytes()).unwrap();
+    assert_eq!(errno(&mut vm, "write", &write_args(fd, 160)), ERRNO_SUCCESS);
+    assert_eq!(
+        u32::from_le_bytes(memory.read(160, 4).unwrap().try_into().unwrap()),
+        0
+    );
+    assert_eq!(
+        wasi.file_snapshot("/scratch", "seed.bin").unwrap(),
+        b"XYZdef"
+    );
+}
+
+#[test]
+fn regular_fd_write_faults_and_rights_denials_are_atomic() {
+    let memory = MemoryHandle::new(1, Some(1)).unwrap();
+    memory.write(64, b"seed.bin").unwrap();
+    memory.write(128, &65_535u32.to_le_bytes()).unwrap();
+    memory.write(132, &2u32.to_le_bytes()).unwrap();
+    memory.write(160, &0xdeadbeefu32.to_le_bytes()).unwrap();
+
+    let wasi = WasiPreview1::new()
+        .with_writable_preopen("/scratch")
+        .unwrap()
+        .with_writable_file("/scratch", "seed.bin", b"abc")
+        .unwrap();
+    let mut vm = instantiate(&memory, &wasi);
+
+    assert_eq!(
+        errno(
+            &mut vm,
+            "open",
+            &open_args(3, 64, 8, 0, RIGHTS_FD_WRITE | RIGHTS_FD_TELL, 100,),
+        ),
+        ERRNO_SUCCESS
+    );
+    let writable_fd = u32::from_le_bytes(memory.read(100, 4).unwrap().try_into().unwrap());
+
+    assert_eq!(
+        errno(&mut vm, "write", &write_args(writable_fd, 160)),
+        ERRNO_FAULT
+    );
+    assert_eq!(
+        u32::from_le_bytes(memory.read(160, 4).unwrap().try_into().unwrap()),
+        0xdeadbeef
+    );
+    assert_eq!(wasi.file_snapshot("/scratch", "seed.bin").unwrap(), b"abc");
+    assert_eq!(
+        errno(
+            &mut vm,
+            "tell",
+            &[Value::I32(writable_fd as i32), Value::I32(168)],
+        ),
+        ERRNO_SUCCESS
+    );
+    assert_eq!(
+        u64::from_le_bytes(memory.read(168, 8).unwrap().try_into().unwrap()),
+        0
+    );
+
+    assert_eq!(
+        errno(
+            &mut vm,
+            "open",
+            &open_args(3, 64, 8, 0, RIGHTS_FD_READ, 104),
+        ),
+        ERRNO_SUCCESS
+    );
+    let readonly_fd = u32::from_le_bytes(memory.read(104, 4).unwrap().try_into().unwrap());
+    memory.write(128, &256u32.to_le_bytes()).unwrap();
+    memory.write(132, &1u32.to_le_bytes()).unwrap();
+    memory.write(256, b"Z").unwrap();
+    memory.write(160, &0xfeedfaceu32.to_le_bytes()).unwrap();
+    assert_eq!(
+        errno(&mut vm, "write", &write_args(readonly_fd, 160)),
+        ERRNO_NOTCAPABLE
+    );
+    assert_eq!(
+        u32::from_le_bytes(memory.read(160, 4).unwrap().try_into().unwrap()),
+        0xfeedface
+    );
+    assert_eq!(wasi.file_snapshot("/scratch", "seed.bin").unwrap(), b"abc");
 }

@@ -6,7 +6,7 @@
 
 use std::{cell::RefCell, rc::Rc};
 
-use crate::filesystem::{DescriptorReadError, Filesystem};
+use crate::filesystem::{DescriptorReadError, DescriptorWriteError, Filesystem};
 use wasm_parser::ValueType;
 use wasm_runtime::{HostCapabilities, HostError, HostRegistry, HostRegistryError, Value};
 
@@ -239,6 +239,7 @@ impl WasiPreview1 {
     pub fn register(&self, registry: &mut HostRegistry) -> Result<(), HostRegistryError> {
         let stdout = self.stdout.clone();
         let stderr = self.stderr.clone();
+        let write_filesystem = self.filesystem.clone();
         let max_iovecs = self.max_iovecs;
         let max_write_bytes = self.max_write_bytes;
 
@@ -262,10 +263,24 @@ impl WasiPreview1 {
                     ));
                 };
 
-                let output = match *fd {
-                    1 => &stdout,
-                    2 => &stderr,
-                    _ => return Ok(vec![Value::I32(ERRNO_BADF)]),
+                let (output, file_fd) = match *fd {
+                    1 => (Some(&stdout), None),
+                    2 => (Some(&stderr), None),
+                    other => {
+                        let fd = other as u32;
+                        match write_filesystem.ensure_writable(fd) {
+                            Ok(()) => (None, Some(fd)),
+                            Err(DescriptorWriteError::BadFd) => {
+                                return Ok(vec![Value::I32(ERRNO_BADF)]);
+                            }
+                            Err(DescriptorWriteError::NotCapable) => {
+                                return Ok(vec![Value::I32(ERRNO_NOTCAPABLE)]);
+                            }
+                            Err(DescriptorWriteError::FileTooLarge) => {
+                                return Ok(vec![Value::I32(crate::ERRNO_FBIG)]);
+                            }
+                        }
+                    }
                 };
 
                 let iovs_len = *iovs_len as u32;
@@ -273,7 +288,7 @@ impl WasiPreview1 {
                     return Ok(vec![Value::I32(ERRNO_INVAL)]);
                 }
 
-                let mut chunks = Vec::with_capacity(iovs_len as usize);
+                let mut payload = Vec::new();
                 let mut total = 0usize;
                 for index in 0..iovs_len {
                     let Some(entry_offset) = index.checked_mul(8) else {
@@ -302,7 +317,22 @@ impl WasiPreview1 {
                         Err(_) => return Ok(vec![Value::I32(ERRNO_FAULT)]),
                     };
                     total = next_total;
-                    chunks.push(bytes);
+                    payload.extend_from_slice(&bytes);
+                }
+
+                if let Some(fd) = file_fd {
+                    match write_filesystem.prepare_write(fd, payload.len()) {
+                        Ok(()) => {}
+                        Err(DescriptorWriteError::BadFd) => {
+                            return Ok(vec![Value::I32(ERRNO_BADF)]);
+                        }
+                        Err(DescriptorWriteError::NotCapable) => {
+                            return Ok(vec![Value::I32(ERRNO_NOTCAPABLE)]);
+                        }
+                        Err(DescriptorWriteError::FileTooLarge) => {
+                            return Ok(vec![Value::I32(crate::ERRNO_FBIG)]);
+                        }
+                    }
                 }
 
                 if context.read_memory(*nwritten as u32, 4).is_err() {
@@ -316,8 +346,14 @@ impl WasiPreview1 {
                 {
                     return Ok(vec![Value::I32(ERRNO_FAULT)]);
                 }
-                for chunk in chunks {
-                    output.append(&chunk);
+                if let Some(output) = output {
+                    output.append(&payload);
+                } else if let Some(fd) = file_fd {
+                    if let Err(error) = write_filesystem.write(fd, &payload) {
+                        return Err(HostError::message(format!(
+                            "WASI writable descriptor changed during fd_write: {error:?}"
+                        )));
+                    }
                 }
 
                 Ok(vec![Value::I32(ERRNO_SUCCESS)])
