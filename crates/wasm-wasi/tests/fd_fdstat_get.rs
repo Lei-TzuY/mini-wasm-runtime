@@ -2,7 +2,7 @@ use wasm_parser::parse_module;
 use wasm_runtime::{HostRegistry, Instance, MemoryHandle, Value};
 use wasm_wasi::{
     WasiPreview1, ERRNO_BADF, ERRNO_FAULT, ERRNO_SUCCESS, FILETYPE_CHARACTER_DEVICE,
-    RIGHTS_FD_WRITE,
+    RIGHTS_FD_READ, RIGHTS_FD_WRITE,
 };
 
 fn u32leb(out: &mut Vec<u8>, mut value: u32) {
@@ -88,6 +88,27 @@ fn instantiate(fd: u32, fdstat: u32, memory: &MemoryHandle, wasi: &WasiPreview1)
         .unwrap();
     wasi.register(&mut hosts).unwrap();
     Instance::with_hosts(parse_module(&module(fd, fdstat)).unwrap(), hosts).unwrap()
+}
+
+#[test]
+fn fd_fdstat_get_reports_bounded_stdin_metadata() {
+    let memory = MemoryHandle::new(1, Some(1)).unwrap();
+    let wasi = WasiPreview1::new();
+    let mut vm = instantiate(0, 32, &memory, &wasi);
+
+    assert_eq!(
+        vm.invoke_export("run", &[]).unwrap(),
+        Some(Value::I32(ERRNO_SUCCESS))
+    );
+
+    let fdstat = memory.read(32, 24).unwrap();
+    assert_eq!(fdstat[0], FILETYPE_CHARACTER_DEVICE);
+    assert_eq!(u16::from_le_bytes(fdstat[2..4].try_into().unwrap()), 0);
+    assert_eq!(
+        u64::from_le_bytes(fdstat[8..16].try_into().unwrap()),
+        RIGHTS_FD_READ
+    );
+    assert_eq!(u64::from_le_bytes(fdstat[16..24].try_into().unwrap()), 0);
 }
 
 #[test]
