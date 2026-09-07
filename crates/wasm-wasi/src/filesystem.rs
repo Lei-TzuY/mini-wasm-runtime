@@ -6,8 +6,8 @@ use wasm_runtime::{HostCapabilities, HostError, HostRegistry, HostRegistryError,
 use crate::{
     ERRNO_BADF, ERRNO_FAULT, ERRNO_FBIG, ERRNO_INVAL, ERRNO_MFILE, ERRNO_NAMETOOLONG, ERRNO_NOENT,
     ERRNO_NOSPC, ERRNO_NOTCAPABLE, ERRNO_OVERFLOW, ERRNO_SUCCESS, FILETYPE_REGULAR_FILE,
-    OFLAGS_CREAT, RIGHTS_FD_FILESTAT_GET, RIGHTS_FD_READ, RIGHTS_FD_SEEK, RIGHTS_FD_TELL,
-    RIGHTS_FD_WRITE,
+    OFLAGS_CREAT, RIGHTS_FD_FILESTAT_GET, RIGHTS_FD_FILESTAT_SET_SIZE, RIGHTS_FD_READ,
+    RIGHTS_FD_SEEK, RIGHTS_FD_TELL, RIGHTS_FD_WRITE,
 };
 
 const WASI_MODULE: &str = "wasi_snapshot_preview1";
@@ -16,6 +16,7 @@ const FD_CLOSE_NAME: &str = "fd_close";
 const FD_SEEK_NAME: &str = "fd_seek";
 const FD_TELL_NAME: &str = "fd_tell";
 const FD_PWRITE_NAME: &str = "fd_pwrite";
+const FD_FILESTAT_SET_SIZE_NAME: &str = "fd_filestat_set_size";
 const WHENCE_SET: u32 = 0;
 const WHENCE_CUR: u32 = 1;
 const WHENCE_END: u32 = 2;
@@ -399,6 +400,22 @@ impl Filesystem {
         })
     }
 
+    pub(crate) fn set_size(&self, fd: u32, size: u64) -> Result<(), DescriptorWriteError> {
+        let state = self.state.borrow();
+        let Some(file) = state.open_files.get(&fd) else {
+            return Err(DescriptorWriteError::BadFd);
+        };
+        if file.rights_base & RIGHTS_FD_FILESTAT_SET_SIZE == 0 {
+            return Err(DescriptorWriteError::NotCapable);
+        }
+        let size = usize::try_from(size).map_err(|_| DescriptorWriteError::FileTooLarge)?;
+        if size > MAX_FILE_BYTES {
+            return Err(DescriptorWriteError::FileTooLarge);
+        }
+        file.bytes.borrow_mut().resize(size, 0);
+        Ok(())
+    }
+
     pub(crate) fn register(&self, registry: &mut HostRegistry) -> Result<(), HostRegistryError> {
         let open_filesystem = self.clone();
         registry.register_values(
@@ -454,7 +471,8 @@ impl Filesystem {
                     | RIGHTS_FD_WRITE
                     | RIGHTS_FD_SEEK
                     | RIGHTS_FD_TELL
-                    | RIGHTS_FD_FILESTAT_GET;
+                    | RIGHTS_FD_FILESTAT_GET
+                    | RIGHTS_FD_FILESTAT_SET_SIZE;
                 if requested_base & !allowed_base != 0 || requested_inheriting != 0 {
                     return Ok(vec![Value::I32(ERRNO_NOTCAPABLE)]);
                 }
@@ -675,6 +693,31 @@ impl Filesystem {
             },
         )?;
 
+        let resize_filesystem = self.clone();
+        registry.register_values(
+            WASI_MODULE,
+            FD_FILESTAT_SET_SIZE_NAME,
+            vec![ValueType::I32, ValueType::I64],
+            vec![ValueType::I32],
+            HostCapabilities::NONE,
+            move |_context, args| {
+                let [Value::I32(fd), Value::I64(size)] = args else {
+                    return Err(HostError::message(
+                        "validated wasi fd_filestat_set_size signature received invalid arguments",
+                    ));
+                };
+
+                let fd = *fd as u32;
+                if resize_filesystem.is_known_non_file(fd) {
+                    return Ok(vec![Value::I32(ERRNO_NOTCAPABLE)]);
+                }
+                match resize_filesystem.set_size(fd, *size as u64) {
+                    Ok(()) => Ok(vec![Value::I32(ERRNO_SUCCESS)]),
+                    Err(error) => Ok(vec![Value::I32(write_errno(error))]),
+                }
+            },
+        )?;
+
         let close_filesystem = self.clone();
         registry.register_values(
             WASI_MODULE,
@@ -768,7 +811,8 @@ impl Filesystem {
             (inode, bytes, true, true)
         };
 
-        if rights_base & RIGHTS_FD_WRITE != 0
+        let mutation_rights = RIGHTS_FD_WRITE | RIGHTS_FD_FILESTAT_SET_SIZE;
+        if rights_base & mutation_rights != 0
             && (!writable || !state.writable_preopens.contains(&preopen_fd))
         {
             if created {

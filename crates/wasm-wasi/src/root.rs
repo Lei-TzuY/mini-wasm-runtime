@@ -14,7 +14,7 @@ mod preopen;
 pub use base::{
     OutputBuffer, ERRNO_BADF, ERRNO_FAULT, ERRNO_INVAL, ERRNO_NOTCAPABLE, ERRNO_SUCCESS,
     FILETYPE_CHARACTER_DEVICE, FILETYPE_DIRECTORY, FILETYPE_REGULAR_FILE, RIGHTS_FD_FILESTAT_GET,
-    RIGHTS_FD_READ, RIGHTS_FD_WRITE, RIGHTS_PATH_OPEN,
+    RIGHTS_FD_FILESTAT_SET_SIZE, RIGHTS_FD_READ, RIGHTS_FD_WRITE, RIGHTS_PATH_OPEN,
 };
 pub use clock::WasiClockId;
 pub use filesystem::WasiFilesystemError;
@@ -186,6 +186,7 @@ impl WasiPreview1 {
                 | RIGHTS_FD_SEEK
                 | RIGHTS_FD_TELL
                 | RIGHTS_FD_FILESTAT_GET
+                | RIGHTS_FD_FILESTAT_SET_SIZE
         } else {
             RIGHTS_FD_READ | RIGHTS_FD_SEEK | RIGHTS_FD_TELL | RIGHTS_FD_FILESTAT_GET
         };
