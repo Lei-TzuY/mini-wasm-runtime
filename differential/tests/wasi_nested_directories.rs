@@ -10,6 +10,7 @@ use wasm_runtime::{HostRegistry, Instance as MiniInstance, MemoryHandle, Value};
 use wasm_wasi::{
     WasiPreview1, ERRNO_NOTEMPTY, ERRNO_SUCCESS, FILETYPE_DIRECTORY, FILETYPE_REGULAR_FILE,
     OFLAGS_CREAT, OFLAGS_DIRECTORY, RIGHTS_FD_READDIR, RIGHTS_PATH_CREATE_FILE, RIGHTS_PATH_OPEN,
+    RIGHTS_PATH_UNLINK_FILE,
 };
 use wasmtime::{Engine, Linker, Memory, MemoryType, Module as ReferenceModule, Store};
 use wasmtime_wasi::{
@@ -19,14 +20,14 @@ use wasmtime_wasi::{
 
 const DOCS_PTR: u32 = 1024;
 const NOTE_PTR: u32 = 1040;
-const FULL_NOTE_PTR: u32 = 1060;
 const ROOT_FD_OUT: u32 = 64;
 const FILE_FD_OUT: u32 = 68;
 const BUFUSED: u32 = 72;
 const BUFFER: u32 = 128;
 const BUFFER_LEN: u32 = 512;
 const DIRENT_SIZE: usize = 24;
-const DIRECTORY_RIGHTS: u64 = RIGHTS_FD_READDIR | RIGHTS_PATH_OPEN | RIGHTS_PATH_CREATE_FILE;
+const DIRECTORY_RIGHTS: u64 =
+    RIGHTS_FD_READDIR | RIGHTS_PATH_OPEN | RIGHTS_PATH_CREATE_FILE | RIGHTS_PATH_UNLINK_FILE;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct PortableDirent {
@@ -207,9 +208,6 @@ fn run_mini(bytes: &[u8]) -> NestedDirectoryTrace {
     memory
         .write(NOTE_PTR, b"note.txt")
         .expect("write note path");
-    memory
-        .write(FULL_NOTE_PTR, b"docs/note.txt")
-        .expect("write full note path");
 
     let mkdir_errno = mini_call(
         &mut instance,
@@ -253,9 +251,9 @@ fn run_mini(bytes: &[u8]) -> NestedDirectoryTrace {
         &mut instance,
         "unlink",
         &[
-            Value::I32(3),
-            Value::I32(FULL_NOTE_PTR as i32),
-            Value::I32(13),
+            Value::I32(directory_fd as i32),
+            Value::I32(NOTE_PTR as i32),
+            Value::I32(8),
         ],
     );
     let remove_errno = mini_call(
@@ -366,9 +364,6 @@ fn run_reference(engine: &Engine, bytes: &[u8]) -> NestedDirectoryTrace {
     memory
         .write(&mut store, NOTE_PTR as usize, b"note.txt")
         .expect("write note path");
-    memory
-        .write(&mut store, FULL_NOTE_PTR as usize, b"docs/note.txt")
-        .expect("write full note path");
 
     let mkdir_errno = reference_call(
         &instance,
@@ -426,9 +421,9 @@ fn run_reference(engine: &Engine, bytes: &[u8]) -> NestedDirectoryTrace {
         &mut store,
         "unlink",
         &[
-            wasmtime::Val::I32(3),
-            wasmtime::Val::I32(FULL_NOTE_PTR as i32),
-            wasmtime::Val::I32(13),
+            wasmtime::Val::I32(directory_fd as i32),
+            wasmtime::Val::I32(NOTE_PTR as i32),
+            wasmtime::Val::I32(8),
         ],
     );
     let remove_errno = reference_call(
