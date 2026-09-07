@@ -1,8 +1,8 @@
 //! Bounded WASI Preview1 host capabilities for `mini-wasm-runtime`.
 //!
-//! This crate provides executable descriptor and process-argument capabilities on the runtime's
-//! capability-scoped host boundary. Guest-memory operations are bounded and fail closed before
-//! externally visible output side effects are committed.
+//! This crate provides executable descriptor, process-argument, and process-environment
+//! capabilities on the runtime's capability-scoped host boundary. Guest-memory operations are
+//! bounded and fail closed before externally visible output side effects are committed.
 
 use std::{cell::RefCell, rc::Rc};
 use wasm_parser::ValueType;
@@ -21,6 +21,8 @@ const DEFAULT_MAX_IOVECS: u32 = 1_024;
 const DEFAULT_MAX_WRITE_BYTES: usize = 16 * 1024 * 1024;
 const DEFAULT_MAX_ARGS: usize = 4_096;
 const DEFAULT_MAX_ARGS_BYTES: usize = 1024 * 1024;
+const DEFAULT_MAX_ENV: usize = 4_096;
+const DEFAULT_MAX_ENV_BYTES: usize = 1024 * 1024;
 
 #[derive(Debug, Clone, Default)]
 pub struct OutputBuffer {
@@ -50,10 +52,13 @@ pub struct WasiPreview1 {
     stdout: OutputBuffer,
     stderr: OutputBuffer,
     args: Vec<Vec<u8>>,
+    env: Vec<Vec<u8>>,
     max_iovecs: u32,
     max_write_bytes: usize,
     max_args: usize,
     max_args_bytes: usize,
+    max_env: usize,
+    max_env_bytes: usize,
 }
 
 impl Default for WasiPreview1 {
@@ -62,10 +67,13 @@ impl Default for WasiPreview1 {
             stdout: OutputBuffer::default(),
             stderr: OutputBuffer::default(),
             args: Vec::new(),
+            env: Vec::new(),
             max_iovecs: DEFAULT_MAX_IOVECS,
             max_write_bytes: DEFAULT_MAX_WRITE_BYTES,
             max_args: DEFAULT_MAX_ARGS,
             max_args_bytes: DEFAULT_MAX_ARGS_BYTES,
+            max_env: DEFAULT_MAX_ENV,
+            max_env_bytes: DEFAULT_MAX_ENV_BYTES,
         }
     }
 }
@@ -104,6 +112,34 @@ impl WasiPreview1 {
     pub fn with_args_limits(mut self, max_args: usize, max_args_bytes: usize) -> Self {
         self.max_args = max_args;
         self.max_args_bytes = max_args_bytes;
+        self
+    }
+
+    pub fn with_env<I, K, V>(mut self, env: I) -> Self
+    where
+        I: IntoIterator<Item = (K, V)>,
+        K: AsRef<str>,
+        V: AsRef<str>,
+    {
+        self.env = env
+            .into_iter()
+            .map(|(key, value)| {
+                let key = key.as_ref().as_bytes();
+                let value = value.as_ref().as_bytes();
+                let mut entry =
+                    Vec::with_capacity(key.len().saturating_add(value.len()).saturating_add(1));
+                entry.extend_from_slice(key);
+                entry.push(b'=');
+                entry.extend_from_slice(value);
+                entry
+            })
+            .collect();
+        self
+    }
+
+    pub fn with_env_limits(mut self, max_env: usize, max_env_bytes: usize) -> Self {
+        self.max_env = max_env;
+        self.max_env_bytes = max_env_bytes;
         self
     }
 
@@ -339,6 +375,130 @@ impl WasiPreview1 {
                     .is_err()
                     || context
                         .write_memory(*argv_buf_ptr as u32, &payload)
+                        .is_err()
+                {
+                    return Ok(vec![Value::I32(ERRNO_FAULT)]);
+                }
+
+                Ok(vec![Value::I32(ERRNO_SUCCESS)])
+            },
+        )?;
+
+        let configured_env = self.env.clone();
+        let max_env = self.max_env;
+        let max_env_bytes = self.max_env_bytes;
+        let sizes_env = configured_env.clone();
+        registry.register_values(
+            "wasi_snapshot_preview1",
+            "environ_sizes_get",
+            vec![ValueType::I32, ValueType::I32],
+            vec![ValueType::I32],
+            HostCapabilities::MEMORY_READ_WRITE,
+            move |context, args| {
+                let [Value::I32(count_ptr), Value::I32(buf_size_ptr)] = args else {
+                    return Err(HostError::message(
+                        "validated wasi environ_sizes_get signature received non-i32 arguments",
+                    ));
+                };
+
+                if sizes_env.len() > max_env {
+                    return Ok(vec![Value::I32(ERRNO_INVAL)]);
+                }
+                let mut bytes_len = 0usize;
+                for entry in &sizes_env {
+                    let Some(next) = bytes_len
+                        .checked_add(entry.len())
+                        .and_then(|n| n.checked_add(1))
+                    else {
+                        return Ok(vec![Value::I32(ERRNO_INVAL)]);
+                    };
+                    bytes_len = next;
+                }
+                if bytes_len > max_env_bytes
+                    || sizes_env.len() > u32::MAX as usize
+                    || bytes_len > u32::MAX as usize
+                {
+                    return Ok(vec![Value::I32(ERRNO_INVAL)]);
+                }
+
+                if context.read_memory(*count_ptr as u32, 4).is_err()
+                    || context.read_memory(*buf_size_ptr as u32, 4).is_err()
+                {
+                    return Ok(vec![Value::I32(ERRNO_FAULT)]);
+                }
+
+                let count = (sizes_env.len() as u32).to_le_bytes();
+                let buf_size = (bytes_len as u32).to_le_bytes();
+                if context.write_memory(*count_ptr as u32, &count).is_err()
+                    || context
+                        .write_memory(*buf_size_ptr as u32, &buf_size)
+                        .is_err()
+                {
+                    return Ok(vec![Value::I32(ERRNO_FAULT)]);
+                }
+
+                Ok(vec![Value::I32(ERRNO_SUCCESS)])
+            },
+        )?;
+
+        registry.register_values(
+            "wasi_snapshot_preview1",
+            "environ_get",
+            vec![ValueType::I32, ValueType::I32],
+            vec![ValueType::I32],
+            HostCapabilities::MEMORY_READ_WRITE,
+            move |context, args| {
+                let [Value::I32(environ_ptr), Value::I32(environ_buf_ptr)] = args else {
+                    return Err(HostError::message(
+                        "validated wasi environ_get signature received non-i32 arguments",
+                    ));
+                };
+
+                if configured_env.len() > max_env {
+                    return Ok(vec![Value::I32(ERRNO_INVAL)]);
+                }
+                let Some(pointer_bytes_len) = configured_env.len().checked_mul(4) else {
+                    return Ok(vec![Value::I32(ERRNO_INVAL)]);
+                };
+                let mut payload = Vec::new();
+                let mut pointer_table = Vec::with_capacity(pointer_bytes_len);
+                for entry in &configured_env {
+                    let Some(offset) = u32::try_from(payload.len()).ok() else {
+                        return Ok(vec![Value::I32(ERRNO_INVAL)]);
+                    };
+                    let Some(pointer) = (*environ_buf_ptr as u32).checked_add(offset) else {
+                        return Ok(vec![Value::I32(ERRNO_FAULT)]);
+                    };
+                    pointer_table.extend(pointer.to_le_bytes());
+                    let Some(next_len) = payload
+                        .len()
+                        .checked_add(entry.len())
+                        .and_then(|n| n.checked_add(1))
+                    else {
+                        return Ok(vec![Value::I32(ERRNO_INVAL)]);
+                    };
+                    if next_len > max_env_bytes || next_len > u32::MAX as usize {
+                        return Ok(vec![Value::I32(ERRNO_INVAL)]);
+                    }
+                    payload.extend_from_slice(entry);
+                    payload.push(0);
+                }
+
+                if context
+                    .read_memory(*environ_ptr as u32, pointer_table.len())
+                    .is_err()
+                    || context
+                        .read_memory(*environ_buf_ptr as u32, payload.len())
+                        .is_err()
+                {
+                    return Ok(vec![Value::I32(ERRNO_FAULT)]);
+                }
+
+                if context
+                    .write_memory(*environ_ptr as u32, &pointer_table)
+                    .is_err()
+                    || context
+                        .write_memory(*environ_buf_ptr as u32, &payload)
                         .is_err()
                 {
                     return Ok(vec![Value::I32(ERRNO_FAULT)]);
