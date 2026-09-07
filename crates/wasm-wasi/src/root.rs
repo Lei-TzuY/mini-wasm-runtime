@@ -39,6 +39,8 @@ pub const RIGHTS_FD_TELL: u64 = 1 << 5;
 pub const RIGHTS_PATH_CREATE_FILE: u64 = 1 << 10;
 pub const RIGHTS_PATH_LINK_SOURCE: u64 = 1 << 11;
 pub const RIGHTS_PATH_LINK_TARGET: u64 = 1 << 12;
+pub const RIGHTS_PATH_RENAME_SOURCE: u64 = 1 << 16;
+pub const RIGHTS_PATH_RENAME_TARGET: u64 = 1 << 17;
 pub const RIGHTS_PATH_UNLINK_FILE: u64 = 1 << 26;
 pub const OFLAGS_CREAT: u32 = 1 << 0;
 
@@ -184,6 +186,8 @@ impl WasiPreview1 {
                 | RIGHTS_PATH_CREATE_FILE
                 | RIGHTS_PATH_LINK_SOURCE
                 | RIGHTS_PATH_LINK_TARGET
+                | RIGHTS_PATH_RENAME_SOURCE
+                | RIGHTS_PATH_RENAME_TARGET
                 | RIGHTS_PATH_UNLINK_FILE
         } else {
             RIGHTS_PATH_OPEN
