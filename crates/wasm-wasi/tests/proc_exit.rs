@@ -50,7 +50,8 @@ fn body(code: Vec<u8>) -> Vec<u8> {
 
 fn proc_exit_module(exit_code: i32, nested: bool) -> Vec<u8> {
     let mut module = b"\0asm\x01\0\0\0".to_vec();
-    section(&mut module, 1, &[2, 0x60, 1, 0x7f, 0, 0x60, 0, 0]);
+    let types = [2, 0x60, 1, 0x7f, 0, 0x60, 0, 0];
+    section(&mut module, 1, &types);
 
     let mut imports = vec![1];
     name(&mut imports, "wasi_snapshot_preview1");
@@ -58,11 +59,12 @@ fn proc_exit_module(exit_code: i32, nested: bool) -> Vec<u8> {
     imports.extend([0, 0]);
     section(&mut module, 2, &imports);
 
-    section(
-        &mut module,
-        3,
-        if nested { &[2, 1, 1] } else { &[1, 1] },
-    );
+    let functions = if nested {
+        vec![2, 1, 1]
+    } else {
+        vec![1, 1]
+    };
+    section(&mut module, 3, &functions);
     section(&mut module, 6, &[1, 0x7f, 1, 0x41, 0, 0x0b]);
 
     let mut exports = vec![1];
