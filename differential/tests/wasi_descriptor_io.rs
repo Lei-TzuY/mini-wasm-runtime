@@ -15,13 +15,12 @@ const READ_IOV_2: usize = 16;
 const NREAD_2: usize = 24;
 const READ_IOV_3: usize = 32;
 const NREAD_3: usize = 40;
-const WRITE_IOVS: usize = 48;
+const WRITE_IOV: usize = 48;
 const NWRITTEN: usize = 64;
 const READ_BUFFER_1: usize = 96;
 const READ_BUFFER_2: usize = 112;
 const READ_BUFFER_3: usize = 128;
-const WRITE_PAYLOAD_1: usize = 144;
-const WRITE_PAYLOAD_2: usize = 160;
+const WRITE_PAYLOAD: usize = 144;
 const STDIN: &[u8] = b"abcdef";
 const STDOUT: &[u8] = b"ping pong";
 
@@ -64,7 +63,7 @@ fn module_bytes() -> Vec<u8> {
             (func (export "write_stdout") (result i32)
                 i32.const 1
                 i32.const 48
-                i32.const 2
+                i32.const 1
                 i32.const 64
                 call $fd_write))
         "#,
@@ -86,10 +85,8 @@ fn seeded_memory() -> Vec<u8> {
     write_iovec(&mut memory, READ_IOV_1, READ_BUFFER_1, 4);
     write_iovec(&mut memory, READ_IOV_2, READ_BUFFER_2, 4);
     write_iovec(&mut memory, READ_IOV_3, READ_BUFFER_3, 4);
-    write_iovec(&mut memory, WRITE_IOVS, WRITE_PAYLOAD_1, 4);
-    write_iovec(&mut memory, WRITE_IOVS + 8, WRITE_PAYLOAD_2, 5);
-    memory[WRITE_PAYLOAD_1..WRITE_PAYLOAD_1 + 4].copy_from_slice(b"ping");
-    memory[WRITE_PAYLOAD_2..WRITE_PAYLOAD_2 + 5].copy_from_slice(b" pong");
+    write_iovec(&mut memory, WRITE_IOV, WRITE_PAYLOAD, STDOUT.len());
+    memory[WRITE_PAYLOAD..WRITE_PAYLOAD + STDOUT.len()].copy_from_slice(STDOUT);
     memory
 }
 
