@@ -162,22 +162,14 @@ fn path_open_read_stat_and_close_form_one_descriptor_lifecycle() {
     let mut vm = instantiate(&memory, &wasi);
 
     assert_eq!(
-        errno(
-            &mut vm,
-            "open",
-            &open_args(64, 14, RIGHTS_FD_READ, 100)
-        ),
+        errno(&mut vm, "open", &open_args(64, 14, RIGHTS_FD_READ, 100)),
         ERRNO_SUCCESS
     );
     let fd = u32::from_le_bytes(memory.read(100, 4).unwrap().try_into().unwrap());
     assert_eq!(fd, 4);
 
     assert_eq!(
-        errno(
-            &mut vm,
-            "stat",
-            &[Value::I32(fd as i32), Value::I32(192)]
-        ),
+        errno(&mut vm, "stat", &[Value::I32(fd as i32), Value::I32(192)]),
         ERRNO_SUCCESS
     );
     let fdstat = memory.read(192, 24).unwrap();
@@ -220,11 +212,7 @@ fn path_open_read_stat_and_close_form_one_descriptor_lifecycle() {
     );
     memory.write(192, &[0xbb; 24]).unwrap();
     assert_eq!(
-        errno(
-            &mut vm,
-            "stat",
-            &[Value::I32(fd as i32), Value::I32(192)]
-        ),
+        errno(&mut vm, "stat", &[Value::I32(fd as i32), Value::I32(192)]),
         ERRNO_BADF
     );
     assert_eq!(memory.read(192, 24).unwrap(), vec![0xbb; 24]);
@@ -246,11 +234,7 @@ fn rejected_path_open_calls_do_not_allocate_or_mutate_the_output_fd() {
 
     memory.write(64, b"../secret").unwrap();
     assert_eq!(
-        errno(
-            &mut vm,
-            "open",
-            &open_args(64, 9, RIGHTS_FD_READ, 100)
-        ),
+        errno(&mut vm, "open", &open_args(64, 9, RIGHTS_FD_READ, 100)),
         ERRNO_NOTCAPABLE
     );
     assert_eq!(
@@ -260,11 +244,7 @@ fn rejected_path_open_calls_do_not_allocate_or_mutate_the_output_fd() {
 
     memory.write(64, b"docs/missing").unwrap();
     assert_eq!(
-        errno(
-            &mut vm,
-            "open",
-            &open_args(64, 12, RIGHTS_FD_READ, 100)
-        ),
+        errno(&mut vm, "open", &open_args(64, 12, RIGHTS_FD_READ, 100)),
         ERRNO_NOENT
     );
     assert_eq!(
@@ -274,11 +254,7 @@ fn rejected_path_open_calls_do_not_allocate_or_mutate_the_output_fd() {
 
     memory.write(64, b"docs/hello.txt").unwrap();
     assert_eq!(
-        errno(
-            &mut vm,
-            "open",
-            &open_args(64, 14, RIGHTS_FD_WRITE, 100)
-        ),
+        errno(&mut vm, "open", &open_args(64, 14, RIGHTS_FD_WRITE, 100)),
         ERRNO_NOTCAPABLE
     );
     assert_eq!(
@@ -287,20 +263,12 @@ fn rejected_path_open_calls_do_not_allocate_or_mutate_the_output_fd() {
     );
 
     assert_eq!(
-        errno(
-            &mut vm,
-            "open",
-            &open_args(64, 14, RIGHTS_FD_READ, 65_534)
-        ),
+        errno(&mut vm, "open", &open_args(64, 14, RIGHTS_FD_READ, 65_534)),
         ERRNO_FAULT
     );
 
     assert_eq!(
-        errno(
-            &mut vm,
-            "open",
-            &open_args(64, 14, RIGHTS_FD_READ, 100)
-        ),
+        errno(&mut vm, "open", &open_args(64, 14, RIGHTS_FD_READ, 100)),
         ERRNO_SUCCESS
     );
     let fd = u32::from_le_bytes(memory.read(100, 4).unwrap().try_into().unwrap());
@@ -311,11 +279,7 @@ fn rejected_path_open_calls_do_not_allocate_or_mutate_the_output_fd() {
     );
 
     assert_eq!(
-        errno(
-            &mut vm,
-            "open",
-            &open_args(64, 14, RIGHTS_FD_READ, 100)
-        ),
+        errno(&mut vm, "open", &open_args(64, 14, RIGHTS_FD_READ, 100)),
         ERRNO_SUCCESS
     );
     assert_eq!(
@@ -342,11 +306,7 @@ fn child_descriptor_rights_are_attenuated_by_path_open_request() {
 
     assert_eq!(errno(&mut vm, "read", &read_args(fd)), ERRNO_NOTCAPABLE);
     assert_eq!(
-        errno(
-            &mut vm,
-            "stat",
-            &[Value::I32(fd as i32), Value::I32(192)]
-        ),
+        errno(&mut vm, "stat", &[Value::I32(fd as i32), Value::I32(192)]),
         ERRNO_SUCCESS
     );
     let fdstat = memory.read(192, 24).unwrap();
