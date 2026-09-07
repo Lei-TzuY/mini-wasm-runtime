@@ -24,6 +24,7 @@ pub const FILETYPE_REGULAR_FILE: u8 = 4;
 pub const RIGHTS_FD_READ: u64 = 1 << 1;
 pub const RIGHTS_FD_WRITE: u64 = 1 << 6;
 pub const RIGHTS_FD_FILESTAT_GET: u64 = 1 << 21;
+pub const RIGHTS_FD_FILESTAT_SET_SIZE: u64 = 1 << 22;
 pub const RIGHTS_PATH_OPEN: u64 = 1 << 13;
 
 const FDSTAT_SIZE: usize = 24;
