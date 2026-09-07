@@ -13,6 +13,7 @@ use crate::{
 const WASI_MODULE: &str = "wasi_snapshot_preview1";
 const PATH_OPEN_NAME: &str = "path_open";
 const PATH_LINK_NAME: &str = "path_link";
+const PATH_RENAME_NAME: &str = "path_rename";
 const PATH_UNLINK_FILE_NAME: &str = "path_unlink_file";
 const FD_CLOSE_NAME: &str = "fd_close";
 const FD_SEEK_NAME: &str = "fd_seek";
@@ -168,6 +169,13 @@ enum LinkError {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum UnlinkError {
+    NotFound,
+    NotCapable,
+    InvalidLinkCount,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum RenameError {
     NotFound,
     NotCapable,
     InvalidLinkCount,
@@ -627,6 +635,85 @@ impl Filesystem {
             },
         )?;
 
+        let rename_filesystem = self.clone();
+        registry.register_values(
+            WASI_MODULE,
+            PATH_RENAME_NAME,
+            vec![
+                ValueType::I32,
+                ValueType::I32,
+                ValueType::I32,
+                ValueType::I32,
+                ValueType::I32,
+                ValueType::I32,
+            ],
+            vec![ValueType::I32],
+            HostCapabilities::MEMORY_READ,
+            move |context, args| {
+                let [
+                    Value::I32(old_fd),
+                    Value::I32(old_path_ptr),
+                    Value::I32(old_path_len),
+                    Value::I32(new_fd),
+                    Value::I32(new_path_ptr),
+                    Value::I32(new_path_len),
+                ] = args
+                else {
+                    return Err(HostError::message(
+                        "validated wasi path_rename signature received invalid arguments",
+                    ));
+                };
+
+                let old_fd = *old_fd as u32;
+                let new_fd = *new_fd as u32;
+                if !rename_filesystem.has_preopen(old_fd)
+                    || !rename_filesystem.has_preopen(new_fd)
+                {
+                    return Ok(vec![Value::I32(ERRNO_BADF)]);
+                }
+                if !rename_filesystem.is_writable_preopen(old_fd)
+                    || !rename_filesystem.is_writable_preopen(new_fd)
+                {
+                    return Ok(vec![Value::I32(ERRNO_NOTCAPABLE)]);
+                }
+
+                let old_path_len = *old_path_len as u32 as usize;
+                let new_path_len = *new_path_len as u32 as usize;
+                if old_path_len > MAX_RELATIVE_PATH_BYTES || new_path_len > MAX_RELATIVE_PATH_BYTES {
+                    return Ok(vec![Value::I32(ERRNO_NAMETOOLONG)]);
+                }
+                let old_path = match context.read_memory(*old_path_ptr as u32, old_path_len) {
+                    Ok(path) => path,
+                    Err(_) => return Ok(vec![Value::I32(ERRNO_FAULT)]),
+                };
+                let new_path = match context.read_memory(*new_path_ptr as u32, new_path_len) {
+                    Ok(path) => path,
+                    Err(_) => return Ok(vec![Value::I32(ERRNO_FAULT)]),
+                };
+                for path in [&old_path, &new_path] {
+                    match validate_guest_path(path) {
+                        Ok(()) => {}
+                        Err(GuestPathError::Empty) => {
+                            return Ok(vec![Value::I32(ERRNO_INVAL)]);
+                        }
+                        Err(GuestPathError::TooLong) => {
+                            return Ok(vec![Value::I32(ERRNO_NAMETOOLONG)]);
+                        }
+                        Err(GuestPathError::Unsafe) => {
+                            return Ok(vec![Value::I32(ERRNO_NOTCAPABLE)]);
+                        }
+                    }
+                }
+
+                match rename_filesystem.rename(old_fd, &old_path, new_fd, &new_path) {
+                    Ok(()) => Ok(vec![Value::I32(ERRNO_SUCCESS)]),
+                    Err(RenameError::NotFound) => Ok(vec![Value::I32(ERRNO_NOENT)]),
+                    Err(RenameError::NotCapable) => Ok(vec![Value::I32(ERRNO_NOTCAPABLE)]),
+                    Err(RenameError::InvalidLinkCount) => Ok(vec![Value::I32(ERRNO_IO)]),
+                }
+            },
+        )?;
+
         let unlink_filesystem = self.clone();
         registry.register_values(
             WASI_MODULE,
@@ -1059,6 +1146,56 @@ impl Filesystem {
             writable,
         });
         *link_count.borrow_mut() = new_links;
+        Ok(())
+    }
+
+    fn rename(
+        &self,
+        old_preopen_fd: u32,
+        old_path: &[u8],
+        new_preopen_fd: u32,
+        new_path: &[u8],
+    ) -> Result<(), RenameError> {
+        let mut state = self.state.borrow_mut();
+        if !state.writable_preopens.contains(&old_preopen_fd)
+            || !state.writable_preopens.contains(&new_preopen_fd)
+        {
+            return Err(RenameError::NotCapable);
+        }
+
+        let Some(source_index) = state.mounted_files.iter().position(|file| {
+            file.preopen_fd == old_preopen_fd && file.relative_path.as_slice() == old_path
+        }) else {
+            return Err(RenameError::NotFound);
+        };
+
+        if old_preopen_fd == new_preopen_fd && old_path == new_path {
+            return Ok(());
+        }
+
+        let target_index = state.mounted_files.iter().position(|file| {
+            file.preopen_fd == new_preopen_fd && file.relative_path.as_slice() == new_path
+        });
+
+        if let Some(target_index) = target_index {
+            if state.mounted_files[target_index].inode == state.mounted_files[source_index].inode {
+                return Ok(());
+            }
+            let target_link_count = state.mounted_files[target_index].link_count.clone();
+            let target_links = *target_link_count.borrow();
+            let Some(new_target_links) = target_links.checked_sub(1) else {
+                return Err(RenameError::InvalidLinkCount);
+            };
+
+            state.mounted_files[source_index].preopen_fd = new_preopen_fd;
+            state.mounted_files[source_index].relative_path = new_path.to_vec();
+            state.mounted_files.remove(target_index);
+            *target_link_count.borrow_mut() = new_target_links;
+            return Ok(());
+        }
+
+        state.mounted_files[source_index].preopen_fd = new_preopen_fd;
+        state.mounted_files[source_index].relative_path = new_path.to_vec();
         Ok(())
     }
 
