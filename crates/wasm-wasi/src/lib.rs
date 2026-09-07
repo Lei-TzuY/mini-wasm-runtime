@@ -491,6 +491,124 @@ impl WasiPreview1 {
             },
         )?;
 
+        let pread_filesystem = self.filesystem.clone();
+        let max_pread_iovecs = self.max_read_iovecs;
+        let max_pread_bytes = self.max_read_bytes;
+        registry.register_values(
+    "wasi_snapshot_preview1",
+    "fd_pread",
+    vec![
+        ValueType::I32,
+        ValueType::I32,
+        ValueType::I32,
+        ValueType::I64,
+        ValueType::I32,
+    ],
+    vec![ValueType::I32],
+    HostCapabilities::MEMORY_READ_WRITE,
+    move |context, args| {
+        let [
+            Value::I32(fd),
+            Value::I32(iovs),
+            Value::I32(iovs_len),
+            Value::I64(offset),
+            Value::I32(nread),
+        ] = args
+        else {
+            return Err(HostError::message(
+                "validated wasi fd_pread signature received invalid arguments",
+            ));
+        };
+
+        let fd = *fd as u32;
+        match pread_filesystem.ensure_preadable(fd) {
+            Ok(()) => {}
+            Err(DescriptorReadError::BadFd) => {
+                return Ok(vec![Value::I32(ERRNO_BADF)]);
+            }
+            Err(DescriptorReadError::NotCapable) => {
+                return Ok(vec![Value::I32(ERRNO_NOTCAPABLE)]);
+            }
+        }
+
+        let iovs_len = *iovs_len as u32;
+        if iovs_len > max_pread_iovecs {
+            return Ok(vec![Value::I32(ERRNO_INVAL)]);
+        }
+
+        let mut destinations = Vec::with_capacity(iovs_len as usize);
+        let mut total_capacity = 0usize;
+        for index in 0..iovs_len {
+            let Some(entry_offset) = index.checked_mul(8) else {
+                return Ok(vec![Value::I32(ERRNO_FAULT)]);
+            };
+            let Some(entry_address) = (*iovs as u32).checked_add(entry_offset) else {
+                return Ok(vec![Value::I32(ERRNO_FAULT)]);
+            };
+            let header = match context.read_memory(entry_address, 8) {
+                Ok(header) => header,
+                Err(_) => return Ok(vec![Value::I32(ERRNO_FAULT)]),
+            };
+            let pointer =
+                u32::from_le_bytes(header[0..4].try_into().expect("fixed iovec header"));
+            let length =
+                u32::from_le_bytes(header[4..8].try_into().expect("fixed iovec header"))
+                    as usize;
+            let Some(next_total) = total_capacity.checked_add(length) else {
+                return Ok(vec![Value::I32(ERRNO_INVAL)]);
+            };
+            if next_total > max_pread_bytes || next_total > u32::MAX as usize {
+                return Ok(vec![Value::I32(ERRNO_INVAL)]);
+            }
+            if context.read_memory(pointer, length).is_err() {
+                return Ok(vec![Value::I32(ERRNO_FAULT)]);
+            }
+            total_capacity = next_total;
+            destinations.push((pointer, length));
+        }
+
+        if context.read_memory(*nread as u32, 4).is_err() {
+            return Ok(vec![Value::I32(ERRNO_FAULT)]);
+        }
+
+        let bytes = match pread_filesystem.pread(fd, *offset as u64, total_capacity) {
+            Ok(bytes) => bytes,
+            Err(DescriptorReadError::BadFd) => {
+                return Ok(vec![Value::I32(ERRNO_BADF)]);
+            }
+            Err(DescriptorReadError::NotCapable) => {
+                return Ok(vec![Value::I32(ERRNO_NOTCAPABLE)]);
+            }
+        };
+
+        let mut copied = 0usize;
+        for (pointer, length) in destinations {
+            if copied == bytes.len() {
+                break;
+            }
+            let chunk_len = length.min(bytes.len() - copied);
+            if chunk_len != 0
+                && context
+                    .write_memory(pointer, &bytes[copied..copied + chunk_len])
+                    .is_err()
+            {
+                return Ok(vec![Value::I32(ERRNO_FAULT)]);
+            }
+            copied += chunk_len;
+        }
+
+        let copied_u32 = copied as u32;
+        if context
+            .write_memory(*nread as u32, &copied_u32.to_le_bytes())
+            .is_err()
+        {
+            return Ok(vec![Value::I32(ERRNO_FAULT)]);
+        }
+
+        Ok(vec![Value::I32(ERRNO_SUCCESS)])
+    },
+)?;
+
         let extra_fd_stats = self.extra_fd_stats.clone();
         let fdstat_filesystem = self.filesystem.clone();
         registry.register_values(
