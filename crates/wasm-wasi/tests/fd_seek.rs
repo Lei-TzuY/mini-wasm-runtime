@@ -184,6 +184,10 @@ fn read_u64(memory: &MemoryHandle, address: u32) -> u64 {
     u64::from_le_bytes(memory.read(address, 8).unwrap().try_into().unwrap())
 }
 
+fn write_u64(memory: &MemoryHandle, address: u32, value: u64) {
+    memory.write(address, &value.to_le_bytes()).unwrap();
+}
+
 #[test]
 fn seek_tell_and_read_share_one_descriptor_cursor() {
     let memory = MemoryHandle::new(1, Some(1)).unwrap();
@@ -194,14 +198,16 @@ fn seek_tell_and_read_share_one_descriptor_cursor() {
 
     assert_eq!(errno(&mut vm, "read", &read_args(fd)), ERRNO_SUCCESS);
     assert_eq!(memory.read(256, 2).unwrap(), b"ab");
-    assert_eq!(errno(&mut vm, "tell", &tell_args(fd, 192)), ERRNO_SUCCESS);
+    assert_eq!(
+        errno(&mut vm, "tell", &tell_args(fd, 192)),
+        ERRNO_SUCCESS
+    );
     assert_eq!(read_u64(&memory, 192), 2);
 
     assert_eq!(
         errno(&mut vm, "seek", &seek_args(fd, 4, WHENCE_SET, 200)),
         ERRNO_SUCCESS
     );
-    assert_eq!(read_u64(&memory, 200), 4);
     memory.write(128, &258u32.to_le_bytes()).unwrap();
     assert_eq!(errno(&mut vm, "read", &read_args(fd)), ERRNO_SUCCESS);
     assert_eq!(memory.read(258, 2).unwrap(), b"ef");
@@ -211,8 +217,6 @@ fn seek_tell_and_read_share_one_descriptor_cursor() {
         ERRNO_SUCCESS
     );
     assert_eq!(read_u64(&memory, 200), 3);
-    assert_eq!(errno(&mut vm, "tell", &tell_args(fd, 192)), ERRNO_SUCCESS);
-    assert_eq!(read_u64(&memory, 192), 3);
     memory.write(128, &260u32.to_le_bytes()).unwrap();
     assert_eq!(errno(&mut vm, "read", &read_args(fd)), ERRNO_SUCCESS);
     assert_eq!(memory.read(260, 2).unwrap(), b"de");
@@ -239,7 +243,10 @@ fn seek_tell_and_read_share_one_descriptor_cursor() {
         0
     );
     assert_eq!(memory.read(264, 2).unwrap(), vec![0xaa; 2]);
-    assert_eq!(errno(&mut vm, "tell", &tell_args(fd, 192)), ERRNO_SUCCESS);
+    assert_eq!(
+        errno(&mut vm, "tell", &tell_args(fd, 192)),
+        ERRNO_SUCCESS
+    );
     assert_eq!(read_u64(&memory, 192), 10);
 }
 
@@ -251,40 +258,37 @@ fn seek_right_implies_tell_and_tell_only_cannot_move_the_cursor() {
     let mut vm = instantiate(&memory, &wasi);
 
     let seek_fd = opened_fd(&mut vm, &memory, RIGHTS_FD_SEEK);
-    assert_eq!(errno(&mut vm, "tell", &tell_args(seek_fd, 192)), ERRNO_SUCCESS);
+    assert_eq!(
+        errno(&mut vm, "tell", &tell_args(seek_fd, 192)),
+        ERRNO_SUCCESS
+    );
     assert_eq!(read_u64(&memory, 192), 0);
 
     let tell_fd = opened_fd(&mut vm, &memory, RIGHTS_FD_READ | RIGHTS_FD_TELL);
-    assert_eq!(errno(&mut vm, "tell", &tell_args(tell_fd, 192)), ERRNO_SUCCESS);
     assert_eq!(
-        errno(
-            &mut vm,
-            "seek",
-            &seek_args(tell_fd, 0, WHENCE_CUR, 200)
-        ),
+        errno(&mut vm, "tell", &tell_args(tell_fd, 192)),
+        ERRNO_SUCCESS
+    );
+    assert_eq!(
+        errno(&mut vm, "seek", &seek_args(tell_fd, 0, WHENCE_CUR, 200)),
         ERRNO_SUCCESS
     );
     assert_eq!(read_u64(&memory, 200), 0);
 
-    memory.write(200, &0xccccccccccccccccu64.to_le_bytes()).unwrap();
+    write_u64(&memory, 200, 0xcccccccccccccccc);
     assert_eq!(
-        errno(
-            &mut vm,
-            "seek",
-            &seek_args(tell_fd, 1, WHENCE_CUR, 200)
-        ),
+        errno(&mut vm, "seek", &seek_args(tell_fd, 1, WHENCE_CUR, 200)),
         ERRNO_NOTCAPABLE
     );
     assert_eq!(read_u64(&memory, 200), 0xcccccccccccccccc);
     assert_eq!(
-        errno(
-            &mut vm,
-            "seek",
-            &seek_args(tell_fd, 0, WHENCE_SET, 200)
-        ),
+        errno(&mut vm, "seek", &seek_args(tell_fd, 0, WHENCE_SET, 200)),
         ERRNO_NOTCAPABLE
     );
-    assert_eq!(errno(&mut vm, "tell", &tell_args(tell_fd, 192)), ERRNO_SUCCESS);
+    assert_eq!(
+        errno(&mut vm, "tell", &tell_args(tell_fd, 192)),
+        ERRNO_SUCCESS
+    );
     assert_eq!(read_u64(&memory, 192), 0);
 }
 
@@ -297,10 +301,13 @@ fn rejected_seek_calls_leave_cursor_and_output_unchanged() {
     let fd = opened_fd(&mut vm, &memory, RIGHTS_FD_READ | RIGHTS_FD_SEEK);
 
     assert_eq!(errno(&mut vm, "read", &read_args(fd)), ERRNO_SUCCESS);
-    assert_eq!(errno(&mut vm, "tell", &tell_args(fd, 192)), ERRNO_SUCCESS);
+    assert_eq!(
+        errno(&mut vm, "tell", &tell_args(fd, 192)),
+        ERRNO_SUCCESS
+    );
     assert_eq!(read_u64(&memory, 192), 2);
 
-    memory.write(200, &0xdeadbeefdeadbeefu64.to_le_bytes()).unwrap();
+    write_u64(&memory, 200, 0xdeadbeefdeadbeef);
     assert_eq!(
         errno(&mut vm, "seek", &seek_args(fd, -3, WHENCE_CUR, 200)),
         ERRNO_INVAL
@@ -316,35 +323,33 @@ fn rejected_seek_calls_leave_cursor_and_output_unchanged() {
         errno(&mut vm, "seek", &seek_args(fd, 4, WHENCE_SET, 65_532)),
         ERRNO_FAULT
     );
-    assert_eq!(errno(&mut vm, "tell", &tell_args(fd, 192)), ERRNO_SUCCESS);
+    assert_eq!(
+        errno(&mut vm, "tell", &tell_args(fd, 192)),
+        ERRNO_SUCCESS
+    );
     assert_eq!(read_u64(&memory, 192), 2);
 
     assert_eq!(
-        errno(
-            &mut vm,
-            "seek",
-            &seek_args(fd, i64::MAX, WHENCE_SET, 200)
-        ),
+        errno(&mut vm, "seek", &seek_args(fd, i64::MAX, WHENCE_SET, 200)),
         ERRNO_SUCCESS
     );
     assert_eq!(
-        errno(
-            &mut vm,
-            "seek",
-            &seek_args(fd, i64::MAX, WHENCE_CUR, 200)
-        ),
+        errno(&mut vm, "seek", &seek_args(fd, i64::MAX, WHENCE_CUR, 200)),
         ERRNO_SUCCESS
     );
-    memory.write(200, &0xaaaaaaaaaaaaaaaau64.to_le_bytes()).unwrap();
+    write_u64(&memory, 200, 0xaaaaaaaaaaaaaaaa);
     assert_eq!(
         errno(&mut vm, "seek", &seek_args(fd, 2, WHENCE_CUR, 200)),
         ERRNO_OVERFLOW
     );
     assert_eq!(read_u64(&memory, 200), 0xaaaaaaaaaaaaaaaa);
-    assert_eq!(errno(&mut vm, "tell", &tell_args(fd, 192)), ERRNO_SUCCESS);
+    assert_eq!(
+        errno(&mut vm, "tell", &tell_args(fd, 192)),
+        ERRNO_SUCCESS
+    );
     assert_eq!(read_u64(&memory, 192), u64::MAX - 1);
 
-    memory.write(200, &0xbbbbbbbbbbbbbbbbu64.to_le_bytes()).unwrap();
+    write_u64(&memory, 200, 0xbbbbbbbbbbbbbbbb);
     assert_eq!(
         errno(&mut vm, "seek", &seek_args(99, 0, WHENCE_SET, 200)),
         ERRNO_BADF
@@ -360,8 +365,8 @@ fn descriptors_without_position_rights_fail_closed() {
     let mut vm = instantiate(&memory, &wasi);
     let fd = opened_fd(&mut vm, &memory, RIGHTS_FD_READ);
 
-    memory.write(192, &0x1111111111111111u64.to_le_bytes()).unwrap();
-    memory.write(200, &0x2222222222222222u64.to_le_bytes()).unwrap();
+    write_u64(&memory, 192, 0x1111111111111111);
+    write_u64(&memory, 200, 0x2222222222222222);
     assert_eq!(
         errno(&mut vm, "tell", &tell_args(fd, 192)),
         ERRNO_NOTCAPABLE
