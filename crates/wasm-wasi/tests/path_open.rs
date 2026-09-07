@@ -1,8 +1,8 @@
 use wasm_parser::parse_module;
 use wasm_runtime::{HostRegistry, Instance, MemoryHandle, Value};
 use wasm_wasi::{
-    WasiFilesystemError, WasiPreview1, ERRNO_BADF, ERRNO_FAULT, ERRNO_NOENT,
-    ERRNO_NOTCAPABLE, ERRNO_SUCCESS, FILETYPE_REGULAR_FILE, RIGHTS_FD_READ, RIGHTS_FD_WRITE,
+    WasiFilesystemError, WasiPreview1, ERRNO_BADF, ERRNO_FAULT, ERRNO_NOENT, ERRNO_NOTCAPABLE,
+    ERRNO_SUCCESS, FILETYPE_REGULAR_FILE, RIGHTS_FD_READ, RIGHTS_FD_WRITE,
 };
 
 fn u32leb(out: &mut Vec<u8>, mut value: u32) {
@@ -89,7 +89,12 @@ fn module() -> Vec<u8> {
     }
     section(&mut module, 7, &exports);
 
-    let bodies = [forwarder(9, 0), forwarder(4, 1), forwarder(1, 2), forwarder(2, 3)];
+    let bodies = [
+        forwarder(9, 0),
+        forwarder(4, 1),
+        forwarder(1, 2),
+        forwarder(2, 3),
+    ];
     let mut code = vec![4];
     for body in bodies {
         u32leb(&mut code, body.len() as u32);
@@ -130,6 +135,15 @@ fn open_args(path_ptr: i32, path_len: i32, rights: u64, opened_fd_ptr: i32) -> V
     ]
 }
 
+fn read_args(fd: u32) -> [Value; 4] {
+    [
+        Value::I32(fd as i32),
+        Value::I32(128),
+        Value::I32(1),
+        Value::I32(160),
+    ]
+}
+
 fn configured_wasi() -> WasiPreview1 {
     WasiPreview1::new()
         .with_preopen("/sandbox")
@@ -147,75 +161,80 @@ fn path_open_read_stat_and_close_form_one_descriptor_lifecycle() {
     let wasi = configured_wasi();
     let mut vm = instantiate(&memory, &wasi);
 
-    assert_eq!(errno(&mut vm, "open", &open_args(64, 14, RIGHTS_FD_READ, 100)), ERRNO_SUCCESS);
+    assert_eq!(
+        errno(
+            &mut vm,
+            "open",
+            &open_args(64, 14, RIGHTS_FD_READ, 100)
+        ),
+        ERRNO_SUCCESS
+    );
     let fd = u32::from_le_bytes(memory.read(100, 4).unwrap().try_into().unwrap());
     assert_eq!(fd, 4);
 
     assert_eq!(
-        errno(&mut vm, "stat", &[Value::I32(fd as i32), Value::I32(192)]),
+        errno(
+            &mut vm,
+            "stat",
+            &[Value::I32(fd as i32), Value::I32(192)]
+        ),
         ERRNO_SUCCESS
     );
     let fdstat = memory.read(192, 24).unwrap();
     assert_eq!(fdstat[0], FILETYPE_REGULAR_FILE);
-    assert_eq!(u64::from_le_bytes(fdstat[8..16].try_into().unwrap()), RIGHTS_FD_READ);
+    assert_eq!(
+        u64::from_le_bytes(fdstat[8..16].try_into().unwrap()),
+        RIGHTS_FD_READ
+    );
     assert_eq!(u64::from_le_bytes(fdstat[16..24].try_into().unwrap()), 0);
 
-    assert_eq!(
-        errno(
-            &mut vm,
-            "read",
-            &[Value::I32(fd as i32), Value::I32(128), Value::I32(1), Value::I32(160)],
-        ),
-        ERRNO_SUCCESS
-    );
+    assert_eq!(errno(&mut vm, "read", &read_args(fd)), ERRNO_SUCCESS);
     assert_eq!(memory.read(256, 3).unwrap(), b"abc");
-    assert_eq!(u32::from_le_bytes(memory.read(160, 4).unwrap().try_into().unwrap()), 3);
+    assert_eq!(
+        u32::from_le_bytes(memory.read(160, 4).unwrap().try_into().unwrap()),
+        3
+    );
 
     memory.write(128, &259u32.to_le_bytes()).unwrap();
     memory.write(132, &8u32.to_le_bytes()).unwrap();
-    assert_eq!(
-        errno(
-            &mut vm,
-            "read",
-            &[Value::I32(fd as i32), Value::I32(128), Value::I32(1), Value::I32(160)],
-        ),
-        ERRNO_SUCCESS
-    );
+    assert_eq!(errno(&mut vm, "read", &read_args(fd)), ERRNO_SUCCESS);
     assert_eq!(memory.read(259, 3).unwrap(), b"def");
-    assert_eq!(u32::from_le_bytes(memory.read(160, 4).unwrap().try_into().unwrap()), 3);
+    assert_eq!(
+        u32::from_le_bytes(memory.read(160, 4).unwrap().try_into().unwrap()),
+        3
+    );
 
     memory.write(262, &[0xaa; 4]).unwrap();
     memory.write(128, &262u32.to_le_bytes()).unwrap();
     memory.write(132, &4u32.to_le_bytes()).unwrap();
+    assert_eq!(errno(&mut vm, "read", &read_args(fd)), ERRNO_SUCCESS);
+    assert_eq!(
+        u32::from_le_bytes(memory.read(160, 4).unwrap().try_into().unwrap()),
+        0
+    );
+    assert_eq!(memory.read(262, 4).unwrap(), vec![0xaa; 4]);
+
+    assert_eq!(
+        errno(&mut vm, "close", &[Value::I32(fd as i32)]),
+        ERRNO_SUCCESS
+    );
+    memory.write(192, &[0xbb; 24]).unwrap();
     assert_eq!(
         errno(
             &mut vm,
-            "read",
-            &[Value::I32(fd as i32), Value::I32(128), Value::I32(1), Value::I32(160)],
+            "stat",
+            &[Value::I32(fd as i32), Value::I32(192)]
         ),
-        ERRNO_SUCCESS
-    );
-    assert_eq!(u32::from_le_bytes(memory.read(160, 4).unwrap().try_into().unwrap()), 0);
-    assert_eq!(memory.read(262, 4).unwrap(), vec![0xaa; 4]);
-
-    assert_eq!(errno(&mut vm, "close", &[Value::I32(fd as i32)]), ERRNO_SUCCESS);
-    memory.write(192, &[0xbb; 24]).unwrap();
-    assert_eq!(
-        errno(&mut vm, "stat", &[Value::I32(fd as i32), Value::I32(192)]),
         ERRNO_BADF
     );
     assert_eq!(memory.read(192, 24).unwrap(), vec![0xbb; 24]);
 
     memory.write(160, &0xccccccccu32.to_le_bytes()).unwrap();
+    assert_eq!(errno(&mut vm, "read", &read_args(fd)), ERRNO_BADF);
     assert_eq!(
-        errno(
-            &mut vm,
-            "read",
-            &[Value::I32(fd as i32), Value::I32(128), Value::I32(1), Value::I32(160)],
-        ),
-        ERRNO_BADF
+        u32::from_le_bytes(memory.read(160, 4).unwrap().try_into().unwrap()),
+        0xcccccccc
     );
-    assert_eq!(u32::from_le_bytes(memory.read(160, 4).unwrap().try_into().unwrap()), 0xcccccccc);
 }
 
 #[test]
@@ -226,26 +245,83 @@ fn rejected_path_open_calls_do_not_allocate_or_mutate_the_output_fd() {
     memory.write(100, &0xdeadbeefu32.to_le_bytes()).unwrap();
 
     memory.write(64, b"../secret").unwrap();
-    assert_eq!(errno(&mut vm, "open", &open_args(64, 9, RIGHTS_FD_READ, 100)), ERRNO_NOTCAPABLE);
-    assert_eq!(u32::from_le_bytes(memory.read(100, 4).unwrap().try_into().unwrap()), 0xdeadbeef);
+    assert_eq!(
+        errno(
+            &mut vm,
+            "open",
+            &open_args(64, 9, RIGHTS_FD_READ, 100)
+        ),
+        ERRNO_NOTCAPABLE
+    );
+    assert_eq!(
+        u32::from_le_bytes(memory.read(100, 4).unwrap().try_into().unwrap()),
+        0xdeadbeef
+    );
 
     memory.write(64, b"docs/missing").unwrap();
-    assert_eq!(errno(&mut vm, "open", &open_args(64, 12, RIGHTS_FD_READ, 100)), ERRNO_NOENT);
-    assert_eq!(u32::from_le_bytes(memory.read(100, 4).unwrap().try_into().unwrap()), 0xdeadbeef);
+    assert_eq!(
+        errno(
+            &mut vm,
+            "open",
+            &open_args(64, 12, RIGHTS_FD_READ, 100)
+        ),
+        ERRNO_NOENT
+    );
+    assert_eq!(
+        u32::from_le_bytes(memory.read(100, 4).unwrap().try_into().unwrap()),
+        0xdeadbeef
+    );
 
     memory.write(64, b"docs/hello.txt").unwrap();
-    assert_eq!(errno(&mut vm, "open", &open_args(64, 14, RIGHTS_FD_WRITE, 100)), ERRNO_NOTCAPABLE);
-    assert_eq!(u32::from_le_bytes(memory.read(100, 4).unwrap().try_into().unwrap()), 0xdeadbeef);
+    assert_eq!(
+        errno(
+            &mut vm,
+            "open",
+            &open_args(64, 14, RIGHTS_FD_WRITE, 100)
+        ),
+        ERRNO_NOTCAPABLE
+    );
+    assert_eq!(
+        u32::from_le_bytes(memory.read(100, 4).unwrap().try_into().unwrap()),
+        0xdeadbeef
+    );
 
-    assert_eq!(errno(&mut vm, "open", &open_args(64, 14, RIGHTS_FD_READ, 65_534)), ERRNO_FAULT);
+    assert_eq!(
+        errno(
+            &mut vm,
+            "open",
+            &open_args(64, 14, RIGHTS_FD_READ, 65_534)
+        ),
+        ERRNO_FAULT
+    );
 
-    assert_eq!(errno(&mut vm, "open", &open_args(64, 14, RIGHTS_FD_READ, 100)), ERRNO_SUCCESS);
+    assert_eq!(
+        errno(
+            &mut vm,
+            "open",
+            &open_args(64, 14, RIGHTS_FD_READ, 100)
+        ),
+        ERRNO_SUCCESS
+    );
     let fd = u32::from_le_bytes(memory.read(100, 4).unwrap().try_into().unwrap());
     assert_eq!(fd, 4);
-    assert_eq!(errno(&mut vm, "close", &[Value::I32(fd as i32)]), ERRNO_SUCCESS);
+    assert_eq!(
+        errno(&mut vm, "close", &[Value::I32(fd as i32)]),
+        ERRNO_SUCCESS
+    );
 
-    assert_eq!(errno(&mut vm, "open", &open_args(64, 14, RIGHTS_FD_READ, 100)), ERRNO_SUCCESS);
-    assert_eq!(u32::from_le_bytes(memory.read(100, 4).unwrap().try_into().unwrap()), 4);
+    assert_eq!(
+        errno(
+            &mut vm,
+            "open",
+            &open_args(64, 14, RIGHTS_FD_READ, 100)
+        ),
+        ERRNO_SUCCESS
+    );
+    assert_eq!(
+        u32::from_le_bytes(memory.read(100, 4).unwrap().try_into().unwrap()),
+        4
+    );
 }
 
 #[test]
@@ -257,20 +333,20 @@ fn child_descriptor_rights_are_attenuated_by_path_open_request() {
     let wasi = configured_wasi();
     let mut vm = instantiate(&memory, &wasi);
 
-    assert_eq!(errno(&mut vm, "open", &open_args(64, 14, 0, 100)), ERRNO_SUCCESS);
+    assert_eq!(
+        errno(&mut vm, "open", &open_args(64, 14, 0, 100)),
+        ERRNO_SUCCESS
+    );
     let fd = u32::from_le_bytes(memory.read(100, 4).unwrap().try_into().unwrap());
     assert_eq!(fd, 4);
 
+    assert_eq!(errno(&mut vm, "read", &read_args(fd)), ERRNO_NOTCAPABLE);
     assert_eq!(
         errno(
             &mut vm,
-            "read",
-            &[Value::I32(fd as i32), Value::I32(128), Value::I32(1), Value::I32(160)],
+            "stat",
+            &[Value::I32(fd as i32), Value::I32(192)]
         ),
-        ERRNO_NOTCAPABLE
-    );
-    assert_eq!(
-        errno(&mut vm, "stat", &[Value::I32(fd as i32), Value::I32(192)]),
         ERRNO_SUCCESS
     );
     let fdstat = memory.read(192, 24).unwrap();
@@ -289,7 +365,14 @@ fn mounted_file_configuration_requires_existing_preopen_and_safe_relative_path()
         wasi.clone().with_read_only_file("/sandbox", "", b"x"),
         Err(WasiFilesystemError::EmptyRelativePath)
     ));
-    for path in ["/absolute", "../escape", "a/../b", "a//b", "a/./b", "trailing/"] {
+    for path in [
+        "/absolute",
+        "../escape",
+        "a/../b",
+        "a//b",
+        "a/./b",
+        "trailing/",
+    ] {
         assert!(matches!(
             wasi.clone().with_read_only_file("/sandbox", path, b"x"),
             Err(WasiFilesystemError::UnsafeRelativePath)
