@@ -105,6 +105,19 @@ pub(super) fn unary_integer(stack: &mut Vec<Value>, opcode: u8) -> Result<(), Ru
     Ok(())
 }
 
+pub(super) fn sign_extend(stack: &mut Vec<Value>, opcode: u8) -> Result<(), RuntimeError> {
+    let value = match opcode {
+        0xc0 => Value::I32(i32_from_stack(stack)? as i8 as i32),
+        0xc1 => Value::I32(i32_from_stack(stack)? as i16 as i32),
+        0xc2 => Value::I64(i64_from_stack(stack)? as i8 as i64),
+        0xc3 => Value::I64(i64_from_stack(stack)? as i16 as i64),
+        0xc4 => Value::I64(i64_from_stack(stack)? as i32 as i64),
+        _ => return Err(RuntimeError::UnsupportedOpcode(opcode)),
+    };
+    stack.push(value);
+    Ok(())
+}
+
 pub(super) fn binary_integer(stack: &mut Vec<Value>, opcode: u8) -> Result<(), RuntimeError> {
     let value = match opcode {
         0x6a..=0x78 => {

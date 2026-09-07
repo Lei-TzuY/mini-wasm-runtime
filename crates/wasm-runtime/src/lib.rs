@@ -2648,6 +2648,7 @@ impl Instance {
                 0x8b..=0x91 | 0x99..=0x9f => numeric::unary_float(&mut stack, opcode)?,
                 0x92..=0x98 | 0xa0..=0xa6 => numeric::binary_float(&mut stack, opcode)?,
                 0xa7..=0xbf => numeric::convert(&mut stack, opcode)?,
+                0xc0..=0xc4 => numeric::sign_extend(&mut stack, opcode)?,
                 0xd0 => {
                     let reference_type =
                         *code.get(pc).ok_or(RuntimeError::UnsupportedOpcode(0xd0))?;
@@ -3372,7 +3373,8 @@ fn build_control_map(module: &Module, code: &[u8]) -> Result<ControlMap, Runtime
             | 0x45..=0x66
             | 0x67..=0x8a
             | 0x8b..=0xa6
-            | 0xa7..=0xbf => {}
+            | 0xa7..=0xbf
+            | 0xc0..=0xc4 => {}
             0xd0 => {
                 let reference_type = *code.get(pc).ok_or(RuntimeError::UnsupportedOpcode(0xd0))?;
                 pc += 1;

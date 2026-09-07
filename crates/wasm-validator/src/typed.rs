@@ -582,6 +582,22 @@ pub(super) fn validate_code(
                 function,
                 offset,
             )?,
+            0xc0 | 0xc1 => unary(
+                &mut stack,
+                &controls,
+                ValueType::I32,
+                ValueType::I32,
+                function,
+                offset,
+            )?,
+            0xc2..=0xc4 => unary(
+                &mut stack,
+                &controls,
+                ValueType::I64,
+                ValueType::I64,
+                function,
+                offset,
+            )?,
             0xd0 => {
                 let reference_type = *code
                     .get(pc)

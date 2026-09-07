@@ -15,7 +15,7 @@ Major implemented surfaces include:
 - typed operand/control-stack validation with unreachable-stack polymorphism
 - `block`, `loop`, `if`, `br`, `br_if`, `br_table`, `return`, `nop`, `drop`, `select`, direct calls, and `call_indirect`
 - ordered multi-value results for defined Wasm functions and structured control
-- i32/i64/f32/f64 values, arithmetic, comparisons, integer bit operations, conversions, reinterpretation, and saturating conversions
+- i32/i64/f32/f64 values, arithmetic, comparisons, integer bit/sign-extension operations, conversions, reinterpretation, and saturating conversions
 - typed i32/i64/f32/f64 memory loads/stores
 - one 32-bit linear memory with bounds checks, data segments, `memory.size`, and `memory.grow`
 - defined and imported numeric globals

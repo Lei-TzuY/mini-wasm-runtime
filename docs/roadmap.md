@@ -81,6 +81,7 @@ The roadmap favors complete vertical slices over a broad but shallow decoder.
 - [x] host callback multi-result ABI with backward-compatible zero-or-one-result registration
 - [x] MVP `nop`, `drop`, `select`, and `br_table` control/parametric instructions
 - [x] MVP i32/i64 count, div/rem, bitwise, shift, and rotate operators
+- [x] core sign-extension integer operators (`i32.extend8_s`, `i32.extend16_s`, `i64.extend8_s`, `i64.extend16_s`, `i64.extend32_s`)
 - [x] MVP f32/f64 unary, arithmetic, min/max, and copysign operators
 - [x] bit-exact i32/f32 and i64/f64 reinterpret instructions
 - [x] unprefixed trapping float-to-integer and integer-to-float conversions
