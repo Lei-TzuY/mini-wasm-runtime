@@ -68,7 +68,8 @@ impl PreopenSet {
             });
         }
 
-        let index = u32::try_from(self.entries.len()).map_err(|_| WasiPreopenError::DescriptorOverflow)?;
+        let index =
+            u32::try_from(self.entries.len()).map_err(|_| WasiPreopenError::DescriptorOverflow)?;
         let fd = FIRST_PREOPEN_FD
             .checked_add(index)
             .ok_or(WasiPreopenError::DescriptorOverflow)?;
