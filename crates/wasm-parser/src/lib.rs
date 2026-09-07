@@ -939,6 +939,7 @@ fn read_value_type(cursor: &mut Cursor<'_>) -> Result<ValueType, ParseError> {
         0x7e => Ok(ValueType::I64),
         0x7d => Ok(ValueType::F32),
         0x7c => Ok(ValueType::F64),
+        0x70 => Ok(ValueType::FuncRef),
         other => Err(ParseError::UnsupportedValueType(other)),
     }
 }
