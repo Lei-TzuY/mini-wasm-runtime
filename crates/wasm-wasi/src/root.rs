@@ -29,6 +29,9 @@ pub const ERRNO_IO: i32 = 29;
 pub const ERRNO_MFILE: i32 = 33;
 pub const ERRNO_NAMETOOLONG: i32 = 37;
 pub const ERRNO_NOENT: i32 = 44;
+pub const ERRNO_OVERFLOW: i32 = 61;
+pub const RIGHTS_FD_SEEK: u64 = 1 << 2;
+pub const RIGHTS_FD_TELL: u64 = 1 << 5;
 
 const PROC_EXIT_MODULE: &str = "wasi_snapshot_preview1";
 const PROC_EXIT_NAME: &str = "proc_exit";
@@ -152,9 +155,12 @@ impl WasiPreview1 {
     pub fn with_preopen<S: AsRef<str>>(mut self, guest_path: S) -> Result<Self, WasiPreopenError> {
         let fd = self.preopens.add(guest_path.as_ref().as_bytes())?;
         self.filesystem.reserve_preopen(fd);
-        self.base = self
-            .base
-            .with_fdstat(fd, FILETYPE_DIRECTORY, RIGHTS_PATH_OPEN, RIGHTS_FD_READ);
+        self.base = self.base.with_fdstat(
+            fd,
+            FILETYPE_DIRECTORY,
+            RIGHTS_PATH_OPEN,
+            RIGHTS_FD_READ | RIGHTS_FD_SEEK | RIGHTS_FD_TELL,
+        );
         Ok(self)
     }
 
