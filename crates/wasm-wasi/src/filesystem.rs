@@ -1,9 +1,4 @@
-use std::{
-    cell::RefCell,
-    collections::BTreeMap,
-    fmt,
-    rc::Rc,
-};
+use std::{cell::RefCell, collections::BTreeMap, fmt, rc::Rc};
 
 use wasm_parser::ValueType;
 use wasm_runtime::{HostCapabilities, HostError, HostRegistry, HostRegistryError, Value};
@@ -53,7 +48,10 @@ impl fmt::Display for WasiFilesystemError {
                 "WASI mounted file is {length} bytes, exceeding the {limit}-byte limit"
             ),
             Self::TooManyFiles { limit } => {
-                write!(f, "WASI mounted file count exceeds the fixed limit of {limit}")
+                write!(
+                    f,
+                    "WASI mounted file count exceeds the fixed limit of {limit}"
+                )
             }
             Self::DuplicateFile => write!(f, "WASI mounted file path is already configured"),
         }
