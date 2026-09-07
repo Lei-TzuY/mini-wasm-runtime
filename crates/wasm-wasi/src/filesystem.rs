@@ -4,9 +4,10 @@ use wasm_parser::ValueType;
 use wasm_runtime::{HostCapabilities, HostError, HostRegistry, HostRegistryError, Value};
 
 use crate::{
-    ERRNO_BADF, ERRNO_FAULT, ERRNO_INVAL, ERRNO_MFILE, ERRNO_NAMETOOLONG, ERRNO_NOENT,
-    ERRNO_NOTCAPABLE, ERRNO_OVERFLOW, ERRNO_SUCCESS, FILETYPE_REGULAR_FILE, RIGHTS_FD_READ,
-    RIGHTS_FD_SEEK, RIGHTS_FD_TELL,
+    ERRNO_BADF, ERRNO_FAULT, ERRNO_FBIG, ERRNO_INVAL, ERRNO_MFILE, ERRNO_NAMETOOLONG,
+    ERRNO_NOENT, ERRNO_NOSPC, ERRNO_NOTCAPABLE, ERRNO_OVERFLOW, ERRNO_SUCCESS,
+    FILETYPE_REGULAR_FILE, OFLAGS_CREAT, RIGHTS_FD_READ, RIGHTS_FD_SEEK, RIGHTS_FD_TELL,
+    RIGHTS_FD_WRITE,
 };
 
 const WASI_MODULE: &str = "wasi_snapshot_preview1";
@@ -14,6 +15,7 @@ const PATH_OPEN_NAME: &str = "path_open";
 const FD_CLOSE_NAME: &str = "fd_close";
 const FD_SEEK_NAME: &str = "fd_seek";
 const FD_TELL_NAME: &str = "fd_tell";
+const FD_PWRITE_NAME: &str = "fd_pwrite";
 const WHENCE_SET: u32 = 0;
 const WHENCE_CUR: u32 = 1;
 const WHENCE_END: u32 = 2;
@@ -22,6 +24,7 @@ const MAX_MOUNTED_FILES: usize = 4_096;
 const MAX_RELATIVE_PATH_BYTES: usize = 4 * 1024;
 const MAX_FILE_BYTES: usize = 16 * 1024 * 1024;
 const MAX_OPEN_FILES: usize = 256;
+const MAX_PWRITE_IOVECS: u32 = 1_024;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum WasiFilesystemError {
@@ -32,6 +35,7 @@ pub enum WasiFilesystemError {
     FileTooLarge { length: usize, limit: usize },
     TooManyFiles { limit: usize },
     DuplicateFile,
+    ReadOnlyPreopen,
 }
 
 impl fmt::Display for WasiFilesystemError {
@@ -60,6 +64,7 @@ impl fmt::Display for WasiFilesystemError {
                 )
             }
             Self::DuplicateFile => write!(f, "WASI mounted file path is already configured"),
+            Self::ReadOnlyPreopen => write!(f, "WASI writable files require a writable preopen"),
         }
     }
 }
@@ -70,12 +75,13 @@ impl std::error::Error for WasiFilesystemError {}
 struct MountedFile {
     preopen_fd: u32,
     relative_path: Vec<u8>,
-    bytes: Rc<Vec<u8>>,
+    bytes: Rc<RefCell<Vec<u8>>>,
+    writable: bool,
 }
 
 #[derive(Debug, Clone)]
 struct OpenFile {
-    bytes: Rc<Vec<u8>>,
+    bytes: Rc<RefCell<Vec<u8>>>,
     offset: u64,
     rights_base: u64,
 }
@@ -83,6 +89,7 @@ struct OpenFile {
 #[derive(Debug, Default)]
 struct FilesystemState {
     reserved_preopens: Vec<u32>,
+    writable_preopens: Vec<u32>,
     mounted_files: Vec<MountedFile>,
     open_files: BTreeMap<u32, OpenFile>,
 }
@@ -107,12 +114,37 @@ enum DescriptorPositionError {
     Overflow,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum DescriptorWriteError {
+    BadFd,
+    NotCapable,
+    FileTooLarge,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum OpenError {
+    NotFound,
+    NotCapable,
+    TooManyOpenFiles,
+    TooManyFiles,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct OpenedFile {
+    fd: u32,
+    created: bool,
+}
+
 impl Filesystem {
-    pub(crate) fn reserve_preopen(&self, fd: u32) {
+    pub(crate) fn reserve_preopen(&self, fd: u32, writable: bool) {
         let mut state = self.state.borrow_mut();
         if !state.reserved_preopens.contains(&fd) {
             state.reserved_preopens.push(fd);
             state.reserved_preopens.sort_unstable();
+        }
+        if writable && !state.writable_preopens.contains(&fd) {
+            state.writable_preopens.push(fd);
+            state.writable_preopens.sort_unstable();
         }
     }
 
@@ -121,8 +153,12 @@ impl Filesystem {
         preopen_fd: u32,
         relative_path: &[u8],
         bytes: &[u8],
+        writable: bool,
     ) -> Result<(), WasiFilesystemError> {
         validate_configured_path(relative_path)?;
+        if writable && !self.is_writable_preopen(preopen_fd) {
+            return Err(WasiFilesystemError::ReadOnlyPreopen);
+        }
         if bytes.len() > MAX_FILE_BYTES {
             return Err(WasiFilesystemError::FileTooLarge {
                 length: bytes.len(),
@@ -145,9 +181,19 @@ impl Filesystem {
         state.mounted_files.push(MountedFile {
             preopen_fd,
             relative_path: relative_path.to_vec(),
-            bytes: Rc::new(bytes.to_vec()),
+            bytes: Rc::new(RefCell::new(bytes.to_vec())),
+            writable,
         });
         Ok(())
+    }
+
+    pub(crate) fn snapshot(&self, preopen_fd: u32, relative_path: &[u8]) -> Option<Vec<u8>> {
+        let state = self.state.borrow();
+        let file = state.mounted_files.iter().find(|file| {
+            file.preopen_fd == preopen_fd && file.relative_path.as_slice() == relative_path
+        })?;
+        let bytes = file.bytes.borrow().clone();
+        Some(bytes)
     }
 
     pub(crate) fn ensure_readable(&self, fd: u32) -> Result<(), DescriptorReadError> {
@@ -172,12 +218,13 @@ impl Filesystem {
         let Ok(start) = usize::try_from(file.offset) else {
             return Ok(Vec::new());
         };
-        if start >= file.bytes.len() {
+        let bytes = file.bytes.borrow();
+        if start >= bytes.len() {
             return Ok(Vec::new());
         }
-        let remaining = file.bytes.len() - start;
+        let remaining = bytes.len() - start;
         let len = remaining.min(max_len);
-        Ok(file.bytes[start..start + len].to_vec())
+        Ok(bytes[start..start + len].to_vec())
     }
 
     pub(crate) fn advance(&self, fd: u32, len: usize) -> Result<(), DescriptorReadError> {
@@ -240,13 +287,19 @@ impl Filesystem {
                 if !open_filesystem.has_preopen(dir_fd) {
                     return Ok(vec![Value::I32(ERRNO_BADF)]);
                 }
-                if *dir_flags != 0 || *open_flags != 0 || *fd_flags != 0 {
+                let open_flags = *open_flags as u32;
+                if *dir_flags != 0 || *fd_flags != 0 || open_flags & !OFLAGS_CREAT != 0 {
+                    return Ok(vec![Value::I32(ERRNO_NOTCAPABLE)]);
+                }
+                let create = open_flags & OFLAGS_CREAT != 0;
+                if create && !open_filesystem.is_writable_preopen(dir_fd) {
                     return Ok(vec![Value::I32(ERRNO_NOTCAPABLE)]);
                 }
 
                 let requested_base = *rights_base as u64;
                 let requested_inheriting = *rights_inheriting as u64;
-                let allowed_base = RIGHTS_FD_READ | RIGHTS_FD_SEEK | RIGHTS_FD_TELL;
+                let allowed_base =
+                    RIGHTS_FD_READ | RIGHTS_FD_WRITE | RIGHTS_FD_SEEK | RIGHTS_FD_TELL;
                 if requested_base & !allowed_base != 0 || requested_inheriting != 0 {
                     return Ok(vec![Value::I32(ERRNO_NOTCAPABLE)]);
                 }
@@ -274,18 +327,110 @@ impl Filesystem {
                     return Ok(vec![Value::I32(ERRNO_FAULT)]);
                 }
 
-                let fd = match open_filesystem.open(dir_fd, &path, requested_base) {
-                    Ok(Some(fd)) => fd,
-                    Ok(None) => return Ok(vec![Value::I32(ERRNO_NOENT)]),
-                    Err(()) => return Ok(vec![Value::I32(ERRNO_MFILE)]),
+                let opened = match open_filesystem.open(dir_fd, &path, requested_base, create) {
+                    Ok(opened) => opened,
+                    Err(OpenError::NotFound) => return Ok(vec![Value::I32(ERRNO_NOENT)]),
+                    Err(OpenError::NotCapable) => return Ok(vec![Value::I32(ERRNO_NOTCAPABLE)]),
+                    Err(OpenError::TooManyOpenFiles) => return Ok(vec![Value::I32(ERRNO_MFILE)]),
+                    Err(OpenError::TooManyFiles) => return Ok(vec![Value::I32(ERRNO_NOSPC)]),
                 };
 
                 if context
-                    .write_memory(*opened_fd_ptr as u32, &fd.to_le_bytes())
+                    .write_memory(*opened_fd_ptr as u32, &opened.fd.to_le_bytes())
                     .is_err()
                 {
-                    open_filesystem.close(fd);
+                    open_filesystem.rollback_open(dir_fd, &path, opened);
                     return Ok(vec![Value::I32(ERRNO_FAULT)]);
+                }
+
+                Ok(vec![Value::I32(ERRNO_SUCCESS)])
+            },
+        )?;
+
+        let pwrite_filesystem = self.clone();
+        registry.register_values(
+            WASI_MODULE,
+            FD_PWRITE_NAME,
+            vec![
+                ValueType::I32,
+                ValueType::I32,
+                ValueType::I32,
+                ValueType::I64,
+                ValueType::I32,
+            ],
+            vec![ValueType::I32],
+            HostCapabilities::MEMORY_READ_WRITE,
+            move |context, args| {
+                let [
+                    Value::I32(fd),
+                    Value::I32(iovs),
+                    Value::I32(iovs_len),
+                    Value::I64(offset),
+                    Value::I32(nwritten),
+                ] = args
+                else {
+                    return Err(HostError::message(
+                        "validated wasi fd_pwrite signature received invalid arguments",
+                    ));
+                };
+
+                let fd = *fd as u32;
+                let offset = *offset as u64;
+                let iovs_len = *iovs_len as u32;
+                if iovs_len > MAX_PWRITE_IOVECS {
+                    return Ok(vec![Value::I32(ERRNO_INVAL)]);
+                }
+
+                let mut payload = Vec::new();
+                for index in 0..iovs_len {
+                    let Some(entry_offset) = index.checked_mul(8) else {
+                        return Ok(vec![Value::I32(ERRNO_FAULT)]);
+                    };
+                    let Some(entry_address) = (*iovs as u32).checked_add(entry_offset) else {
+                        return Ok(vec![Value::I32(ERRNO_FAULT)]);
+                    };
+                    let header = match context.read_memory(entry_address, 8) {
+                        Ok(header) => header,
+                        Err(_) => return Ok(vec![Value::I32(ERRNO_FAULT)]),
+                    };
+                    let pointer =
+                        u32::from_le_bytes(header[0..4].try_into().expect("fixed ciovec header"));
+                    let length =
+                        u32::from_le_bytes(header[4..8].try_into().expect("fixed ciovec header"))
+                            as usize;
+                    let Some(next_len) = payload.len().checked_add(length) else {
+                        return Ok(vec![Value::I32(ERRNO_INVAL)]);
+                    };
+                    if next_len > MAX_FILE_BYTES || next_len > u32::MAX as usize {
+                        return Ok(vec![Value::I32(ERRNO_FBIG)]);
+                    }
+                    let bytes = match context.read_memory(pointer, length) {
+                        Ok(bytes) => bytes,
+                        Err(_) => return Ok(vec![Value::I32(ERRNO_FAULT)]),
+                    };
+                    payload.extend_from_slice(&bytes);
+                }
+
+                match pwrite_filesystem.prepare_pwrite(fd, offset, payload.len()) {
+                    Ok(()) => {}
+                    Err(error) => return Ok(vec![Value::I32(write_errno(error))]),
+                }
+
+                if context.read_memory(*nwritten as u32, 4).is_err() {
+                    return Ok(vec![Value::I32(ERRNO_FAULT)]);
+                }
+                let written = payload.len() as u32;
+                if context
+                    .write_memory(*nwritten as u32, &written.to_le_bytes())
+                    .is_err()
+                {
+                    return Ok(vec![Value::I32(ERRNO_FAULT)]);
+                }
+
+                if let Err(error) = pwrite_filesystem.pwrite(fd, offset, &payload) {
+                    return Err(HostError::message(format!(
+                        "WASI writable descriptor changed during fd_pwrite: {error:?}"
+                    )));
                 }
 
                 Ok(vec![Value::I32(ERRNO_SUCCESS)])
@@ -331,9 +476,7 @@ impl Filesystem {
                     return Ok(vec![Value::I32(ERRNO_FAULT)]);
                 }
                 if !seek_filesystem.commit_seek(fd, newoffset) {
-                    return Err(HostError::message(
-                        "WASI read-only descriptor changed during fd_seek",
-                    ));
+                    return Err(HostError::message("WASI descriptor changed during fd_seek"));
                 }
 
                 Ok(vec![Value::I32(ERRNO_SUCCESS)])
@@ -404,23 +547,24 @@ impl Filesystem {
         self.state.borrow().reserved_preopens.contains(&fd)
     }
 
+    pub(crate) fn is_writable_preopen(&self, fd: u32) -> bool {
+        self.state.borrow().writable_preopens.contains(&fd)
+    }
+
     fn is_known_non_file(&self, fd: u32) -> bool {
         fd <= 2 || self.has_preopen(fd)
     }
 
-    fn open(&self, preopen_fd: u32, path: &[u8], rights_base: u64) -> Result<Option<u32>, ()> {
+    fn open(
+        &self,
+        preopen_fd: u32,
+        path: &[u8],
+        rights_base: u64,
+        create: bool,
+    ) -> Result<OpenedFile, OpenError> {
         let mut state = self.state.borrow_mut();
-        let Some(bytes) = state
-            .mounted_files
-            .iter()
-            .find(|file| file.preopen_fd == preopen_fd && file.relative_path.as_slice() == path)
-            .map(|file| file.bytes.clone())
-        else {
-            return Ok(None);
-        };
-
         if state.open_files.len() >= MAX_OPEN_FILES {
-            return Err(());
+            return Err(OpenError::TooManyOpenFiles);
         }
 
         let mut candidate = FIRST_DYNAMIC_FD;
@@ -430,7 +574,46 @@ impl Filesystem {
             {
                 break;
             }
-            candidate = candidate.checked_add(1).ok_or(())?;
+            candidate = candidate
+                .checked_add(1)
+                .ok_or(OpenError::TooManyOpenFiles)?;
+        }
+
+        let existing = state
+            .mounted_files
+            .iter()
+            .find(|file| file.preopen_fd == preopen_fd && file.relative_path.as_slice() == path)
+            .map(|file| (file.bytes.clone(), file.writable));
+
+        let (bytes, writable, created) = if let Some((bytes, writable)) = existing {
+            (bytes, writable, false)
+        } else {
+            if !create {
+                return Err(OpenError::NotFound);
+            }
+            if !state.writable_preopens.contains(&preopen_fd) {
+                return Err(OpenError::NotCapable);
+            }
+            if state.mounted_files.len() >= MAX_MOUNTED_FILES {
+                return Err(OpenError::TooManyFiles);
+            }
+            let bytes = Rc::new(RefCell::new(Vec::new()));
+            state.mounted_files.push(MountedFile {
+                preopen_fd,
+                relative_path: path.to_vec(),
+                bytes: bytes.clone(),
+                writable: true,
+            });
+            (bytes, true, true)
+        };
+
+        if rights_base & RIGHTS_FD_WRITE != 0
+            && (!writable || !state.writable_preopens.contains(&preopen_fd))
+        {
+            if created {
+                state.mounted_files.pop();
+            }
+            return Err(OpenError::NotCapable);
         }
 
         state.open_files.insert(
@@ -441,11 +624,76 @@ impl Filesystem {
                 rights_base,
             },
         );
-        Ok(Some(candidate))
+        Ok(OpenedFile {
+            fd: candidate,
+            created,
+        })
+    }
+
+    fn rollback_open(&self, preopen_fd: u32, path: &[u8], opened: OpenedFile) {
+        let mut state = self.state.borrow_mut();
+        state.open_files.remove(&opened.fd);
+        if opened.created {
+            if let Some(index) = state.mounted_files.iter().position(|file| {
+                file.preopen_fd == preopen_fd && file.relative_path.as_slice() == path
+            }) {
+                state.mounted_files.remove(index);
+            }
+        }
     }
 
     fn close(&self, fd: u32) -> bool {
         self.state.borrow_mut().open_files.remove(&fd).is_some()
+    }
+
+    fn prepare_pwrite(
+        &self,
+        fd: u32,
+        offset: u64,
+        len: usize,
+    ) -> Result<(), DescriptorWriteError> {
+        let state = self.state.borrow();
+        let Some(file) = state.open_files.get(&fd) else {
+            return Err(DescriptorWriteError::BadFd);
+        };
+        if file.rights_base & RIGHTS_FD_WRITE == 0 || file.rights_base & RIGHTS_FD_SEEK == 0 {
+            return Err(DescriptorWriteError::NotCapable);
+        }
+        let len = u64::try_from(len).map_err(|_| DescriptorWriteError::FileTooLarge)?;
+        let end = offset
+            .checked_add(len)
+            .ok_or(DescriptorWriteError::FileTooLarge)?;
+        if end > MAX_FILE_BYTES as u64 {
+            return Err(DescriptorWriteError::FileTooLarge);
+        }
+        Ok(())
+    }
+
+    fn pwrite(
+        &self,
+        fd: u32,
+        offset: u64,
+        bytes: &[u8],
+    ) -> Result<(), DescriptorWriteError> {
+        self.prepare_pwrite(fd, offset, bytes.len())?;
+        let state = self.state.borrow();
+        let file = state
+            .open_files
+            .get(&fd)
+            .ok_or(DescriptorWriteError::BadFd)?;
+        let start = usize::try_from(offset).map_err(|_| DescriptorWriteError::FileTooLarge)?;
+        let end = start
+            .checked_add(bytes.len())
+            .ok_or(DescriptorWriteError::FileTooLarge)?;
+        let mut file_bytes = file.bytes.borrow_mut();
+        if file_bytes.len() < start {
+            file_bytes.resize(start, 0);
+        }
+        if file_bytes.len() < end {
+            file_bytes.resize(end, 0);
+        }
+        file_bytes[start..end].copy_from_slice(bytes);
+        Ok(())
     }
 
     fn prepare_seek(
@@ -462,7 +710,7 @@ impl Filesystem {
         let base = match whence {
             WHENCE_SET => 0u64,
             WHENCE_CUR => file.offset,
-            WHENCE_END => file.bytes.len() as u64,
+            WHENCE_END => file.bytes.borrow().len() as u64,
             _ => return Err(DescriptorPositionError::InvalidWhence),
         };
         let tell_only_operation = whence == WHENCE_CUR && delta == 0;
@@ -513,6 +761,14 @@ fn position_errno(error: DescriptorPositionError) -> i32 {
             ERRNO_INVAL
         }
         DescriptorPositionError::Overflow => ERRNO_OVERFLOW,
+    }
+}
+
+fn write_errno(error: DescriptorWriteError) -> i32 {
+    match error {
+        DescriptorWriteError::BadFd => ERRNO_BADF,
+        DescriptorWriteError::NotCapable => ERRNO_NOTCAPABLE,
+        DescriptorWriteError::FileTooLarge => ERRNO_FBIG,
     }
 }
 
