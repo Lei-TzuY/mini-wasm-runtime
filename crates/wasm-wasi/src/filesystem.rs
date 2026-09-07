@@ -5,12 +5,18 @@ use wasm_runtime::{HostCapabilities, HostError, HostRegistry, HostRegistryError,
 
 use crate::{
     ERRNO_BADF, ERRNO_EXIST, ERRNO_FAULT, ERRNO_FBIG, ERRNO_INVAL, ERRNO_IO, ERRNO_MFILE,
-    ERRNO_NAMETOOLONG, ERRNO_NOENT, ERRNO_NOSPC, ERRNO_NOTCAPABLE, ERRNO_NOTSUP, ERRNO_OVERFLOW,
-    ERRNO_SUCCESS, FILETYPE_DIRECTORY, FILETYPE_REGULAR_FILE, OFLAGS_CREAT, RIGHTS_FD_FILESTAT_GET,
-    RIGHTS_FD_FILESTAT_SET_SIZE, RIGHTS_FD_READ, RIGHTS_FD_SEEK, RIGHTS_FD_TELL, RIGHTS_FD_WRITE,
+    ERRNO_NAMETOOLONG, ERRNO_NOENT, ERRNO_NOSPC, ERRNO_NOTCAPABLE, ERRNO_NOTDIR, ERRNO_NOTEMPTY,
+    ERRNO_NOTSUP, ERRNO_OVERFLOW, ERRNO_SUCCESS, FILETYPE_DIRECTORY, FILETYPE_REGULAR_FILE,
+    OFLAGS_CREAT, OFLAGS_DIRECTORY, RIGHTS_FD_FILESTAT_GET, RIGHTS_FD_FILESTAT_SET_SIZE,
+    RIGHTS_FD_READ, RIGHTS_FD_READDIR, RIGHTS_FD_SEEK, RIGHTS_FD_TELL, RIGHTS_FD_WRITE,
+    RIGHTS_PATH_CREATE_DIRECTORY, RIGHTS_PATH_CREATE_FILE, RIGHTS_PATH_LINK_SOURCE,
+    RIGHTS_PATH_LINK_TARGET, RIGHTS_PATH_OPEN, RIGHTS_PATH_REMOVE_DIRECTORY,
+    RIGHTS_PATH_RENAME_SOURCE, RIGHTS_PATH_RENAME_TARGET, RIGHTS_PATH_UNLINK_FILE,
 };
 
 const WASI_MODULE: &str = "wasi_snapshot_preview1";
+const PATH_CREATE_DIRECTORY_NAME: &str = "path_create_directory";
+const PATH_REMOVE_DIRECTORY_NAME: &str = "path_remove_directory";
 const PATH_OPEN_NAME: &str = "path_open";
 const PATH_LINK_NAME: &str = "path_link";
 const PATH_RENAME_NAME: &str = "path_rename";
@@ -98,13 +104,31 @@ struct OpenFile {
     rights_base: u64,
 }
 
+#[derive(Debug, Clone)]
+struct MountedDirectory {
+    preopen_fd: u32,
+    relative_path: Vec<u8>,
+    inode: u64,
+}
+
+#[derive(Debug, Clone)]
+struct OpenDirectory {
+    preopen_fd: u32,
+    relative_path: Vec<u8>,
+    inode: u64,
+    parent_inode: u64,
+    rights_base: u64,
+}
+
 #[derive(Debug, Default)]
 struct FilesystemState {
     next_inode: u64,
     reserved_preopens: Vec<u32>,
     writable_preopens: Vec<u32>,
     mounted_files: Vec<MountedFile>,
+    mounted_directories: Vec<MountedDirectory>,
     open_files: BTreeMap<u32, OpenFile>,
+    open_directories: BTreeMap<u32, OpenDirectory>,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -156,6 +180,8 @@ pub(crate) struct DescriptorFilestat {
 enum OpenError {
     NotFound,
     NotCapable,
+    NotDirectory,
+    NameTooLong,
     TooManyOpenFiles,
     TooManyFiles,
 }
@@ -188,6 +214,25 @@ enum ReaddirError {
     BadFd,
     NotCapable,
     NotSupported,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ResolveDirectoryError {
+    BadFd,
+    NotCapable,
+    NameTooLong,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum DirectoryMutationError {
+    BadFd,
+    NotFound,
+    NotCapable,
+    NameTooLong,
+    Exists,
+    NotDirectory,
+    NotEmpty,
+    TooManyFiles,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -420,10 +465,13 @@ impl Filesystem {
 
     pub(crate) fn fdstat(&self, fd: u32) -> Option<(u8, u64, u64)> {
         let state = self.state.borrow();
+        if let Some(file) = state.open_files.get(&fd) {
+            return Some((FILETYPE_REGULAR_FILE, file.rights_base, 0));
+        }
         state
-            .open_files
+            .open_directories
             .get(&fd)
-            .map(|file| (FILETYPE_REGULAR_FILE, file.rights_base, 0))
+            .map(|directory| (FILETYPE_DIRECTORY, directory.rights_base, 0))
     }
 
     pub(crate) fn filestat(&self, fd: u32) -> Result<DescriptorFilestat, DescriptorFilestatError> {
@@ -466,25 +514,77 @@ impl Filesystem {
 
     fn readdir_snapshot(&self, fd: u32, cookie: u64) -> Result<Vec<ReaddirEntry>, ReaddirError> {
         let state = self.state.borrow();
-        if !state.reserved_preopens.contains(&fd) {
-            if fd <= 2 || state.open_files.contains_key(&fd) {
-                return Err(ReaddirError::NotCapable);
-            }
-            return Err(ReaddirError::BadFd);
+        let (preopen_fd, base, directory_inode, parent_inode, rights) =
+            if state.reserved_preopens.contains(&fd) {
+                let inode = (1u64 << 63) | u64::from(fd);
+                (
+                    fd,
+                    Vec::new(),
+                    inode,
+                    inode,
+                    directory_rights(&state, fd).expect("reserved preopen has rights"),
+                )
+            } else if let Some(directory) = state.open_directories.get(&fd) {
+                (
+                    directory.preopen_fd,
+                    directory.relative_path.clone(),
+                    directory.inode,
+                    directory.parent_inode,
+                    directory.rights_base,
+                )
+            } else {
+                if fd <= 2 || state.open_files.contains_key(&fd) {
+                    return Err(ReaddirError::NotCapable);
+                }
+                return Err(ReaddirError::BadFd);
+            };
+        if rights & RIGHTS_FD_READDIR == 0 {
+            return Err(ReaddirError::NotCapable);
         }
 
-        let mut files = state
+        for file in state
             .mounted_files
             .iter()
-            .filter(|file| file.preopen_fd == fd)
-            .collect::<Vec<_>>();
-        if files.iter().any(|file| file.relative_path.contains(&b'/')) {
-            return Err(ReaddirError::NotSupported);
+            .filter(|file| file.preopen_fd == preopen_fd)
+        {
+            let Some(remainder) = relative_to_directory(&base, &file.relative_path) else {
+                continue;
+            };
+            let Some(separator) = remainder.iter().position(|byte| *byte == b'/') else {
+                continue;
+            };
+            let first = &remainder[..separator];
+            let expected_directory = join_relative(&base, first);
+            if !state.mounted_directories.iter().any(|directory| {
+                directory.preopen_fd == preopen_fd
+                    && directory.relative_path.as_slice() == expected_directory.as_slice()
+            }) {
+                return Err(ReaddirError::NotSupported);
+            }
         }
-        files.sort_by(|left, right| left.relative_path.cmp(&right.relative_path));
 
-        let directory_inode = (1u64 << 63) | u64::from(fd);
-        let mut entries = Vec::with_capacity(files.len() + 2);
+        let mut children = Vec::new();
+        for directory in state
+            .mounted_directories
+            .iter()
+            .filter(|directory| directory.preopen_fd == preopen_fd)
+        {
+            if let Some(name) = immediate_child_name(&base, &directory.relative_path) {
+                children.push((name.to_vec(), directory.inode, FILETYPE_DIRECTORY));
+            }
+        }
+        for file in state
+            .mounted_files
+            .iter()
+            .filter(|file| file.preopen_fd == preopen_fd)
+        {
+            if let Some(name) = immediate_child_name(&base, &file.relative_path) {
+                children.push((name.to_vec(), file.inode, FILETYPE_REGULAR_FILE));
+            }
+        }
+        children.sort_by(|left, right| left.0.cmp(&right.0));
+
+        let mut entries = Vec::with_capacity(children.len() + 2);
         entries.push(ReaddirEntry {
             next: 1,
             inode: directory_inode,
@@ -493,19 +593,19 @@ impl Filesystem {
         });
         entries.push(ReaddirEntry {
             next: 2,
-            inode: directory_inode,
+            inode: parent_inode,
             filetype: FILETYPE_DIRECTORY,
             name: b"..".to_vec(),
         });
         entries.extend(
-            files
+            children
                 .into_iter()
                 .enumerate()
-                .map(|(index, file)| ReaddirEntry {
+                .map(|(index, (name, inode, filetype))| ReaddirEntry {
                     next: (index + 3) as u64,
-                    inode: file.inode,
-                    filetype: FILETYPE_REGULAR_FILE,
-                    name: file.relative_path.clone(),
+                    inode,
+                    filetype,
+                    name,
                 }),
         );
 
@@ -515,11 +615,78 @@ impl Filesystem {
         if start >= entries.len() {
             return Ok(Vec::new());
         }
-
         Ok(entries.into_iter().skip(start).collect())
     }
 
     pub(crate) fn register(&self, registry: &mut HostRegistry) -> Result<(), HostRegistryError> {
+        let create_directory_filesystem = self.clone();
+        registry.register_values(
+            WASI_MODULE,
+            PATH_CREATE_DIRECTORY_NAME,
+            vec![ValueType::I32, ValueType::I32, ValueType::I32],
+            vec![ValueType::I32],
+            HostCapabilities::MEMORY_READ,
+            move |context, args| {
+                let [Value::I32(dir_fd), Value::I32(path_ptr), Value::I32(path_len)] = args else {
+                    return Err(HostError::message(
+                        "validated wasi path_create_directory signature received invalid arguments",
+                    ));
+                };
+                let path_len = *path_len as u32 as usize;
+                if path_len > MAX_RELATIVE_PATH_BYTES {
+                    return Ok(vec![Value::I32(ERRNO_NAMETOOLONG)]);
+                }
+                let path = match context.read_memory(*path_ptr as u32, path_len) {
+                    Ok(path) => path,
+                    Err(_) => return Ok(vec![Value::I32(ERRNO_FAULT)]),
+                };
+                match validate_guest_path(&path) {
+                    Ok(()) => {}
+                    Err(GuestPathError::Empty) => return Ok(vec![Value::I32(ERRNO_INVAL)]),
+                    Err(GuestPathError::TooLong) => return Ok(vec![Value::I32(ERRNO_NAMETOOLONG)]),
+                    Err(GuestPathError::Unsafe) => return Ok(vec![Value::I32(ERRNO_NOTCAPABLE)]),
+                }
+                match create_directory_filesystem.create_directory(*dir_fd as u32, &path) {
+                    Ok(()) => Ok(vec![Value::I32(ERRNO_SUCCESS)]),
+                    Err(error) => Ok(vec![Value::I32(directory_errno(error))]),
+                }
+            },
+        )?;
+
+        let remove_directory_filesystem = self.clone();
+        registry.register_values(
+            WASI_MODULE,
+            PATH_REMOVE_DIRECTORY_NAME,
+            vec![ValueType::I32, ValueType::I32, ValueType::I32],
+            vec![ValueType::I32],
+            HostCapabilities::MEMORY_READ,
+            move |context, args| {
+                let [Value::I32(dir_fd), Value::I32(path_ptr), Value::I32(path_len)] = args else {
+                    return Err(HostError::message(
+                        "validated wasi path_remove_directory signature received invalid arguments",
+                    ));
+                };
+                let path_len = *path_len as u32 as usize;
+                if path_len > MAX_RELATIVE_PATH_BYTES {
+                    return Ok(vec![Value::I32(ERRNO_NAMETOOLONG)]);
+                }
+                let path = match context.read_memory(*path_ptr as u32, path_len) {
+                    Ok(path) => path,
+                    Err(_) => return Ok(vec![Value::I32(ERRNO_FAULT)]),
+                };
+                match validate_guest_path(&path) {
+                    Ok(()) => {}
+                    Err(GuestPathError::Empty) => return Ok(vec![Value::I32(ERRNO_INVAL)]),
+                    Err(GuestPathError::TooLong) => return Ok(vec![Value::I32(ERRNO_NAMETOOLONG)]),
+                    Err(GuestPathError::Unsafe) => return Ok(vec![Value::I32(ERRNO_NOTCAPABLE)]),
+                }
+                match remove_directory_filesystem.remove_directory(*dir_fd as u32, &path) {
+                    Ok(()) => Ok(vec![Value::I32(ERRNO_SUCCESS)]),
+                    Err(error) => Ok(vec![Value::I32(directory_errno(error))]),
+                }
+            },
+        )?;
+
         let open_filesystem = self.clone();
         registry.register_values(
             WASI_MODULE,
@@ -539,47 +706,41 @@ impl Filesystem {
             HostCapabilities::MEMORY_READ_WRITE,
             move |context, args| {
                 let [
-                    Value::I32(dir_fd),
-                    Value::I32(dir_flags),
-                    Value::I32(path_ptr),
-                    Value::I32(path_len),
-                    Value::I32(open_flags),
-                    Value::I64(rights_base),
-                    Value::I64(rights_inheriting),
-                    Value::I32(fd_flags),
-                    Value::I32(opened_fd_ptr),
-                ] = args
-                else {
+                    Value::I32(dir_fd), Value::I32(dir_flags), Value::I32(path_ptr),
+                    Value::I32(path_len), Value::I32(open_flags), Value::I64(rights_base),
+                    Value::I64(rights_inheriting), Value::I32(fd_flags), Value::I32(opened_fd_ptr),
+                ] = args else {
                     return Err(HostError::message(
                         "validated wasi path_open signature received invalid arguments",
                     ));
                 };
-
                 let dir_fd = *dir_fd as u32;
-                if !open_filesystem.has_preopen(dir_fd) {
+                if !open_filesystem.has_directory_descriptor(dir_fd) {
                     return Ok(vec![Value::I32(ERRNO_BADF)]);
                 }
                 let open_flags = *open_flags as u32;
-                if *dir_flags != 0 || *fd_flags != 0 || open_flags & !OFLAGS_CREAT != 0 {
+                let supported_flags = OFLAGS_CREAT | OFLAGS_DIRECTORY;
+                if *dir_flags != 0 || *fd_flags != 0 || open_flags & !supported_flags != 0 {
                     return Ok(vec![Value::I32(ERRNO_NOTCAPABLE)]);
                 }
                 let create = open_flags & OFLAGS_CREAT != 0;
-                if create && !open_filesystem.is_writable_preopen(dir_fd) {
+                let directory = open_flags & OFLAGS_DIRECTORY != 0;
+                if create && directory {
                     return Ok(vec![Value::I32(ERRNO_NOTCAPABLE)]);
                 }
-
                 let requested_base = *rights_base as u64;
                 let requested_inheriting = *rights_inheriting as u64;
-                let allowed_base = RIGHTS_FD_READ
-                    | RIGHTS_FD_WRITE
-                    | RIGHTS_FD_SEEK
-                    | RIGHTS_FD_TELL
-                    | RIGHTS_FD_FILESTAT_GET
-                    | RIGHTS_FD_FILESTAT_SET_SIZE;
+                let allowed_file_base = RIGHTS_FD_READ | RIGHTS_FD_WRITE | RIGHTS_FD_SEEK
+                    | RIGHTS_FD_TELL | RIGHTS_FD_FILESTAT_GET | RIGHTS_FD_FILESTAT_SET_SIZE;
+                let allowed_directory_base = RIGHTS_FD_READDIR
+                    | RIGHTS_PATH_OPEN
+                    | RIGHTS_PATH_CREATE_DIRECTORY
+                    | RIGHTS_PATH_CREATE_FILE
+                    | RIGHTS_PATH_REMOVE_DIRECTORY;
+                let allowed_base = if directory { allowed_directory_base } else { allowed_file_base };
                 if requested_base & !allowed_base != 0 || requested_inheriting != 0 {
                     return Ok(vec![Value::I32(ERRNO_NOTCAPABLE)]);
                 }
-
                 let path_len = *path_len as u32 as usize;
                 if path_len > MAX_RELATIVE_PATH_BYTES {
                     return Ok(vec![Value::I32(ERRNO_NAMETOOLONG)]);
@@ -591,34 +752,30 @@ impl Filesystem {
                 match validate_guest_path(&path) {
                     Ok(()) => {}
                     Err(GuestPathError::Empty) => return Ok(vec![Value::I32(ERRNO_INVAL)]),
-                    Err(GuestPathError::TooLong) => {
-                        return Ok(vec![Value::I32(ERRNO_NAMETOOLONG)]);
-                    }
-                    Err(GuestPathError::Unsafe) => {
-                        return Ok(vec![Value::I32(ERRNO_NOTCAPABLE)]);
-                    }
+                    Err(GuestPathError::TooLong) => return Ok(vec![Value::I32(ERRNO_NAMETOOLONG)]),
+                    Err(GuestPathError::Unsafe) => return Ok(vec![Value::I32(ERRNO_NOTCAPABLE)]),
                 }
-
                 if context.read_memory(*opened_fd_ptr as u32, 4).is_err() {
                     return Ok(vec![Value::I32(ERRNO_FAULT)]);
                 }
-
-                let opened = match open_filesystem.open(dir_fd, &path, requested_base, create) {
+                let opened = if directory {
+                    open_filesystem.open_directory(dir_fd, &path, requested_base)
+                } else {
+                    open_filesystem.open(dir_fd, &path, requested_base, create)
+                };
+                let opened = match opened {
                     Ok(opened) => opened,
                     Err(OpenError::NotFound) => return Ok(vec![Value::I32(ERRNO_NOENT)]),
                     Err(OpenError::NotCapable) => return Ok(vec![Value::I32(ERRNO_NOTCAPABLE)]),
+                    Err(OpenError::NotDirectory) => return Ok(vec![Value::I32(ERRNO_NOTDIR)]),
+                    Err(OpenError::NameTooLong) => return Ok(vec![Value::I32(ERRNO_NAMETOOLONG)]),
                     Err(OpenError::TooManyOpenFiles) => return Ok(vec![Value::I32(ERRNO_MFILE)]),
                     Err(OpenError::TooManyFiles) => return Ok(vec![Value::I32(ERRNO_NOSPC)]),
                 };
-
-                if context
-                    .write_memory(*opened_fd_ptr as u32, &opened.fd.to_le_bytes())
-                    .is_err()
-                {
+                if context.write_memory(*opened_fd_ptr as u32, &opened.fd.to_le_bytes()).is_err() {
                     open_filesystem.rollback_open(dir_fd, &path, opened);
                     return Ok(vec![Value::I32(ERRNO_FAULT)]);
                 }
-
                 Ok(vec![Value::I32(ERRNO_SUCCESS)])
             },
         )?;
@@ -1147,37 +1304,127 @@ impl Filesystem {
     }
 
     fn is_known_non_file(&self, fd: u32) -> bool {
-        fd <= 2 || self.has_preopen(fd)
+        fd <= 2 || self.has_preopen(fd) || self.state.borrow().open_directories.contains_key(&fd)
     }
 
-    fn open(
+    fn has_directory_descriptor(&self, fd: u32) -> bool {
+        let state = self.state.borrow();
+        state.reserved_preopens.contains(&fd) || state.open_directories.contains_key(&fd)
+    }
+
+    fn resolve_directory_path(
         &self,
-        preopen_fd: u32,
+        fd: u32,
         path: &[u8],
-        rights_base: u64,
-        create: bool,
-    ) -> Result<OpenedFile, OpenError> {
-        let mut state = self.state.borrow_mut();
-        if state.open_files.len() >= MAX_OPEN_FILES {
+        required_right: u64,
+    ) -> Result<(u32, Vec<u8>, u64), ResolveDirectoryError> {
+        let state = self.state.borrow();
+        let Some((preopen_fd, base, rights)) = directory_context(&state, fd) else {
+            return Err(ResolveDirectoryError::BadFd);
+        };
+        if rights & required_right != required_right {
+            return Err(ResolveDirectoryError::NotCapable);
+        }
+        let full_path = join_relative(&base, path);
+        if full_path.len() > MAX_RELATIVE_PATH_BYTES {
+            return Err(ResolveDirectoryError::NameTooLong);
+        }
+        Ok((preopen_fd, full_path, rights))
+    }
+
+    fn allocate_dynamic_fd(state: &FilesystemState) -> Result<u32, OpenError> {
+        if state.open_files.len() + state.open_directories.len() >= MAX_OPEN_FILES {
             return Err(OpenError::TooManyOpenFiles);
         }
-
         let mut candidate = FIRST_DYNAMIC_FD;
         loop {
             if !state.reserved_preopens.contains(&candidate)
                 && !state.open_files.contains_key(&candidate)
+                && !state.open_directories.contains_key(&candidate)
             {
-                break;
+                return Ok(candidate);
             }
             candidate = candidate
                 .checked_add(1)
                 .ok_or(OpenError::TooManyOpenFiles)?;
         }
+    }
 
+    fn open_directory(
+        &self,
+        dir_fd: u32,
+        path: &[u8],
+        rights_base: u64,
+    ) -> Result<OpenedFile, OpenError> {
+        let (preopen_fd, full_path, parent_rights) = self
+            .resolve_directory_path(dir_fd, path, RIGHTS_PATH_OPEN)
+            .map_err(open_resolve_error)?;
+        if rights_base & !parent_rights != 0 {
+            return Err(OpenError::NotCapable);
+        }
+        let mut state = self.state.borrow_mut();
+        if state.mounted_files.iter().any(|file| {
+            file.preopen_fd == preopen_fd && file.relative_path.as_slice() == full_path.as_slice()
+        }) {
+            return Err(OpenError::NotDirectory);
+        }
+        let Some(inode) = state
+            .mounted_directories
+            .iter()
+            .find(|directory| {
+                directory.preopen_fd == preopen_fd
+                    && directory.relative_path.as_slice() == full_path.as_slice()
+            })
+            .map(|directory| directory.inode)
+        else {
+            return Err(OpenError::NotFound);
+        };
+        let Some(parent_inode) = directory_inode(&state, preopen_fd, parent_path(&full_path))
+        else {
+            return Err(OpenError::NotFound);
+        };
+        let fd = Self::allocate_dynamic_fd(&state)?;
+        state.open_directories.insert(
+            fd,
+            OpenDirectory {
+                preopen_fd,
+                relative_path: full_path,
+                inode,
+                parent_inode,
+                rights_base,
+            },
+        );
+        Ok(OpenedFile { fd, created: false })
+    }
+
+    fn open(
+        &self,
+        dir_fd: u32,
+        path: &[u8],
+        rights_base: u64,
+        create: bool,
+    ) -> Result<OpenedFile, OpenError> {
+        let (preopen_fd, full_path, parent_rights) = self
+            .resolve_directory_path(dir_fd, path, RIGHTS_PATH_OPEN)
+            .map_err(open_resolve_error)?;
+        if create && parent_rights & RIGHTS_PATH_CREATE_FILE == 0 {
+            return Err(OpenError::NotCapable);
+        }
+        let mut state = self.state.borrow_mut();
+        let candidate = Self::allocate_dynamic_fd(&state)?;
+        if state.mounted_directories.iter().any(|directory| {
+            directory.preopen_fd == preopen_fd
+                && directory.relative_path.as_slice() == full_path.as_slice()
+        }) {
+            return Err(OpenError::NotDirectory);
+        }
         let existing = state
             .mounted_files
             .iter()
-            .find(|file| file.preopen_fd == preopen_fd && file.relative_path.as_slice() == path)
+            .find(|file| {
+                file.preopen_fd == preopen_fd
+                    && file.relative_path.as_slice() == full_path.as_slice()
+            })
             .map(|file| {
                 (
                     file.inode,
@@ -1186,38 +1433,38 @@ impl Filesystem {
                     file.writable,
                 )
             });
-
-        let (inode, bytes, link_count, writable, created) =
-            if let Some((inode, bytes, link_count, writable)) = existing {
-                (inode, bytes, link_count, writable, false)
-            } else {
-                if !create {
-                    return Err(OpenError::NotFound);
-                }
-                if !state.writable_preopens.contains(&preopen_fd) {
-                    return Err(OpenError::NotCapable);
-                }
-                if state.mounted_files.len() >= MAX_MOUNTED_FILES {
-                    return Err(OpenError::TooManyFiles);
-                }
-                let inode = state
-                    .next_inode
-                    .checked_add(1)
-                    .ok_or(OpenError::TooManyFiles)?;
-                state.next_inode = inode;
-                let bytes = Rc::new(RefCell::new(Vec::new()));
-                let link_count = Rc::new(RefCell::new(1));
-                state.mounted_files.push(MountedFile {
-                    preopen_fd,
-                    relative_path: path.to_vec(),
-                    inode,
-                    bytes: bytes.clone(),
-                    link_count: link_count.clone(),
-                    writable: true,
-                });
-                (inode, bytes, link_count, true, true)
-            };
-
+        let (inode, bytes, link_count, writable, created) = if let Some(existing) = existing {
+            (existing.0, existing.1, existing.2, existing.3, false)
+        } else {
+            if !create {
+                return Err(OpenError::NotFound);
+            }
+            if !state.writable_preopens.contains(&preopen_fd) {
+                return Err(OpenError::NotCapable);
+            }
+            if state.mounted_files.len() + state.mounted_directories.len() >= MAX_MOUNTED_FILES {
+                return Err(OpenError::TooManyFiles);
+            }
+            if !parent_directory_exists(&state, preopen_fd, &full_path) {
+                return Err(OpenError::NotFound);
+            }
+            let inode = state
+                .next_inode
+                .checked_add(1)
+                .ok_or(OpenError::TooManyFiles)?;
+            state.next_inode = inode;
+            let bytes = Rc::new(RefCell::new(Vec::new()));
+            let link_count = Rc::new(RefCell::new(1));
+            state.mounted_files.push(MountedFile {
+                preopen_fd,
+                relative_path: full_path.clone(),
+                inode,
+                bytes: bytes.clone(),
+                link_count: link_count.clone(),
+                writable: true,
+            });
+            (inode, bytes, link_count, true, true)
+        };
         let mutation_rights = RIGHTS_FD_WRITE | RIGHTS_FD_FILESTAT_SET_SIZE;
         if rights_base & mutation_rights != 0
             && (!writable || !state.writable_preopens.contains(&preopen_fd))
@@ -1227,7 +1474,6 @@ impl Filesystem {
             }
             return Err(OpenError::NotCapable);
         }
-
         state.open_files.insert(
             candidate,
             OpenFile {
@@ -1242,6 +1488,71 @@ impl Filesystem {
             fd: candidate,
             created,
         })
+    }
+
+    fn create_directory(&self, fd: u32, path: &[u8]) -> Result<(), DirectoryMutationError> {
+        let (preopen_fd, full_path, _) = self
+            .resolve_directory_path(fd, path, RIGHTS_PATH_CREATE_DIRECTORY)
+            .map_err(directory_resolve_error)?;
+        let mut state = self.state.borrow_mut();
+        if namespace_entry_exists(&state, preopen_fd, &full_path) {
+            return Err(DirectoryMutationError::Exists);
+        }
+        if state.mounted_files.len() + state.mounted_directories.len() >= MAX_MOUNTED_FILES {
+            return Err(DirectoryMutationError::TooManyFiles);
+        }
+        if !parent_directory_exists(&state, preopen_fd, &full_path) {
+            return Err(DirectoryMutationError::NotFound);
+        }
+        let inode = state
+            .next_inode
+            .checked_add(1)
+            .ok_or(DirectoryMutationError::TooManyFiles)?;
+        state.next_inode = inode;
+        state.mounted_directories.push(MountedDirectory {
+            preopen_fd,
+            relative_path: full_path,
+            inode,
+        });
+        Ok(())
+    }
+
+    fn remove_directory(&self, fd: u32, path: &[u8]) -> Result<(), DirectoryMutationError> {
+        let (preopen_fd, full_path, _) = self
+            .resolve_directory_path(fd, path, RIGHTS_PATH_REMOVE_DIRECTORY)
+            .map_err(directory_resolve_error)?;
+        let mut state = self.state.borrow_mut();
+        if state.mounted_files.iter().any(|file| {
+            file.preopen_fd == preopen_fd && file.relative_path.as_slice() == full_path.as_slice()
+        }) {
+            return Err(DirectoryMutationError::NotDirectory);
+        }
+        let Some(index) = state.mounted_directories.iter().position(|directory| {
+            directory.preopen_fd == preopen_fd
+                && directory.relative_path.as_slice() == full_path.as_slice()
+        }) else {
+            return Err(DirectoryMutationError::NotFound);
+        };
+        let prefix = directory_prefix(&full_path);
+        let has_child_file = state
+            .mounted_files
+            .iter()
+            .any(|file| file.preopen_fd == preopen_fd && file.relative_path.starts_with(&prefix));
+        let has_child_directory =
+            state
+                .mounted_directories
+                .iter()
+                .enumerate()
+                .any(|(other, directory)| {
+                    other != index
+                        && directory.preopen_fd == preopen_fd
+                        && directory.relative_path.starts_with(&prefix)
+                });
+        if has_child_file || has_child_directory {
+            return Err(DirectoryMutationError::NotEmpty);
+        }
+        state.mounted_directories.remove(index);
+        Ok(())
     }
 
     fn link(
@@ -1372,12 +1683,20 @@ impl Filesystem {
         Ok(())
     }
 
-    fn rollback_open(&self, preopen_fd: u32, path: &[u8], opened: OpenedFile) {
+    fn rollback_open(&self, dir_fd: u32, path: &[u8], opened: OpenedFile) {
+        let resolved = if opened.created {
+            self.resolve_directory_path(dir_fd, path, RIGHTS_PATH_OPEN)
+                .ok()
+        } else {
+            None
+        };
         let mut state = self.state.borrow_mut();
         state.open_files.remove(&opened.fd);
-        if opened.created {
+        state.open_directories.remove(&opened.fd);
+        if let Some((preopen_fd, full_path, _)) = resolved {
             if let Some(index) = state.mounted_files.iter().position(|file| {
-                file.preopen_fd == preopen_fd && file.relative_path.as_slice() == path
+                file.preopen_fd == preopen_fd
+                    && file.relative_path.as_slice() == full_path.as_slice()
             }) {
                 let inode = state.mounted_files[index].inode;
                 state.mounted_files.remove(index);
@@ -1389,7 +1708,8 @@ impl Filesystem {
     }
 
     fn close(&self, fd: u32) -> bool {
-        self.state.borrow_mut().open_files.remove(&fd).is_some()
+        let mut state = self.state.borrow_mut();
+        state.open_files.remove(&fd).is_some() || state.open_directories.remove(&fd).is_some()
     }
 
     fn prepare_pwrite(&self, fd: u32, offset: u64, len: usize) -> Result<(), DescriptorWriteError> {
@@ -1516,6 +1836,140 @@ enum GuestPathError {
     Empty,
     TooLong,
     Unsafe,
+}
+
+fn directory_inode(state: &FilesystemState, preopen_fd: u32, path: &[u8]) -> Option<u64> {
+    if path.is_empty() {
+        return Some((1u64 << 63) | u64::from(preopen_fd));
+    }
+    state
+        .mounted_directories
+        .iter()
+        .find(|directory| {
+            directory.preopen_fd == preopen_fd && directory.relative_path.as_slice() == path
+        })
+        .map(|directory| directory.inode)
+}
+
+fn directory_rights(state: &FilesystemState, fd: u32) -> Option<u64> {
+    if state.reserved_preopens.contains(&fd) {
+        let mut rights = RIGHTS_FD_READDIR | RIGHTS_PATH_OPEN;
+        if state.writable_preopens.contains(&fd) {
+            rights |= RIGHTS_PATH_CREATE_DIRECTORY
+                | RIGHTS_PATH_CREATE_FILE
+                | RIGHTS_PATH_LINK_SOURCE
+                | RIGHTS_PATH_LINK_TARGET
+                | RIGHTS_PATH_RENAME_SOURCE
+                | RIGHTS_PATH_RENAME_TARGET
+                | RIGHTS_PATH_REMOVE_DIRECTORY
+                | RIGHTS_PATH_UNLINK_FILE;
+        }
+        return Some(rights);
+    }
+    state
+        .open_directories
+        .get(&fd)
+        .map(|directory| directory.rights_base)
+}
+
+fn directory_context(state: &FilesystemState, fd: u32) -> Option<(u32, Vec<u8>, u64)> {
+    if state.reserved_preopens.contains(&fd) {
+        return Some((fd, Vec::new(), directory_rights(state, fd)?));
+    }
+    state.open_directories.get(&fd).map(|directory| {
+        (
+            directory.preopen_fd,
+            directory.relative_path.clone(),
+            directory.rights_base,
+        )
+    })
+}
+
+fn join_relative(base: &[u8], child: &[u8]) -> Vec<u8> {
+    if base.is_empty() {
+        return child.to_vec();
+    }
+    let mut joined = Vec::with_capacity(base.len() + 1 + child.len());
+    joined.extend_from_slice(base);
+    joined.push(b'/');
+    joined.extend_from_slice(child);
+    joined
+}
+
+fn directory_prefix(path: &[u8]) -> Vec<u8> {
+    let mut prefix = path.to_vec();
+    prefix.push(b'/');
+    prefix
+}
+
+fn parent_path(path: &[u8]) -> &[u8] {
+    path.iter()
+        .rposition(|byte| *byte == b'/')
+        .map_or(&[], |separator| &path[..separator])
+}
+
+fn parent_directory_exists(state: &FilesystemState, preopen_fd: u32, path: &[u8]) -> bool {
+    let parent = parent_path(path);
+    parent.is_empty()
+        || state.mounted_directories.iter().any(|directory| {
+            directory.preopen_fd == preopen_fd && directory.relative_path.as_slice() == parent
+        })
+}
+
+fn namespace_entry_exists(state: &FilesystemState, preopen_fd: u32, path: &[u8]) -> bool {
+    state
+        .mounted_files
+        .iter()
+        .any(|file| file.preopen_fd == preopen_fd && file.relative_path.as_slice() == path)
+        || state.mounted_directories.iter().any(|directory| {
+            directory.preopen_fd == preopen_fd && directory.relative_path.as_slice() == path
+        })
+}
+
+fn relative_to_directory<'a>(base: &[u8], path: &'a [u8]) -> Option<&'a [u8]> {
+    if base.is_empty() {
+        return Some(path);
+    }
+    if path.len() <= base.len() || !path.starts_with(base) || path[base.len()] != b'/' {
+        return None;
+    }
+    Some(&path[base.len() + 1..])
+}
+
+fn immediate_child_name<'a>(base: &[u8], path: &'a [u8]) -> Option<&'a [u8]> {
+    let remainder = relative_to_directory(base, path)?;
+    if remainder.is_empty() || remainder.contains(&b'/') {
+        return None;
+    }
+    Some(remainder)
+}
+
+fn open_resolve_error(error: ResolveDirectoryError) -> OpenError {
+    match error {
+        ResolveDirectoryError::BadFd | ResolveDirectoryError::NotCapable => OpenError::NotCapable,
+        ResolveDirectoryError::NameTooLong => OpenError::NameTooLong,
+    }
+}
+
+fn directory_resolve_error(error: ResolveDirectoryError) -> DirectoryMutationError {
+    match error {
+        ResolveDirectoryError::BadFd => DirectoryMutationError::BadFd,
+        ResolveDirectoryError::NotCapable => DirectoryMutationError::NotCapable,
+        ResolveDirectoryError::NameTooLong => DirectoryMutationError::NameTooLong,
+    }
+}
+
+fn directory_errno(error: DirectoryMutationError) -> i32 {
+    match error {
+        DirectoryMutationError::BadFd => ERRNO_BADF,
+        DirectoryMutationError::NotFound => ERRNO_NOENT,
+        DirectoryMutationError::NotCapable => ERRNO_NOTCAPABLE,
+        DirectoryMutationError::NameTooLong => ERRNO_NAMETOOLONG,
+        DirectoryMutationError::Exists => ERRNO_EXIST,
+        DirectoryMutationError::NotDirectory => ERRNO_NOTDIR,
+        DirectoryMutationError::NotEmpty => ERRNO_NOTEMPTY,
+        DirectoryMutationError::TooManyFiles => ERRNO_NOSPC,
+    }
 }
 
 fn validate_configured_path(path: &[u8]) -> Result<(), WasiFilesystemError> {
