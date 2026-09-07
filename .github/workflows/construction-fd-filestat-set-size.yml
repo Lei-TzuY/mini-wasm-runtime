@@ -1,0 +1,45 @@
+name: construction-fd-filestat-set-size
+
+on:
+  push:
+    branches:
+      - conquest/wasi-fd-filestat-set-size
+
+permissions:
+  contents: write
+
+jobs:
+  focused:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - name: Apply bounded fd_filestat_set_size implementation
+        run: python .conquest/apply_fd_filestat_set_size.py
+      - name: Format
+        run: cargo fmt --all
+      - name: Focused filesystem regressions
+        run: |
+          cargo test -p wasm-wasi --test fd_filestat_set_size
+          cargo test -p wasm-wasi --test fd_filestat_get
+          cargo test -p wasm-wasi --test fd_fdstat_get
+          cargo test -p wasm-wasi --test writable_files
+          cargo test -p wasm-wasi --test fd_seek
+      - name: Clippy workspace
+        run: cargo clippy --workspace --all-targets -- -D warnings
+      - name: Test workspace
+        run: cargo test --workspace --all-targets
+      - name: Docs
+        run: cargo doc --workspace --no-deps
+      - name: Commit construction result
+        run: |
+          if git diff --quiet; then
+            exit 0
+          fi
+          git config user.name "LeiZ"
+          git config user.email "52287354+Lei-TzuY@users.noreply.github.com"
+          git add crates/wasm-wasi/src/filesystem.rs crates/wasm-wasi/src/lib.rs crates/wasm-wasi/src/root.rs crates/wasm-wasi/tests/fd_fdstat_get.rs crates/wasm-wasi/tests/fd_filestat_set_size.rs docs/roadmap.md
+          git commit -m "feat: add bounded WASI file resize"
+          git push origin HEAD:conquest/wasi-fd-filestat-set-size
