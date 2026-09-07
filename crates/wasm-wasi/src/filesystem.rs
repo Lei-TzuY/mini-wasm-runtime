@@ -206,6 +206,44 @@ impl Filesystem {
         Ok(())
     }
 
+    pub(crate) fn ensure_preadable(&self, fd: u32) -> Result<(), DescriptorReadError> {
+        let state = self.state.borrow();
+        let Some(file) = state.open_files.get(&fd) else {
+            return Err(DescriptorReadError::BadFd);
+        };
+        let required = RIGHTS_FD_READ | RIGHTS_FD_SEEK;
+        if file.rights_base & required != required {
+            return Err(DescriptorReadError::NotCapable);
+        }
+        Ok(())
+    }
+
+    pub(crate) fn pread(
+        &self,
+        fd: u32,
+        offset: u64,
+        max_len: usize,
+    ) -> Result<Vec<u8>, DescriptorReadError> {
+        let state = self.state.borrow();
+        let Some(file) = state.open_files.get(&fd) else {
+            return Err(DescriptorReadError::BadFd);
+        };
+        let required = RIGHTS_FD_READ | RIGHTS_FD_SEEK;
+        if file.rights_base & required != required {
+            return Err(DescriptorReadError::NotCapable);
+        }
+        let Ok(start) = usize::try_from(offset) else {
+            return Ok(Vec::new());
+        };
+        let bytes = file.bytes.borrow();
+        if start >= bytes.len() {
+            return Ok(Vec::new());
+        }
+        let remaining = bytes.len() - start;
+        let len = remaining.min(max_len);
+        Ok(bytes[start..start + len].to_vec())
+    }
+
     pub(crate) fn peek(&self, fd: u32, max_len: usize) -> Result<Vec<u8>, DescriptorReadError> {
         let state = self.state.borrow();
         let Some(file) = state.open_files.get(&fd) else {
