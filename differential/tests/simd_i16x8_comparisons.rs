@@ -175,8 +175,8 @@ fn reference_trace(bytes: &[u8]) -> Vec<i32> {
 fn i16x8_comparisons_match_wasmtime_reference() {
     let bytes = wat::parse_str(FIXTURE).expect("i16x8 comparison WAT fixture must parse");
     let expected = vec![
-        65_535, 0, 65_535, 0, 65_535, 0, 65_535, 0, 65_535, 0, 65_535, 0, 65_535, 0,
-        65_535, 0, 65_535, 0, 65_535, 0,
+        65_535, 0, 65_535, 0, 65_535, 0, 65_535, 0, 65_535, 0, 65_535, 0, 65_535, 0, 65_535, 0,
+        65_535, 0, 65_535, 0,
     ];
     let mini = mini_trace(&bytes);
     let reference = reference_trace(&bytes);
