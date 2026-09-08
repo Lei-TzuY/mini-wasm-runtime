@@ -211,6 +211,7 @@ With the core interpreter, validator, differential harness, and resource limits 
 - [x] SIMD lane-independent `v128.not` / `v128.and` / `v128.andnot` / `v128.or` / `v128.xor` / `v128.bitselect` / `v128.any_true` mask semantics with bit-exact execution, canonical boolean reduction, structured-control typing/scanning, deterministic regressions, and pinned Wasmtime differential evidence
 - [x] SIMD wrapping `i32x4.sub` / `i32x4.mul` arithmetic with exact v128 typing, structured-control scanning, overflow regressions, and pinned Wasmtime differential evidence
 - [x] SIMD `i32x4.all_true` / `i32x4.bitmask` scalar reductions with canonical nonzero/sign-bit semantics, exact `v128 -> i32` validation, structured-control scanning, deterministic regressions, and pinned Wasmtime differential evidence
+- [x] SIMD `i32x4` comparison-mask family (`eq` / `ne`, signed/unsigned `lt` / `gt` / `le` / `ge`) with canonical all-ones/zero lane masks, exact `v128, v128 -> v128` validation, structured-control scanning, deterministic regressions, and pinned Wasmtime differential evidence
 - [ ] broaden SIMD lane/arithmetic/memory semantics as subsequent bounded executable slices
 - [ ] threads/shared-memory semantics after an explicit concurrency and threat-model update
 A future JIT is intentionally out of scope until the interpreter and validation model are trustworthy.
