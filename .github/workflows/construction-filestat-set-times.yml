@@ -18,22 +18,7 @@ jobs:
           components: rustfmt, clippy
       - name: Sync production patch anchor
         run: |
-          python - <<'PY'
-          from pathlib import Path
-          path = Path('.conquest/apply_filestat_set_times.py')
-          text = path.read_text()
-          old = '''    "                    | RIGHTS_FD_FILESTAT_GET | RIGHTS_FD_FILESTAT_SET_SIZE;\\n",
-    "                    | RIGHTS_FD_FILESTAT_GET | RIGHTS_FD_FILESTAT_SET_SIZE\\n                    | RIGHTS_FD_FILESTAT_SET_TIMES;\\n",
-    "path open file rights",
-'''
-          new = '''    "                    | RIGHTS_FD_TELL | RIGHTS_FD_FILESTAT_GET | RIGHTS_FD_FILESTAT_SET_SIZE;\\n",
-    "                    | RIGHTS_FD_TELL | RIGHTS_FD_FILESTAT_GET | RIGHTS_FD_FILESTAT_SET_SIZE\\n                    | RIGHTS_FD_FILESTAT_SET_TIMES;\\n",
-    "path open file rights",
-'''
-          if text.count(old) != 1:
-              raise SystemExit(f'construction anchor self-patch expected 1 match, found {text.count(old)}')
-          path.write_text(text.replace(old, new, 1))
-          PY
+          python -c "from pathlib import Path; p=Path('.conquest/apply_filestat_set_times.py'); t=p.read_text(); old='    \\\"                    | RIGHTS_FD_FILESTAT_GET | RIGHTS_FD_FILESTAT_SET_SIZE;\\\\n\\\",\\n    \\\"                    | RIGHTS_FD_FILESTAT_GET | RIGHTS_FD_FILESTAT_SET_SIZE\\\\n                    | RIGHTS_FD_FILESTAT_SET_TIMES;\\\\n\\\",\\n    \\\"path open file rights\\\",\\n'; new='    \\\"                    | RIGHTS_FD_TELL | RIGHTS_FD_FILESTAT_GET | RIGHTS_FD_FILESTAT_SET_SIZE;\\\\n\\\",\\n    \\\"                    | RIGHTS_FD_TELL | RIGHTS_FD_FILESTAT_GET | RIGHTS_FD_FILESTAT_SET_SIZE\\\\n                    | RIGHTS_FD_FILESTAT_SET_TIMES;\\\\n\\\",\\n    \\\"path open file rights\\\",\\n'; assert t.count(old)==1, t.count(old); p.write_text(t.replace(old,new,1))"
           rm -f .conquest/apply-error.txt
       - name: Apply production patch
         run: python .conquest/apply_filestat_set_times.py
