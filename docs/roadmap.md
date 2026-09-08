@@ -208,6 +208,7 @@ With the core interpreter, validator, differential harness, and resource limits 
 - [ ] broader pinned upstream memory64 conformance accounting beyond focused reference differentials
 - [x] initial SIMD executable semantics with `v128.const`, `i32x4.splat`, wrapping `i32x4.add`, bounds-checked `i32x4.extract_lane`, fail-closed unsupported forms, and deterministic Wasmtime differential coverage
 - [x] SIMD `v128.load` / `v128.store` linear-memory semantics with exact 16-byte accesses, memory32/i32 and memory64/i64 address typing, full-width memory64 static offsets, atomic OOB stores, structured-control execution, and pinned Wasmtime differential evidence
+- [x] SIMD lane-independent `v128.not` / `v128.and` / `v128.andnot` / `v128.or` / `v128.xor` / `v128.bitselect` / `v128.any_true` mask semantics with bit-exact execution, canonical boolean reduction, structured-control typing/scanning, deterministic regressions, and pinned Wasmtime differential evidence
 - [ ] broaden SIMD lane/arithmetic/memory semantics as subsequent bounded executable slices
 - [ ] threads/shared-memory semantics after an explicit concurrency and threat-model update
 A future JIT is intentionally out of scope until the interpreter and validation model are trustworthy.
