@@ -3585,6 +3585,10 @@ fn execute_simd(
             *pc = end;
             stack.push(Value::V128(Rc::new(bytes)));
         }
+        15 => {
+            let scalar = numeric::i32_from_stack(stack)?;
+            stack.push(Value::V128(Rc::new([scalar as u8; 16])));
+        }
         17 => {
             let scalar = numeric::i32_from_stack(stack)?;
             let lane = scalar.to_le_bytes();
@@ -3593,6 +3597,40 @@ fn execute_simd(
                 chunk.copy_from_slice(&lane);
             }
             stack.push(Value::V128(Rc::new(bytes)));
+        }
+        21 | 22 => {
+            let lane = *code.get(*pc).ok_or(RuntimeError::ControlInvariant(
+                "validated i8x16.extract_lane immediate is missing",
+            ))?;
+            *pc += 1;
+            if lane >= 16 {
+                return Err(RuntimeError::ControlInvariant(
+                    "validated i8x16.extract_lane lane is out of bounds",
+                ));
+            }
+            let vector = numeric::v128_from_stack(stack)?;
+            let byte = vector[usize::from(lane)];
+            let value = if subopcode == 21 {
+                i32::from(byte as i8)
+            } else {
+                i32::from(byte)
+            };
+            stack.push(Value::I32(value));
+        }
+        23 => {
+            let lane = *code.get(*pc).ok_or(RuntimeError::ControlInvariant(
+                "validated i8x16.replace_lane immediate is missing",
+            ))?;
+            *pc += 1;
+            if lane >= 16 {
+                return Err(RuntimeError::ControlInvariant(
+                    "validated i8x16.replace_lane lane is out of bounds",
+                ));
+            }
+            let scalar = numeric::i32_from_stack(stack)?;
+            let mut vector = numeric::v128_from_stack(stack)?;
+            vector[usize::from(lane)] = scalar as u8;
+            stack.push(Value::V128(Rc::new(vector)));
         }
         55..=64 => {
             let rhs = numeric::v128_from_stack(stack)?;
@@ -3881,7 +3919,18 @@ fn build_control_map(module: &Module, code: &[u8]) -> Result<ControlMap, Runtime
                         }
                         pc = end;
                     }
-                    17 | 55..=64 | 77..=83 | 163 | 164 | 174 | 177 | 181 => {}
+                    15 | 17 | 55..=64 | 77..=83 | 163 | 164 | 174 | 177 | 181 => {}
+                    21..=23 => {
+                        let lane = *code.get(pc).ok_or(RuntimeError::ControlInvariant(
+                            "validated i8x16 lane immediate is missing while scanning control",
+                        ))?;
+                        pc += 1;
+                        if lane >= 16 {
+                            return Err(RuntimeError::ControlInvariant(
+                                "validated i8x16 lane is out of bounds while scanning control",
+                            ));
+                        }
+                    }
                     27 => {
                         let lane = *code.get(pc).ok_or(RuntimeError::ControlInvariant(
                             "validated i32x4.extract_lane immediate is missing while scanning control",
