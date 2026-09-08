@@ -3631,6 +3631,29 @@ fn execute_simd(
             let value = numeric::v128_from_stack(stack)?;
             stack.push(Value::I32(i32::from(value.iter().any(|byte| *byte != 0))));
         }
+        163 => {
+            let value = numeric::v128_from_stack(stack)?;
+            let all_true = value
+                .chunks_exact(4)
+                .all(|lane| i32::from_le_bytes(lane.try_into().expect("i32x4 lane width")) != 0);
+            stack.push(Value::I32(i32::from(all_true)));
+        }
+        164 => {
+            let value = numeric::v128_from_stack(stack)?;
+            let mut mask = 0i32;
+            for lane in 0..4 {
+                let start = lane * 4;
+                let lane_value = i32::from_le_bytes(
+                    value[start..start + 4]
+                        .try_into()
+                        .expect("i32x4 lane width"),
+                );
+                if lane_value < 0 {
+                    mask |= 1 << lane;
+                }
+            }
+            stack.push(Value::I32(mask));
+        }
         174 | 177 | 181 => {
             let rhs = numeric::v128_from_stack(stack)?;
             let lhs = numeric::v128_from_stack(stack)?;
@@ -3828,7 +3851,7 @@ fn build_control_map(module: &Module, code: &[u8]) -> Result<ControlMap, Runtime
                         }
                         pc = end;
                     }
-                    17 | 77..=83 | 174 | 177 | 181 => {}
+                    17 | 77..=83 | 163 | 164 | 174 | 177 | 181 => {}
                     27 => {
                         let lane = *code.get(pc).ok_or(RuntimeError::ControlInvariant(
                             "validated i32x4.extract_lane immediate is missing while scanning control",
