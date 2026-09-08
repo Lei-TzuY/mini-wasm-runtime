@@ -48,9 +48,11 @@ pub const RIGHTS_PATH_LINK_TARGET: u64 = 1 << 12;
 pub const RIGHTS_PATH_READLINK: u64 = 1 << 15;
 pub const RIGHTS_PATH_RENAME_SOURCE: u64 = 1 << 16;
 pub const RIGHTS_PATH_RENAME_TARGET: u64 = 1 << 17;
+pub const RIGHTS_PATH_FILESTAT_GET: u64 = 1 << 18;
 pub const RIGHTS_PATH_SYMLINK: u64 = 1 << 24;
 pub const RIGHTS_PATH_REMOVE_DIRECTORY: u64 = 1 << 25;
 pub const RIGHTS_PATH_UNLINK_FILE: u64 = 1 << 26;
+pub const LOOKUPFLAGS_SYMLINK_FOLLOW: u32 = 1 << 0;
 pub const OFLAGS_CREAT: u32 = 1 << 0;
 pub const OFLAGS_DIRECTORY: u32 = 1 << 1;
 
@@ -193,6 +195,7 @@ impl WasiPreview1 {
         self.filesystem.reserve_preopen(fd, writable);
         let rights_base = if writable {
             RIGHTS_PATH_OPEN
+                | RIGHTS_PATH_FILESTAT_GET
                 | RIGHTS_FD_READDIR
                 | RIGHTS_PATH_CREATE_DIRECTORY
                 | RIGHTS_PATH_CREATE_FILE
@@ -205,7 +208,7 @@ impl WasiPreview1 {
                 | RIGHTS_PATH_REMOVE_DIRECTORY
                 | RIGHTS_PATH_UNLINK_FILE
         } else {
-            RIGHTS_PATH_OPEN | RIGHTS_FD_READDIR | RIGHTS_PATH_READLINK
+            RIGHTS_PATH_OPEN | RIGHTS_PATH_FILESTAT_GET | RIGHTS_FD_READDIR | RIGHTS_PATH_READLINK
         };
         let rights_inheriting = if writable {
             RIGHTS_FD_READ

@@ -7,16 +7,18 @@ use crate::{
     ERRNO_BADF, ERRNO_EXIST, ERRNO_FAULT, ERRNO_FBIG, ERRNO_INVAL, ERRNO_IO, ERRNO_MFILE,
     ERRNO_NAMETOOLONG, ERRNO_NOENT, ERRNO_NOSPC, ERRNO_NOTCAPABLE, ERRNO_NOTDIR, ERRNO_NOTEMPTY,
     ERRNO_NOTSUP, ERRNO_OVERFLOW, ERRNO_SUCCESS, FILETYPE_DIRECTORY, FILETYPE_REGULAR_FILE,
-    FILETYPE_SYMBOLIC_LINK, OFLAGS_CREAT, OFLAGS_DIRECTORY, RIGHTS_FD_FILESTAT_GET,
-    RIGHTS_FD_FILESTAT_SET_SIZE, RIGHTS_FD_READ, RIGHTS_FD_READDIR, RIGHTS_FD_SEEK, RIGHTS_FD_TELL,
-    RIGHTS_FD_WRITE, RIGHTS_PATH_CREATE_DIRECTORY, RIGHTS_PATH_CREATE_FILE,
-    RIGHTS_PATH_LINK_SOURCE, RIGHTS_PATH_LINK_TARGET, RIGHTS_PATH_OPEN, RIGHTS_PATH_READLINK,
-    RIGHTS_PATH_REMOVE_DIRECTORY, RIGHTS_PATH_RENAME_SOURCE, RIGHTS_PATH_RENAME_TARGET,
-    RIGHTS_PATH_SYMLINK, RIGHTS_PATH_UNLINK_FILE,
+    FILETYPE_SYMBOLIC_LINK, LOOKUPFLAGS_SYMLINK_FOLLOW, OFLAGS_CREAT, OFLAGS_DIRECTORY,
+    RIGHTS_FD_FILESTAT_GET, RIGHTS_FD_FILESTAT_SET_SIZE, RIGHTS_FD_READ, RIGHTS_FD_READDIR,
+    RIGHTS_FD_SEEK, RIGHTS_FD_TELL, RIGHTS_FD_WRITE, RIGHTS_PATH_CREATE_DIRECTORY,
+    RIGHTS_PATH_CREATE_FILE, RIGHTS_PATH_FILESTAT_GET, RIGHTS_PATH_LINK_SOURCE,
+    RIGHTS_PATH_LINK_TARGET, RIGHTS_PATH_OPEN, RIGHTS_PATH_READLINK, RIGHTS_PATH_REMOVE_DIRECTORY,
+    RIGHTS_PATH_RENAME_SOURCE, RIGHTS_PATH_RENAME_TARGET, RIGHTS_PATH_SYMLINK,
+    RIGHTS_PATH_UNLINK_FILE,
 };
 
 const WASI_MODULE: &str = "wasi_snapshot_preview1";
 const PATH_CREATE_DIRECTORY_NAME: &str = "path_create_directory";
+const PATH_FILESTAT_GET_NAME: &str = "path_filestat_get";
 const PATH_REMOVE_DIRECTORY_NAME: &str = "path_remove_directory";
 const PATH_OPEN_NAME: &str = "path_open";
 const PATH_LINK_NAME: &str = "path_link";
@@ -230,6 +232,14 @@ enum ReaddirError {
     BadFd,
     NotCapable,
     NotSupported,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum PathFilestatError {
+    BadFd,
+    NotFound,
+    NotCapable,
+    NameTooLong,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -539,6 +549,68 @@ impl Filesystem {
         Ok(())
     }
 
+    fn path_filestat(
+        &self,
+        dir_fd: u32,
+        path: &[u8],
+    ) -> Result<DescriptorFilestat, PathFilestatError> {
+        let (preopen_fd, full_path, _) = self
+            .resolve_directory_path(dir_fd, path, RIGHTS_PATH_FILESTAT_GET)
+            .map_err(|error| match error {
+                ResolveDirectoryError::BadFd => PathFilestatError::BadFd,
+                ResolveDirectoryError::NotCapable => PathFilestatError::NotCapable,
+                ResolveDirectoryError::NameTooLong => PathFilestatError::NameTooLong,
+            })?;
+        let state = self.state.borrow();
+        if let Some(file) = state.mounted_files.iter().find(|file| {
+            file.preopen_fd == preopen_fd && file.relative_path.as_slice() == full_path.as_slice()
+        }) {
+            let size = file.bytes.borrow().len() as u64;
+            let nlink = *file.link_count.borrow();
+            return Ok(DescriptorFilestat {
+                dev: SYNTHETIC_DEVICE_ID,
+                ino: file.inode,
+                filetype: FILETYPE_REGULAR_FILE,
+                nlink,
+                size,
+                atim: LOGICAL_EPOCH_NS,
+                mtim: LOGICAL_EPOCH_NS,
+                ctim: LOGICAL_EPOCH_NS,
+            });
+        }
+        if let Some(directory) = state.mounted_directories.iter().find(|directory| {
+            directory.preopen_fd == preopen_fd
+                && directory.relative_path.as_slice() == full_path.as_slice()
+        }) {
+            return Ok(DescriptorFilestat {
+                dev: SYNTHETIC_DEVICE_ID,
+                ino: directory.inode,
+                filetype: FILETYPE_DIRECTORY,
+                nlink: 1,
+                size: 0,
+                atim: LOGICAL_EPOCH_NS,
+                mtim: LOGICAL_EPOCH_NS,
+                ctim: LOGICAL_EPOCH_NS,
+            });
+        }
+        if let Some(symlink) = state.mounted_symlinks.iter().find(|symlink| {
+            symlink.preopen_fd == preopen_fd
+                && symlink.relative_path.as_slice() == full_path.as_slice()
+        }) {
+            return Ok(DescriptorFilestat {
+                dev: SYNTHETIC_DEVICE_ID,
+                ino: symlink.inode,
+                filetype: FILETYPE_SYMBOLIC_LINK,
+                nlink: 1,
+                size: symlink.target.len() as u64,
+                atim: LOGICAL_EPOCH_NS,
+                mtim: LOGICAL_EPOCH_NS,
+                ctim: LOGICAL_EPOCH_NS,
+            });
+        }
+        Err(PathFilestatError::NotFound)
+    }
+
     fn readdir_snapshot(&self, fd: u32, cookie: u64) -> Result<Vec<ReaddirEntry>, ReaddirError> {
         let state = self.state.borrow();
         let (preopen_fd, base, directory_inode, parent_inode, rights) =
@@ -839,6 +911,89 @@ impl Filesystem {
             },
         )?;
 
+        let path_filestat_filesystem = self.clone();
+        registry.register_values(
+            WASI_MODULE,
+            PATH_FILESTAT_GET_NAME,
+            vec![
+                ValueType::I32,
+                ValueType::I32,
+                ValueType::I32,
+                ValueType::I32,
+                ValueType::I32,
+            ],
+            vec![ValueType::I32],
+            HostCapabilities::MEMORY_READ_WRITE,
+            move |context, args| {
+                let [
+                    Value::I32(dir_fd),
+                    Value::I32(flags),
+                    Value::I32(path_ptr),
+                    Value::I32(path_len),
+                    Value::I32(filestat_ptr),
+                ] = args
+                else {
+                    return Err(HostError::message(
+                        "validated wasi path_filestat_get signature received invalid arguments",
+                    ));
+                };
+
+                let flags = *flags as u32;
+                if flags & !LOOKUPFLAGS_SYMLINK_FOLLOW != 0 {
+                    return Ok(vec![Value::I32(ERRNO_INVAL)]);
+                }
+                if flags & LOOKUPFLAGS_SYMLINK_FOLLOW != 0 {
+                    return Ok(vec![Value::I32(ERRNO_NOTSUP)]);
+                }
+                let path_len = *path_len as u32 as usize;
+                if path_len > MAX_RELATIVE_PATH_BYTES {
+                    return Ok(vec![Value::I32(ERRNO_NAMETOOLONG)]);
+                }
+                let path = match context.read_memory(*path_ptr as u32, path_len) {
+                    Ok(path) => path,
+                    Err(_) => return Ok(vec![Value::I32(ERRNO_FAULT)]),
+                };
+                match validate_guest_path(&path) {
+                    Ok(()) => {}
+                    Err(GuestPathError::Empty) => return Ok(vec![Value::I32(ERRNO_INVAL)]),
+                    Err(GuestPathError::TooLong) => {
+                        return Ok(vec![Value::I32(ERRNO_NAMETOOLONG)]);
+                    }
+                    Err(GuestPathError::Unsafe) => {
+                        return Ok(vec![Value::I32(ERRNO_NOTCAPABLE)]);
+                    }
+                }
+
+                let stat = match path_filestat_filesystem.path_filestat(*dir_fd as u32, &path) {
+                    Ok(stat) => stat,
+                    Err(PathFilestatError::BadFd) => return Ok(vec![Value::I32(ERRNO_BADF)]),
+                    Err(PathFilestatError::NotFound) => return Ok(vec![Value::I32(ERRNO_NOENT)]),
+                    Err(PathFilestatError::NotCapable) => {
+                        return Ok(vec![Value::I32(ERRNO_NOTCAPABLE)]);
+                    }
+                    Err(PathFilestatError::NameTooLong) => {
+                        return Ok(vec![Value::I32(ERRNO_NAMETOOLONG)]);
+                    }
+                };
+                if context.read_memory(*filestat_ptr as u32, 64).is_err() {
+                    return Ok(vec![Value::I32(ERRNO_FAULT)]);
+                }
+                let mut encoded = [0u8; 64];
+                encoded[0..8].copy_from_slice(&stat.dev.to_le_bytes());
+                encoded[8..16].copy_from_slice(&stat.ino.to_le_bytes());
+                encoded[16] = stat.filetype;
+                encoded[24..32].copy_from_slice(&stat.nlink.to_le_bytes());
+                encoded[32..40].copy_from_slice(&stat.size.to_le_bytes());
+                encoded[40..48].copy_from_slice(&stat.atim.to_le_bytes());
+                encoded[48..56].copy_from_slice(&stat.mtim.to_le_bytes());
+                encoded[56..64].copy_from_slice(&stat.ctim.to_le_bytes());
+                if context.write_memory(*filestat_ptr as u32, &encoded).is_err() {
+                    return Ok(vec![Value::I32(ERRNO_FAULT)]);
+                }
+                Ok(vec![Value::I32(ERRNO_SUCCESS)])
+            },
+        )?;
+
         let open_filesystem = self.clone();
         registry.register_values(
             WASI_MODULE,
@@ -886,6 +1041,7 @@ impl Filesystem {
                     | RIGHTS_FD_TELL | RIGHTS_FD_FILESTAT_GET | RIGHTS_FD_FILESTAT_SET_SIZE;
                     let allowed_directory_base = RIGHTS_FD_READDIR
                         | RIGHTS_PATH_OPEN
+                        | RIGHTS_PATH_FILESTAT_GET
                         | RIGHTS_PATH_CREATE_DIRECTORY
                         | RIGHTS_PATH_CREATE_FILE
                         | RIGHTS_PATH_LINK_SOURCE
@@ -2090,7 +2246,7 @@ fn directory_inode(state: &FilesystemState, preopen_fd: u32, path: &[u8]) -> Opt
 
 fn directory_rights(state: &FilesystemState, fd: u32) -> Option<u64> {
     if state.reserved_preopens.contains(&fd) {
-        let mut rights = RIGHTS_FD_READDIR | RIGHTS_PATH_OPEN;
+        let mut rights = RIGHTS_FD_READDIR | RIGHTS_PATH_OPEN | RIGHTS_PATH_FILESTAT_GET;
         if state.writable_preopens.contains(&fd) {
             rights |= RIGHTS_PATH_CREATE_DIRECTORY
                 | RIGHTS_PATH_CREATE_FILE
