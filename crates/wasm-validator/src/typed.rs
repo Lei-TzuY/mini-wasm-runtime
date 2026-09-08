@@ -707,6 +707,26 @@ pub(super) fn validate_code(
                         skip_fixed(code, &mut pc, 16, function, offset)?;
                         stack.push(ValueType::V128);
                     }
+                    13 => {
+                        let end = pc
+                            .checked_add(16)
+                            .ok_or(ValidationError::MalformedImmediate { function, offset })?;
+                        let lanes = code
+                            .get(pc..end)
+                            .ok_or(ValidationError::MalformedImmediate { function, offset })?;
+                        if lanes.iter().any(|lane| *lane >= 32) {
+                            return Err(ValidationError::MalformedImmediate { function, offset });
+                        }
+                        pc = end;
+                        pop_expect(&mut stack, &controls, ValueType::V128, function, offset)?;
+                        pop_expect(&mut stack, &controls, ValueType::V128, function, offset)?;
+                        stack.push(ValueType::V128);
+                    }
+                    14 => {
+                        pop_expect(&mut stack, &controls, ValueType::V128, function, offset)?;
+                        pop_expect(&mut stack, &controls, ValueType::V128, function, offset)?;
+                        stack.push(ValueType::V128);
+                    }
                     15 | 17 => {
                         pop_expect(&mut stack, &controls, ValueType::I32, function, offset)?;
                         stack.push(ValueType::V128);
