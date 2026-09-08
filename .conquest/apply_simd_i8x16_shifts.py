@@ -21,7 +21,7 @@ replace_once(
                     107 => lane_unsigned.wrapping_shl(shift),
                     108 => ((lane_unsigned as i8) >> shift) as u8,
                     109 => lane_unsigned >> shift,
-                    _ => unreachable!(\"matched i8x16 shift opcode\"),
+                    _ => unreachable!("matched i8x16 shift opcode"),
                 };
             }
             stack.push(Value::V128(Rc::new(result)));
@@ -35,7 +35,7 @@ replace_once(
     "                    | 100\n                    | 107\n                    | 108\n                    | 109\n                    | 128\n",
 )
 
-validator = "crates/wasm-validator/src/lib.rs"
+validator = "crates/wasm-validator/src/typed.rs"
 replace_once(
     validator,
     "                    139..=141 => {\n",
