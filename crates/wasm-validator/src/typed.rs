@@ -802,11 +802,11 @@ pub(super) fn validate_code(
                         pop_expect(&mut stack, &controls, ValueType::V128, function, offset)?;
                         stack.push(ValueType::V128);
                     }
-                    128 | 129 => {
+                    96 | 97 | 98 | 128 | 129 => {
                         pop_expect(&mut stack, &controls, ValueType::V128, function, offset)?;
                         stack.push(ValueType::V128);
                     }
-                    83 | 131 | 132 | 163 | 164 => {
+                    83 | 99 | 100 | 131 | 132 | 163 | 164 => {
                         pop_expect(&mut stack, &controls, ValueType::V128, function, offset)?;
                         stack.push(ValueType::I32);
                     }
