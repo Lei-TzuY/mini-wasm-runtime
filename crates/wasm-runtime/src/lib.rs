@@ -1232,11 +1232,31 @@ impl LinearMemory {
         old_pages as i32
     }
 
-    fn fill(&mut self, destination: i32, value: i32, length: i32) -> Result<(), RuntimeError> {
-        let width = length as u32 as usize;
-        let destination_range = self.checked_range(destination, 0, width)?;
+    fn fill_bulk(&mut self, destination: u64, value: i32, length: u64) -> Result<(), RuntimeError> {
+        let destination_range = self.checked_bulk_range(destination, length)?;
         self.bytes[destination_range].fill(value as u8);
         Ok(())
+    }
+
+    fn checked_bulk_range(
+        &self,
+        address: u64,
+        width: u64,
+    ) -> Result<std::ops::Range<usize>, RuntimeError> {
+        let width_for_error = usize::try_from(width).unwrap_or(usize::MAX);
+        let end = address
+            .checked_add(width)
+            .ok_or(RuntimeError::MemoryOutOfBounds {
+                address,
+                width: width_for_error,
+            })?;
+        if end > self.bytes.len() as u64 {
+            return Err(RuntimeError::MemoryOutOfBounds {
+                address,
+                width: width_for_error,
+            });
+        }
+        Ok(address as usize..end as usize)
     }
 
     fn checked_range(
@@ -1826,7 +1846,7 @@ impl Instance {
         &mut self,
         data_index: u32,
         memory_index: u32,
-        destination: i32,
+        destination: u64,
         source: i32,
         length: i32,
     ) -> Result<(), RuntimeError> {
@@ -1853,7 +1873,7 @@ impl Instance {
         let start = source_start as usize;
         let payload = segment[start..start + width].to_vec();
         self.with_memory_index_mut(memory_index, |memory| {
-            let range = memory.checked_range(destination, 0, width)?;
+            let range = memory.checked_bulk_range(destination, width as u64)?;
             memory.bytes[range].copy_from_slice(&payload);
             Ok(())
         })
@@ -1863,17 +1883,16 @@ impl Instance {
         &mut self,
         destination_memory: u32,
         source_memory: u32,
-        destination: i32,
-        source: i32,
-        length: i32,
+        destination: u64,
+        source: u64,
+        length: u64,
     ) -> Result<(), RuntimeError> {
-        let width = length as u32 as usize;
         let payload = self.with_memory_index(source_memory, |memory| {
-            let range = memory.checked_range(source, 0, width)?;
+            let range = memory.checked_bulk_range(source, length)?;
             Ok(memory.bytes[range].to_vec())
         })?;
         self.with_memory_index_mut(destination_memory, |memory| {
-            let range = memory.checked_range(destination, 0, width)?;
+            let range = memory.checked_bulk_range(destination, length)?;
             memory.bytes[range].copy_from_slice(&payload);
             Ok(())
         })
@@ -2748,7 +2767,8 @@ impl Instance {
                             ensure_runtime_memory_index(self, memory_index)?;
                             let length = numeric::i32_from_stack(&mut stack)?;
                             let source = numeric::i32_from_stack(&mut stack)?;
-                            let destination = numeric::i32_from_stack(&mut stack)?;
+                            let destination =
+                                pop_runtime_bulk_memory_address(self, &mut stack, memory_index)?;
                             self.memory_init(
                                 data_index,
                                 memory_index,
@@ -2766,9 +2786,19 @@ impl Instance {
                             let source_memory = read_u32_immediate(code, &mut pc)?;
                             ensure_runtime_memory_index(self, destination_memory)?;
                             ensure_runtime_memory_index(self, source_memory)?;
-                            let length = numeric::i32_from_stack(&mut stack)?;
-                            let source = numeric::i32_from_stack(&mut stack)?;
-                            let destination = numeric::i32_from_stack(&mut stack)?;
+                            let length = pop_runtime_memory_copy_length(
+                                self,
+                                &mut stack,
+                                destination_memory,
+                                source_memory,
+                            )?;
+                            let source =
+                                pop_runtime_bulk_memory_address(self, &mut stack, source_memory)?;
+                            let destination = pop_runtime_bulk_memory_address(
+                                self,
+                                &mut stack,
+                                destination_memory,
+                            )?;
                             self.memory_copy(
                                 destination_memory,
                                 source_memory,
@@ -2780,11 +2810,13 @@ impl Instance {
                         11 => {
                             let memory_index = read_u32_immediate(code, &mut pc)?;
                             ensure_runtime_memory_index(self, memory_index)?;
-                            let length = numeric::i32_from_stack(&mut stack)?;
+                            let length =
+                                pop_runtime_bulk_memory_address(self, &mut stack, memory_index)?;
                             let value = numeric::i32_from_stack(&mut stack)?;
-                            let destination = numeric::i32_from_stack(&mut stack)?;
+                            let destination =
+                                pop_runtime_bulk_memory_address(self, &mut stack, memory_index)?;
                             self.with_memory_index_mut(memory_index, |memory| {
-                                memory.fill(destination, value, length)
+                                memory.fill_bulk(destination, value, length)
                             })?;
                         }
                         12 => {
@@ -3216,18 +3248,48 @@ fn instantiate_globals(
     Ok(globals)
 }
 
+fn runtime_memory_is_64(instance: &Instance, memory_index: u32) -> Result<bool, RuntimeError> {
+    Ok(instance
+        .module
+        .memory_type(memory_index)
+        .ok_or(RuntimeError::MemoryIndexOutOfBounds(memory_index))?
+        .limits
+        .memory64)
+}
+
+fn pop_runtime_bulk_memory_address(
+    instance: &Instance,
+    stack: &mut Vec<Value>,
+    memory_index: u32,
+) -> Result<u64, RuntimeError> {
+    if runtime_memory_is_64(instance, memory_index)? {
+        Ok(numeric::i64_from_stack(stack)? as u64)
+    } else {
+        Ok(u64::from(numeric::i32_from_stack(stack)? as u32))
+    }
+}
+
+fn pop_runtime_memory_copy_length(
+    instance: &Instance,
+    stack: &mut Vec<Value>,
+    destination_memory: u32,
+    source_memory: u32,
+) -> Result<u64, RuntimeError> {
+    if runtime_memory_is_64(instance, destination_memory)?
+        && runtime_memory_is_64(instance, source_memory)?
+    {
+        Ok(numeric::i64_from_stack(stack)? as u64)
+    } else {
+        Ok(u64::from(numeric::i32_from_stack(stack)? as u32))
+    }
+}
+
 fn pop_runtime_memory_address(
     instance: &Instance,
     stack: &mut Vec<Value>,
     memory_index: u32,
 ) -> Result<i32, RuntimeError> {
-    let memory64 = instance
-        .module
-        .memory_type(memory_index)
-        .ok_or(RuntimeError::MemoryIndexOutOfBounds(memory_index))?
-        .limits
-        .memory64;
-    if !memory64 {
+    if !runtime_memory_is_64(instance, memory_index)? {
         return numeric::i32_from_stack(stack);
     }
     let address = numeric::i64_from_stack(stack)? as u64;

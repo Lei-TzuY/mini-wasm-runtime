@@ -20,12 +20,11 @@ Deterministic parser, validator, runtime, malformed-module, security-invariant, 
 
 ## Deliberate boundaries
 
-This is an address-width vertical slice, not a claim of complete memory64 conformance. The following remain separate capabilities:
+This is an address-width vertical slice, not a claim of complete memory64 conformance. The follow-on bulk-memory address-typing capability is now implemented separately; see [`memory64-bulk-memory.md`](memory64-bulk-memory.md). The following remain separate capabilities:
 
-- memory64 bulk-memory `memory.init`, `memory.copy`, and `memory.fill` address typing;
 - imported memory64 host backing;
 - larger physical allocations beyond the runtime's existing configured memory-page ceiling;
 - shared-memory/threads combinations;
-- additional upstream memory64 WAST manifest accounting beyond the focused reference differential.
+- additional upstream memory64 WAST manifest accounting beyond the focused reference differentials.
 
 Unsupported combinations continue to fail closed. These boundaries should be expanded as separate coherent vertical slices with their own deterministic and reference-backed evidence.
