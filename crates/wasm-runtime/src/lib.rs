@@ -3866,6 +3866,26 @@ fn execute_simd(
             }
             stack.push(Value::I32(mask));
         }
+        142 | 145 | 149 => {
+            let rhs = numeric::v128_from_stack(stack)?;
+            let lhs = numeric::v128_from_stack(stack)?;
+            let mut result = [0u8; 16];
+            for lane in 0..8 {
+                let start = lane * 2;
+                let lhs_lane =
+                    u16::from_le_bytes(lhs[start..start + 2].try_into().expect("i16x8 lane width"));
+                let rhs_lane =
+                    u16::from_le_bytes(rhs[start..start + 2].try_into().expect("i16x8 lane width"));
+                let value = match subopcode {
+                    142 => lhs_lane.wrapping_add(rhs_lane),
+                    145 => lhs_lane.wrapping_sub(rhs_lane),
+                    149 => lhs_lane.wrapping_mul(rhs_lane),
+                    _ => unreachable!("matched i16x8 wrapping arithmetic opcode"),
+                };
+                result[start..start + 2].copy_from_slice(&value.to_le_bytes());
+            }
+            stack.push(Value::V128(Rc::new(result)));
+        }
         174 | 177 | 181 => {
             let rhs = numeric::v128_from_stack(stack)?;
             let lhs = numeric::v128_from_stack(stack)?;
@@ -4086,6 +4106,9 @@ fn build_control_map(module: &Module, code: &[u8]) -> Result<ControlMap, Runtime
                     | 77..=83
                     | 163
                     | 164
+                    | 142
+                    | 145
+                    | 149
                     | 174
                     | 177
                     | 181 => {}
