@@ -109,8 +109,8 @@ fn immutable_imported_globals_execute_for_all_numeric_types() {
 
     for (value_type, value) in cases {
         let module = imported_global_getter(value_type, false);
-        let mut vm = instantiate_with_global(&module, "g", value);
-        assert_eq!(vm.global(0), Some(value));
+        let mut vm = instantiate_with_global(&module, "g", value.clone());
+        assert_eq!(vm.global(0), Some(value.clone()));
         assert_eq!(vm.invoke_export("run", &[]).unwrap(), Some(value));
     }
 }

@@ -141,12 +141,12 @@ fn execute(path: &Path, export: &str, args: &[Value]) -> Result<(), Box<dyn Erro
     let results = instance.invoke_export_values(export, args)?;
     match results.as_slice() {
         [] => println!("()"),
-        [value] => println!("{}", format_value(*value)),
+        [value] => println!("{}", format_value(value.clone())),
         values => println!(
             "({})",
             values
                 .iter()
-                .copied()
+                .cloned()
                 .map(format_value)
                 .collect::<Vec<_>>()
                 .join(", ")
@@ -161,6 +161,7 @@ fn format_value(value: Value) -> String {
         Value::I64(value) => value.to_string(),
         Value::F32(value) => value.to_string(),
         Value::F64(value) => value.to_string(),
+        Value::V128(bytes) => format!("v128:{bytes:?}"),
         Value::FuncRef(reference) => match reference {
             Some(index) => format!("funcref:{index}"),
             None => "ref.null funcref".to_owned(),

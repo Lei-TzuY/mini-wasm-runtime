@@ -678,6 +678,43 @@ pub(super) fn validate_code(
                 }
                 stack.push(ValueType::FuncRef);
             }
+            0xfd => {
+                let subopcode = read_u32(code, &mut pc, function, offset)?;
+                match subopcode {
+                    12 => {
+                        skip_fixed(code, &mut pc, 16, function, offset)?;
+                        stack.push(ValueType::V128);
+                    }
+                    17 => {
+                        pop_expect(&mut stack, &controls, ValueType::I32, function, offset)?;
+                        stack.push(ValueType::V128);
+                    }
+                    174 => {
+                        pop_expect(&mut stack, &controls, ValueType::V128, function, offset)?;
+                        pop_expect(&mut stack, &controls, ValueType::V128, function, offset)?;
+                        stack.push(ValueType::V128);
+                    }
+                    27 => {
+                        let lane = *code
+                            .get(pc)
+                            .ok_or(ValidationError::MalformedImmediate { function, offset })?;
+                        pc += 1;
+                        if lane >= 4 {
+                            return Err(ValidationError::MalformedImmediate { function, offset });
+                        }
+                        pop_expect(&mut stack, &controls, ValueType::V128, function, offset)?;
+                        stack.push(ValueType::I32);
+                    }
+                    _ => {
+                        return Err(ValidationError::UnsupportedPrefixedOpcode {
+                            function,
+                            offset,
+                            prefix: 0xfd,
+                            subopcode,
+                        });
+                    }
+                }
+            }
             0xfc => {
                 let subopcode = read_u32(code, &mut pc, function, offset)?;
                 match subopcode {
@@ -941,6 +978,7 @@ fn read_typed_select_type(
         0x7e => Ok(ValueType::I64),
         0x7d => Ok(ValueType::F32),
         0x7c => Ok(ValueType::F64),
+        0x7b => Ok(ValueType::V128),
         0x70 => Ok(ValueType::FuncRef),
         _ => Err(ValidationError::MalformedImmediate { function, offset }),
     }

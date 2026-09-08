@@ -84,7 +84,7 @@ fn invalid_function_type_tag() -> Vec<u8> {
 
 fn unsupported_value_type() -> Vec<u8> {
     let mut bytes = header();
-    push_section(&mut bytes, 1, &[0x01, 0x60, 0x01, 0x7b, 0x00]);
+    push_section(&mut bytes, 1, &[0x01, 0x60, 0x01, 0x7a, 0x00]);
     bytes
 }
 
@@ -177,7 +177,7 @@ fn malformed_binary_inputs_fail_closed_with_precise_parser_errors() {
         Case {
             name: "unsupported value type",
             bytes: unsupported_value_type(),
-            expected: ParseError::UnsupportedValueType(0x7b),
+            expected: ParseError::UnsupportedValueType(0x7a),
         },
         Case {
             name: "invalid global mutability",

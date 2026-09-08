@@ -247,10 +247,10 @@ fn is_arithmetic_f64_nan(bits: u64) -> bool {
     bits & 0x7ff8_0000_0000_0000 == 0x7ff8_0000_0000_0000
 }
 
-fn value_matches(expected: &ExpectedValue, actual: Value) -> bool {
+fn value_matches(expected: &ExpectedValue, actual: &Value) -> bool {
     match (expected, actual) {
-        (ExpectedValue::I32(expected), Value::I32(actual)) => *expected == actual,
-        (ExpectedValue::I64(expected), Value::I64(actual)) => *expected == actual,
+        (ExpectedValue::I32(expected), Value::I32(actual)) => *expected == *actual,
+        (ExpectedValue::I64(expected), Value::I64(actual)) => *expected == *actual,
         (ExpectedValue::F32Bits(expected), Value::F32(actual)) => *expected == actual.to_bits(),
         (ExpectedValue::F64Bits(expected), Value::F64(actual)) => *expected == actual.to_bits(),
         (ExpectedValue::F32CanonicalNan, Value::F32(actual)) => {
@@ -401,7 +401,7 @@ fn run_fixture(source: &str) -> IngestionReport {
                 );
                 for (index, (expected, actual)) in expected.iter().zip(actual).enumerate() {
                     assert!(
-                        value_matches(expected, actual),
+                        value_matches(expected, &actual),
                         "assert_return mismatch for export {name} result {index}: expected {expected:?}, actual {actual:?}"
                     );
                 }

@@ -117,6 +117,7 @@ pub enum ValueType {
     I64,
     F32,
     F64,
+    V128,
     FuncRef,
 }
 
@@ -987,6 +988,7 @@ fn read_value_type(cursor: &mut Cursor<'_>) -> Result<ValueType, ParseError> {
         0x7e => Ok(ValueType::I64),
         0x7d => Ok(ValueType::F32),
         0x7c => Ok(ValueType::F64),
+        0x7b => Ok(ValueType::V128),
         0x70 => Ok(ValueType::FuncRef),
         other => Err(ParseError::UnsupportedValueType(other)),
     }
@@ -998,6 +1000,7 @@ fn read_global_value_type(cursor: &mut Cursor<'_>) -> Result<ValueType, ParseErr
         0x7e => Ok(ValueType::I64),
         0x7d => Ok(ValueType::F32),
         0x7c => Ok(ValueType::F64),
+        0x7b => Ok(ValueType::V128),
         0x70 => Ok(ValueType::FuncRef),
         other => Err(ParseError::UnsupportedValueType(other)),
     }

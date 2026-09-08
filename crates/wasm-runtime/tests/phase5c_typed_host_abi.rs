@@ -110,7 +110,7 @@ fn floating_host_results_preserve_nan_payload_bits() {
                 vec![],
                 vec![result_type],
                 HostCapabilities::NONE,
-                move |_ctx, _args| Ok(Some(callback_value)),
+                move |_ctx, _args| Ok(Some(callback_value.clone())),
             )
             .unwrap();
         let mut vm = Instance::with_hosts(module, hosts).unwrap();
