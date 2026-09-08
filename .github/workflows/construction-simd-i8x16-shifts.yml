@@ -20,7 +20,9 @@ jobs:
           components: rustfmt, clippy
       - name: Apply vertical slice
         run: python3 .conquest/apply_simd_i8x16_shifts.py
-      - name: Format
+      - name: Format generated Rust
+        run: cargo fmt --all
+      - name: Verify format
         run: cargo fmt --all -- --check
       - name: Clippy
         run: cargo clippy --workspace --all-targets --all-features -- -D warnings
