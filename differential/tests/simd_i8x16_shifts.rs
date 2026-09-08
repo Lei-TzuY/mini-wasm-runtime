@@ -1,6 +1,8 @@
 use wasm_parser::parse_module;
 use wasm_runtime::{Instance as MiniInstance, Value};
-use wasmtime::{Config, Engine, Instance as ReferenceInstance, Module as ReferenceModule, Store};
+use wasmtime::{
+    Config, Engine, Instance as ReferenceInstance, Module as ReferenceModule, Store,
+};
 
 const FIXTURE: &str = r#"
 (module
@@ -15,11 +17,21 @@ const EXPORTS: [&str; 3] = ["shl", "shr_s", "shr_u"];
 
 fn mini_trace(bytes: &[u8]) -> Vec<i32> {
     let module = parse_module(bytes).expect("mini must parse i8x16 shift fixture");
-    let mut instance = MiniInstance::new(module).expect("mini must instantiate i8x16 shift fixture");
-    EXPORTS.into_iter().map(|export| match instance.invoke_export_values(export, &[]).expect("mini execution").as_slice() {
-        [Value::I32(value)] => *value,
-        other => panic!("unexpected mini result for {export}: {other:?}"),
-    }).collect()
+    let mut instance =
+        MiniInstance::new(module).expect("mini must instantiate i8x16 shift fixture");
+    EXPORTS
+        .into_iter()
+        .map(|export| {
+            match instance
+                .invoke_export_values(export, &[])
+                .expect("mini execution")
+                .as_slice()
+            {
+                [Value::I32(value)] => *value,
+                other => panic!("unexpected mini result for {export}: {other:?}"),
+            }
+        })
+        .collect()
 }
 
 fn reference_trace(bytes: &[u8]) -> Vec<i32> {
@@ -28,8 +40,18 @@ fn reference_trace(bytes: &[u8]) -> Vec<i32> {
     let engine = Engine::new(&config).expect("SIMD Wasmtime engine");
     let module = ReferenceModule::new(&engine, bytes).expect("Wasmtime compile");
     let mut store = Store::new(&engine, ());
-    let instance = ReferenceInstance::new(&mut store, &module, &[]).expect("Wasmtime instantiate");
-    EXPORTS.into_iter().map(|export| instance.get_typed_func::<(), i32>(&mut store, export).expect("signature").call(&mut store, ()).expect("reference execution")).collect()
+    let instance =
+        ReferenceInstance::new(&mut store, &module, &[]).expect("Wasmtime instantiate");
+    EXPORTS
+        .into_iter()
+        .map(|export| {
+            instance
+                .get_typed_func::<(), i32>(&mut store, export)
+                .expect("signature")
+                .call(&mut store, ())
+                .expect("reference execution")
+        })
+        .collect()
 }
 
 #[test]
