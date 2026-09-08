@@ -16,15 +16,11 @@ use wasmtime_wasi::{
     DirPerms, FilePerms, WasiCtxBuilder,
 };
 
-const PATH_PTR: u32 = 64;
-const PATH_LEN: u32 = 8;
 const FD_OUT: u32 = 96;
 const FD_STAT: u32 = 128;
 const PATH_STAT: u32 = 192;
 const ATIM: u64 = 1_700_000_000_123_456_789;
 const MTIM: u64 = 1_700_000_000_987_654_321;
-const FSTFLAGS_ATIM: i32 = 1;
-const FSTFLAGS_MTIM: i32 = 4;
 const RIGHTS: u64 = RIGHTS_FD_FILESTAT_GET | RIGHTS_FD_FILESTAT_SET_TIMES;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -179,7 +175,11 @@ fn run_mini(bytes: &[u8]) -> TimestampTrace {
     let fd_set = mini_call(
         &mut instance,
         "fd_set",
-        &[Value::I32(fd as i32), Value::I64(ATIM as i64), Value::I64(MTIM as i64)],
+        &[
+            Value::I32(fd as i32),
+            Value::I64(ATIM as i64),
+            Value::I64(MTIM as i64),
+        ],
     );
     let fd_get = mini_call(
         &mut instance,
@@ -187,16 +187,15 @@ fn run_mini(bytes: &[u8]) -> TimestampTrace {
         &[Value::I32(fd as i32), Value::I32(FD_STAT as i32)],
     );
     let fd_after_fd_set = mini_times(&memory, FD_STAT);
-    let path_get = mini_call(
-        &mut instance,
-        "path_get",
-        &[Value::I32(PATH_STAT as i32)],
-    );
+    let path_get = mini_call(&mut instance, "path_get", &[Value::I32(PATH_STAT as i32)]);
     let path_after_fd_set = mini_times(&memory, PATH_STAT);
     let path_set = mini_call(
         &mut instance,
         "path_set",
-        &[Value::I64((ATIM + 11) as i64), Value::I64((MTIM + 22) as i64)],
+        &[
+            Value::I64((ATIM + 11) as i64),
+            Value::I64((MTIM + 22) as i64),
+        ],
     );
     let fd_get_after = mini_call(
         &mut instance,
@@ -275,7 +274,11 @@ fn run_reference(engine: &Engine, bytes: &[u8]) -> TimestampTrace {
         &instance,
         &mut store,
         "fd_set",
-        &[Val::I32(fd as i32), Val::I64(ATIM as i64), Val::I64(MTIM as i64)],
+        &[
+            Val::I32(fd as i32),
+            Val::I64(ATIM as i64),
+            Val::I64(MTIM as i64),
+        ],
     );
     let fd_get = reference_call(
         &instance,
@@ -295,7 +298,10 @@ fn run_reference(engine: &Engine, bytes: &[u8]) -> TimestampTrace {
         &instance,
         &mut store,
         "path_set",
-        &[Val::I64((ATIM + 11) as i64), Val::I64((MTIM + 22) as i64)],
+        &[
+            Val::I64((ATIM + 11) as i64),
+            Val::I64((MTIM + 22) as i64),
+        ],
     );
     let fd_get_after = reference_call(
         &instance,
@@ -325,10 +331,16 @@ fn explicit_filestat_timestamp_mutation_matches_wasmtime_wasi_37_0_3() {
         fd_after_path_set: (ATIM + 11, MTIM + 22),
     };
 
-    assert_eq!(mini, expected, "mini timestamp mutation must match contract");
+    assert_eq!(
+        mini, expected,
+        "mini timestamp mutation must match contract"
+    );
     assert_eq!(
         reference, expected,
         "Wasmtime-WASI 37.0.3 timestamp mutation must match portable contract"
     );
-    assert_eq!(mini, reference, "mini and Wasmtime timestamp traces diverged");
+    assert_eq!(
+        mini, reference,
+        "mini and Wasmtime timestamp traces diverged"
+    );
 }
