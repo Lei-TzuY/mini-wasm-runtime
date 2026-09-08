@@ -1,8 +1,11 @@
 use wasm_parser::parse_module;
-use wasm_runtime::{Instance as MiniInstance, Value};
-use wasmtime::{
-    Config, Engine, Instance as ReferenceInstance, Module as ReferenceModule, Store,
-};
+use wasm_runtime::Instance as MiniInstance;
+use wasm_runtime::Value;
+use wasmtime::Config;
+use wasmtime::Engine;
+use wasmtime::Instance as ReferenceInstance;
+use wasmtime::Module as ReferenceModule;
+use wasmtime::Store;
 
 const FIXTURE: &str = r#"
 (module
@@ -17,8 +20,8 @@ const EXPORTS: [&str; 3] = ["shl", "shr_s", "shr_u"];
 
 fn mini_trace(bytes: &[u8]) -> Vec<i32> {
     let module = parse_module(bytes).expect("mini must parse i8x16 shift fixture");
-    let mut instance =
-        MiniInstance::new(module).expect("mini must instantiate i8x16 shift fixture");
+    let mut instance = MiniInstance::new(module)
+        .expect("mini must instantiate i8x16 shift fixture");
     EXPORTS
         .into_iter()
         .map(|export| {
@@ -40,8 +43,8 @@ fn reference_trace(bytes: &[u8]) -> Vec<i32> {
     let engine = Engine::new(&config).expect("SIMD Wasmtime engine");
     let module = ReferenceModule::new(&engine, bytes).expect("Wasmtime compile");
     let mut store = Store::new(&engine, ());
-    let instance =
-        ReferenceInstance::new(&mut store, &module, &[]).expect("Wasmtime instantiate");
+    let instance = ReferenceInstance::new(&mut store, &module, &[])
+        .expect("Wasmtime instantiate");
     EXPORTS
         .into_iter()
         .map(|export| {
