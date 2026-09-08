@@ -298,10 +298,7 @@ fn run_reference(engine: &Engine, bytes: &[u8]) -> TimestampTrace {
         &instance,
         &mut store,
         "path_set",
-        &[
-            Val::I64((ATIM + 11) as i64),
-            Val::I64((MTIM + 22) as i64),
-        ],
+        &[Val::I64((ATIM + 11) as i64), Val::I64((MTIM + 22) as i64)],
     );
     let fd_get_after = reference_call(
         &instance,
