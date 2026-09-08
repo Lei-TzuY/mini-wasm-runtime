@@ -3585,6 +3585,45 @@ fn execute_simd(
             *pc = end;
             stack.push(Value::V128(Rc::new(bytes)));
         }
+        13 => {
+            let end = pc.checked_add(16).ok_or(RuntimeError::ControlInvariant(
+                "validated i8x16.shuffle immediate overflowed",
+            ))?;
+            let lanes = code.get(*pc..end).ok_or(RuntimeError::ControlInvariant(
+                "validated i8x16.shuffle immediate is missing",
+            ))?;
+            if lanes.iter().any(|lane| *lane >= 32) {
+                return Err(RuntimeError::ControlInvariant(
+                    "validated i8x16.shuffle lane is out of bounds",
+                ));
+            }
+            *pc = end;
+            let rhs = numeric::v128_from_stack(stack)?;
+            let lhs = numeric::v128_from_stack(stack)?;
+            let mut result = [0u8; 16];
+            for (output, lane) in result.iter_mut().zip(lanes.iter().copied()) {
+                *output = if lane < 16 {
+                    lhs[usize::from(lane)]
+                } else {
+                    rhs[usize::from(lane - 16)]
+                };
+            }
+            stack.push(Value::V128(Rc::new(result)));
+        }
+        14 => {
+            let indices = numeric::v128_from_stack(stack)?;
+            let input = numeric::v128_from_stack(stack)?;
+            let mut result = [0u8; 16];
+            for index in 0..16 {
+                let lane = indices[index];
+                result[index] = if lane < 16 {
+                    input[usize::from(lane)]
+                } else {
+                    0
+                };
+            }
+            stack.push(Value::V128(Rc::new(result)));
+        }
         15 => {
             let scalar = numeric::i32_from_stack(stack)?;
             stack.push(Value::V128(Rc::new([scalar as u8; 16])));
@@ -3919,7 +3958,21 @@ fn build_control_map(module: &Module, code: &[u8]) -> Result<ControlMap, Runtime
                         }
                         pc = end;
                     }
-                    15 | 17 | 55..=64 | 77..=83 | 163 | 164 | 174 | 177 | 181 => {}
+                    13 => {
+                        let end = pc.checked_add(16).ok_or(RuntimeError::ControlInvariant(
+                            "validated i8x16.shuffle immediate overflowed while scanning control",
+                        ))?;
+                        let lanes = code.get(pc..end).ok_or(RuntimeError::ControlInvariant(
+                            "validated i8x16.shuffle immediate is missing while scanning control",
+                        ))?;
+                        if lanes.iter().any(|lane| *lane >= 32) {
+                            return Err(RuntimeError::ControlInvariant(
+                                "validated i8x16.shuffle lane is out of bounds while scanning control",
+                            ));
+                        }
+                        pc = end;
+                    }
+                    14 | 15 | 17 | 55..=64 | 77..=83 | 163 | 164 | 174 | 177 | 181 => {}
                     21..=23 => {
                         let lane = *code.get(pc).ok_or(RuntimeError::ControlInvariant(
                             "validated i8x16 lane immediate is missing while scanning control",
