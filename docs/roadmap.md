@@ -197,4 +197,15 @@ The runtime has moved beyond a generic future-WASI placeholder into an executabl
 - [x] deterministic symbolic-link lifecycle differential/interop evidence against pinned Wasmtime-WASI 37.0.3 using an isolated writable preopen, comparing symlink creation/readlink target bytes, symbolic-link `fd_readdir` type exposure, opened-directory-relative behavior, unlink/path disappearance, and explicit non-following pathname semantics
 - [ ] broaden WASI differential/interop coverage to clocks/entropy with controllable reference providers and additional filesystem semantics where host resources can be isolated deterministically
 
+
+## Phase 8 — bounded proposal expansion
+
+With the core interpreter, validator, differential harness, and resource limits established, proposal work advances as bounded executable slices rather than broad feature flags. Physical allocation and host-ABI limits remain explicit even when proposal address spaces are wider.
+
+- [x] initial bounded memory64 address-width semantics with 64-bit memory limits, i64 scalar addresses, i64 `memory.size` / `memory.grow`, full-width runtime bounds preflight, and pinned Wasmtime differential evidence
+- [x] memory64 bulk-memory address typing for `memory.init`, `memory.fill`, and `memory.copy`, including mixed memory32/memory64 copy typing, full-width runtime bounds preflight, and pinned Wasmtime differential evidence
+- [ ] imported memory64 host backing and aliasing semantics
+- [ ] broader pinned upstream memory64 conformance accounting beyond focused reference differentials
+- [ ] SIMD executable semantics with deterministic differential coverage
+- [ ] threads/shared-memory semantics after an explicit concurrency and threat-model update
 A future JIT is intentionally out of scope until the interpreter and validation model are trustworthy.

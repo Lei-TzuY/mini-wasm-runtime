@@ -725,10 +725,21 @@ pub(super) fn validate_code(
                                 data_index,
                             });
                         }
-                        super::read_memory_index(code, &mut pc, module, function, offset)?;
+                        let memory_index =
+                            super::read_memory_index(code, &mut pc, module, function, offset)?;
+                        let address_type = if module
+                            .memory_type(memory_index)
+                            .expect("validated memory index is present")
+                            .limits
+                            .memory64
+                        {
+                            ValueType::I64
+                        } else {
+                            ValueType::I32
+                        };
                         pop_expect(&mut stack, &controls, ValueType::I32, function, offset)?;
                         pop_expect(&mut stack, &controls, ValueType::I32, function, offset)?;
-                        pop_expect(&mut stack, &controls, ValueType::I32, function, offset)?;
+                        pop_expect(&mut stack, &controls, address_type, function, offset)?;
                     }
                     9 => {
                         if module.data_count.is_none() {
@@ -744,17 +755,57 @@ pub(super) fn validate_code(
                         }
                     }
                     10 => {
-                        super::read_memory_index(code, &mut pc, module, function, offset)?;
-                        super::read_memory_index(code, &mut pc, module, function, offset)?;
-                        pop_expect(&mut stack, &controls, ValueType::I32, function, offset)?;
-                        pop_expect(&mut stack, &controls, ValueType::I32, function, offset)?;
-                        pop_expect(&mut stack, &controls, ValueType::I32, function, offset)?;
+                        let destination_memory =
+                            super::read_memory_index(code, &mut pc, module, function, offset)?;
+                        let source_memory =
+                            super::read_memory_index(code, &mut pc, module, function, offset)?;
+                        let destination_type = if module
+                            .memory_type(destination_memory)
+                            .expect("validated destination memory is present")
+                            .limits
+                            .memory64
+                        {
+                            ValueType::I64
+                        } else {
+                            ValueType::I32
+                        };
+                        let source_type = if module
+                            .memory_type(source_memory)
+                            .expect("validated source memory is present")
+                            .limits
+                            .memory64
+                        {
+                            ValueType::I64
+                        } else {
+                            ValueType::I32
+                        };
+                        let length_type = if destination_type == ValueType::I64
+                            && source_type == ValueType::I64
+                        {
+                            ValueType::I64
+                        } else {
+                            ValueType::I32
+                        };
+                        pop_expect(&mut stack, &controls, length_type, function, offset)?;
+                        pop_expect(&mut stack, &controls, source_type, function, offset)?;
+                        pop_expect(&mut stack, &controls, destination_type, function, offset)?;
                     }
                     11 => {
-                        super::read_memory_index(code, &mut pc, module, function, offset)?;
+                        let memory_index =
+                            super::read_memory_index(code, &mut pc, module, function, offset)?;
+                        let address_type = if module
+                            .memory_type(memory_index)
+                            .expect("validated memory index is present")
+                            .limits
+                            .memory64
+                        {
+                            ValueType::I64
+                        } else {
+                            ValueType::I32
+                        };
+                        pop_expect(&mut stack, &controls, address_type, function, offset)?;
                         pop_expect(&mut stack, &controls, ValueType::I32, function, offset)?;
-                        pop_expect(&mut stack, &controls, ValueType::I32, function, offset)?;
-                        pop_expect(&mut stack, &controls, ValueType::I32, function, offset)?;
+                        pop_expect(&mut stack, &controls, address_type, function, offset)?;
                     }
                     12 => {
                         let element_index = read_u32(code, &mut pc, function, offset)?;
