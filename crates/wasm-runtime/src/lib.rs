@@ -112,9 +112,10 @@ impl GlobalHandle {
     }
 
     fn new(value: Value, mutable: bool) -> Self {
+        let value_type = value.value_type();
         Self {
             value: Rc::new(RefCell::new(value)),
-            value_type: value.value_type(),
+            value_type,
             mutable,
         }
     }
@@ -128,7 +129,7 @@ impl GlobalHandle {
     }
 
     pub fn get(&self) -> Value {
-        *self.value.borrow()
+        self.value.borrow().clone()
     }
 
     pub fn set(&self, value: Value) -> Result<(), GlobalHandleError> {
@@ -2261,7 +2262,7 @@ impl Instance {
                 actual,
             });
         }
-        for (&expected, &value) in ty.results.iter().zip(&result) {
+        for (&expected, value) in ty.results.iter().zip(&result) {
             let actual = value.value_type();
             if actual != expected {
                 return Err(RuntimeError::HostResultTypeMismatch {
@@ -2520,9 +2521,10 @@ impl Instance {
                 }
                 0x20 => {
                     let index = read_u32_immediate(code, &mut pc)?;
-                    let value = *locals
+                    let value = locals
                         .get(index as usize)
-                        .ok_or(RuntimeError::LocalOutOfBounds(index))?;
+                        .ok_or(RuntimeError::LocalOutOfBounds(index))?
+                        .clone();
                     stack.push(value);
                 }
                 0x21 => {
@@ -2541,8 +2543,8 @@ impl Instance {
                     let expected = *local_types
                         .get(index as usize)
                         .ok_or(RuntimeError::LocalOutOfBounds(index))?;
-                    let value = *stack.last().ok_or(RuntimeError::StackUnderflow)?;
-                    numeric::expect_type(value, expected)?;
+                    let value = stack.last().ok_or(RuntimeError::StackUnderflow)?.clone();
+                    numeric::check_type(&value, expected)?;
                     let local = locals
                         .get_mut(index as usize)
                         .ok_or(RuntimeError::LocalOutOfBounds(index))?;
@@ -2825,6 +2827,7 @@ impl Instance {
                     let function_index = read_u32_immediate(code, &mut pc)?;
                     stack.push(Value::FuncRef(Some(function_index)));
                 }
+                0xfd => execute_simd(code, &mut pc, &mut stack)?,
                 0xfc => {
                     let subopcode = read_u32_immediate(code, &mut pc)?;
                     match subopcode {
@@ -3395,15 +3398,15 @@ fn validate_values(types: &[ValueType], values: &[Value]) -> Result<(), RuntimeE
             actual: values.len(),
         });
     }
-    for (&expected, &value) in types.iter().zip(values) {
-        numeric::expect_type(value, expected)?;
+    for (&expected, value) in types.iter().zip(values) {
+        numeric::check_type(value, expected)?;
     }
     Ok(())
 }
 
 fn validate_embedding_arguments(types: &[ValueType], values: &[Value]) -> Result<(), RuntimeError> {
     validate_values(types, values)?;
-    if types.iter().zip(values).any(|(&expected, &value)| {
+    if types.iter().zip(values).any(|(&expected, value)| {
         expected == ValueType::FuncRef && matches!(value, Value::FuncRef(Some(_)))
     }) {
         return Err(RuntimeError::UnownedFunctionReferenceArgument);
@@ -3509,6 +3512,77 @@ fn branch_to(
     Ok(())
 }
 
+#[inline(never)]
+fn execute_simd(code: &[u8], pc: &mut usize, stack: &mut Vec<Value>) -> Result<(), RuntimeError> {
+    let subopcode = read_u32_immediate(code, pc)?;
+    match subopcode {
+        12 => {
+            let end = pc.checked_add(16).ok_or(RuntimeError::ControlInvariant(
+                "validated v128.const immediate overflowed",
+            ))?;
+            let bytes: [u8; 16] = code
+                .get(*pc..end)
+                .ok_or(RuntimeError::ControlInvariant(
+                    "validated v128.const immediate is missing",
+                ))?
+                .try_into()
+                .expect("fixed v128 immediate width");
+            *pc = end;
+            stack.push(Value::V128(Rc::new(bytes)));
+        }
+        17 => {
+            let scalar = numeric::i32_from_stack(stack)?;
+            let lane = scalar.to_le_bytes();
+            let mut bytes = [0u8; 16];
+            for chunk in bytes.chunks_exact_mut(4) {
+                chunk.copy_from_slice(&lane);
+            }
+            stack.push(Value::V128(Rc::new(bytes)));
+        }
+        174 => {
+            let rhs = numeric::v128_from_stack(stack)?;
+            let lhs = numeric::v128_from_stack(stack)?;
+            let mut result = [0u8; 16];
+            for lane in 0..4 {
+                let start = lane * 4;
+                let lhs_lane =
+                    i32::from_le_bytes(lhs[start..start + 4].try_into().expect("i32x4 lane width"));
+                let rhs_lane =
+                    i32::from_le_bytes(rhs[start..start + 4].try_into().expect("i32x4 lane width"));
+                result[start..start + 4]
+                    .copy_from_slice(&lhs_lane.wrapping_add(rhs_lane).to_le_bytes());
+            }
+            stack.push(Value::V128(Rc::new(result)));
+        }
+        27 => {
+            let lane = *code.get(*pc).ok_or(RuntimeError::ControlInvariant(
+                "validated i32x4.extract_lane immediate is missing",
+            ))?;
+            *pc += 1;
+            if lane >= 4 {
+                return Err(RuntimeError::ControlInvariant(
+                    "validated i32x4.extract_lane lane is out of bounds",
+                ));
+            }
+            let vector = numeric::v128_from_stack(stack)?;
+            let start = usize::from(lane) * 4;
+            let value = i32::from_le_bytes(
+                vector[start..start + 4]
+                    .try_into()
+                    .expect("i32x4 lane width"),
+            );
+            stack.push(Value::I32(value));
+        }
+        _ => {
+            return Err(RuntimeError::UnsupportedPrefixedOpcode {
+                prefix: 0xfd,
+                subopcode,
+            });
+        }
+    }
+    Ok(())
+}
+
 fn read_typed_select_type(code: &[u8], pc: &mut usize) -> Result<ValueType, RuntimeError> {
     let count = read_u32_immediate(code, pc)?;
     if count != 1 {
@@ -3525,6 +3599,7 @@ fn read_typed_select_type(code: &[u8], pc: &mut usize) -> Result<ValueType, Runt
         0x7e => Ok(ValueType::I64),
         0x7d => Ok(ValueType::F32),
         0x7c => Ok(ValueType::F64),
+        0x7b => Ok(ValueType::V128),
         0x70 => Ok(ValueType::FuncRef),
         _ => Err(RuntimeError::ControlInvariant(
             "validated typed select result type is unsupported",
@@ -3638,6 +3713,40 @@ fn build_control_map(module: &Module, code: &[u8]) -> Result<ControlMap, Runtime
             0xd1 => {}
             0xd2 => {
                 let _ = read_u32_immediate(code, &mut pc)?;
+            }
+            0xfd => {
+                let subopcode = read_u32_immediate(code, &mut pc)?;
+                match subopcode {
+                    12 => {
+                        let end = pc.checked_add(16).ok_or(RuntimeError::ControlInvariant(
+                            "validated v128.const immediate overflowed while scanning control",
+                        ))?;
+                        if code.get(pc..end).is_none() {
+                            return Err(RuntimeError::ControlInvariant(
+                                "validated v128.const immediate is missing while scanning control",
+                            ));
+                        }
+                        pc = end;
+                    }
+                    17 | 174 => {}
+                    27 => {
+                        let lane = *code.get(pc).ok_or(RuntimeError::ControlInvariant(
+                            "validated i32x4.extract_lane immediate is missing while scanning control",
+                        ))?;
+                        pc += 1;
+                        if lane >= 4 {
+                            return Err(RuntimeError::ControlInvariant(
+                                "validated i32x4.extract_lane lane is out of bounds while scanning control",
+                            ));
+                        }
+                    }
+                    _ => {
+                        return Err(RuntimeError::UnsupportedPrefixedOpcode {
+                            prefix: 0xfd,
+                            subopcode,
+                        });
+                    }
+                }
             }
             0xfc => {
                 let subopcode = read_u32_immediate(code, &mut pc)?;

@@ -1,50 +1,52 @@
 use super::RuntimeError;
 use wasm_parser::ValueType;
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum Value {
     I32(i32),
     I64(i64),
     F32(f32),
     F64(f64),
+    V128(std::rc::Rc<[u8; 16]>),
     FuncRef(Option<u32>),
 }
 
 impl Value {
-    pub fn value_type(self) -> ValueType {
+    pub fn value_type(&self) -> ValueType {
         match self {
             Self::I32(_) => ValueType::I32,
             Self::I64(_) => ValueType::I64,
             Self::F32(_) => ValueType::F32,
             Self::F64(_) => ValueType::F64,
+            Self::V128(_) => ValueType::V128,
             Self::FuncRef(_) => ValueType::FuncRef,
         }
     }
 
-    pub fn as_i32(self) -> i32 {
+    pub fn as_i32(&self) -> i32 {
         match self {
-            Self::I32(value) => value,
+            Self::I32(value) => *value,
             other => panic!("Value::as_i32 called for {:?}", other.value_type()),
         }
     }
 
-    pub fn as_i64(self) -> i64 {
+    pub fn as_i64(&self) -> i64 {
         match self {
-            Self::I64(value) => value,
+            Self::I64(value) => *value,
             other => panic!("Value::as_i64 called for {:?}", other.value_type()),
         }
     }
 
-    pub fn as_f32(self) -> f32 {
+    pub fn as_f32(&self) -> f32 {
         match self {
-            Self::F32(value) => value,
+            Self::F32(value) => *value,
             other => panic!("Value::as_f32 called for {:?}", other.value_type()),
         }
     }
 
-    pub fn as_f64(self) -> f64 {
+    pub fn as_f64(&self) -> f64 {
         match self {
-            Self::F64(value) => value,
+            Self::F64(value) => *value,
             other => panic!("Value::as_f64 called for {:?}", other.value_type()),
         }
     }
@@ -56,17 +58,23 @@ pub(super) fn zero(ty: ValueType) -> Value {
         ValueType::I64 => Value::I64(0),
         ValueType::F32 => Value::F32(0.0),
         ValueType::F64 => Value::F64(0.0),
+        ValueType::V128 => Value::V128(std::rc::Rc::new([0; 16])),
         ValueType::FuncRef => Value::FuncRef(None),
     }
 }
 
-pub(super) fn expect_type(value: Value, expected: ValueType) -> Result<Value, RuntimeError> {
+pub(super) fn check_type(value: &Value, expected: ValueType) -> Result<(), RuntimeError> {
     let actual = value.value_type();
     if actual == expected {
-        Ok(value)
+        Ok(())
     } else {
         Err(RuntimeError::ValueTypeMismatch { expected, actual })
     }
+}
+
+pub(super) fn expect_type(value: Value, expected: ValueType) -> Result<Value, RuntimeError> {
+    check_type(&value, expected)?;
+    Ok(value)
 }
 
 pub(super) fn pop_typed(
@@ -88,6 +96,13 @@ pub(super) fn i64_from_stack(stack: &mut Vec<Value>) -> Result<i64, RuntimeError
     match pop_typed(stack, ValueType::I64)? {
         Value::I64(value) => Ok(value),
         _ => unreachable!("pop_typed established i64"),
+    }
+}
+
+pub(super) fn v128_from_stack(stack: &mut Vec<Value>) -> Result<[u8; 16], RuntimeError> {
+    match pop_typed(stack, ValueType::V128)? {
+        Value::V128(value) => Ok(*value),
+        _ => unreachable!("pop_typed established v128"),
     }
 }
 
