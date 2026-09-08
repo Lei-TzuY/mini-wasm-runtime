@@ -727,7 +727,7 @@ pub(super) fn validate_code(
                         pop_expect(&mut stack, &controls, ValueType::V128, function, offset)?;
                         stack.push(ValueType::V128);
                     }
-                    15 | 17 => {
+                    15..=17 => {
                         pop_expect(&mut stack, &controls, ValueType::I32, function, offset)?;
                         stack.push(ValueType::V128);
                     }
@@ -748,6 +748,29 @@ pub(super) fn validate_code(
                             .ok_or(ValidationError::MalformedImmediate { function, offset })?;
                         pc += 1;
                         if lane >= 16 {
+                            return Err(ValidationError::MalformedImmediate { function, offset });
+                        }
+                        pop_expect(&mut stack, &controls, ValueType::I32, function, offset)?;
+                        pop_expect(&mut stack, &controls, ValueType::V128, function, offset)?;
+                        stack.push(ValueType::V128);
+                    }
+                    24 | 25 => {
+                        let lane = *code
+                            .get(pc)
+                            .ok_or(ValidationError::MalformedImmediate { function, offset })?;
+                        pc += 1;
+                        if lane >= 8 {
+                            return Err(ValidationError::MalformedImmediate { function, offset });
+                        }
+                        pop_expect(&mut stack, &controls, ValueType::V128, function, offset)?;
+                        stack.push(ValueType::I32);
+                    }
+                    26 => {
+                        let lane = *code
+                            .get(pc)
+                            .ok_or(ValidationError::MalformedImmediate { function, offset })?;
+                        pc += 1;
+                        if lane >= 8 {
                             return Err(ValidationError::MalformedImmediate { function, offset });
                         }
                         pop_expect(&mut stack, &controls, ValueType::I32, function, offset)?;
