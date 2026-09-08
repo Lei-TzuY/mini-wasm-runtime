@@ -3671,6 +3671,32 @@ fn execute_simd(
             vector[usize::from(lane)] = scalar as u8;
             stack.push(Value::V128(Rc::new(vector)));
         }
+        35..=44 => {
+            let rhs = numeric::v128_from_stack(stack)?;
+            let lhs = numeric::v128_from_stack(stack)?;
+            let mut result = [0u8; 16];
+            for lane in 0..16 {
+                let lhs_signed = lhs[lane] as i8;
+                let rhs_signed = rhs[lane] as i8;
+                let lhs_unsigned = lhs[lane];
+                let rhs_unsigned = rhs[lane];
+                let predicate = match subopcode {
+                    35 => lhs_signed == rhs_signed,
+                    36 => lhs_signed != rhs_signed,
+                    37 => lhs_signed < rhs_signed,
+                    38 => lhs_unsigned < rhs_unsigned,
+                    39 => lhs_signed > rhs_signed,
+                    40 => lhs_unsigned > rhs_unsigned,
+                    41 => lhs_signed <= rhs_signed,
+                    42 => lhs_unsigned <= rhs_unsigned,
+                    43 => lhs_signed >= rhs_signed,
+                    44 => lhs_unsigned >= rhs_unsigned,
+                    _ => unreachable!("matched i8x16 comparison opcode"),
+                };
+                result[lane] = if predicate { u8::MAX } else { 0 };
+            }
+            stack.push(Value::V128(Rc::new(result)));
+        }
         55..=64 => {
             let rhs = numeric::v128_from_stack(stack)?;
             let lhs = numeric::v128_from_stack(stack)?;
@@ -3972,7 +3998,7 @@ fn build_control_map(module: &Module, code: &[u8]) -> Result<ControlMap, Runtime
                         }
                         pc = end;
                     }
-                    14 | 15 | 17 | 55..=64 | 77..=83 | 163 | 164 | 174 | 177 | 181 => {}
+                    14 | 15 | 17 | 35..=44 | 55..=64 | 77..=83 | 163 | 164 | 174 | 177 | 181 => {}
                     21..=23 => {
                         let lane = *code.get(pc).ok_or(RuntimeError::ControlInvariant(
                             "validated i8x16 lane immediate is missing while scanning control",
