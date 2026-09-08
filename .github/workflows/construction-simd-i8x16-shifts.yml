@@ -37,7 +37,7 @@ jobs:
         run: |
           git config user.name "LeiZ"
           git config user.email "52287354+Lei-TzuY@users.noreply.github.com"
-          git add crates/wasm-runtime/src/lib.rs crates/wasm-validator/src/lib.rs crates/wasm-runtime/tests/simd_i8x16_shifts.rs differential/tests/simd_i8x16_shifts.rs docs/roadmap.md
+          git add crates/wasm-runtime/src/lib.rs crates/wasm-validator/src/typed.rs crates/wasm-runtime/tests/simd_i8x16_shifts.rs differential/tests/simd_i8x16_shifts.rs docs/roadmap.md
           if git diff --cached --quiet; then
             echo "No generated changes to commit"
             exit 0
