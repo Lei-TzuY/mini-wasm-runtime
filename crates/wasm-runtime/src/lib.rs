@@ -3594,6 +3594,36 @@ fn execute_simd(
             }
             stack.push(Value::V128(Rc::new(bytes)));
         }
+        55..=64 => {
+            let rhs = numeric::v128_from_stack(stack)?;
+            let lhs = numeric::v128_from_stack(stack)?;
+            let mut result = [0u8; 16];
+            for lane in 0..4 {
+                let start = lane * 4;
+                let lhs_signed =
+                    i32::from_le_bytes(lhs[start..start + 4].try_into().expect("i32x4 lane width"));
+                let rhs_signed =
+                    i32::from_le_bytes(rhs[start..start + 4].try_into().expect("i32x4 lane width"));
+                let lhs_unsigned = lhs_signed as u32;
+                let rhs_unsigned = rhs_signed as u32;
+                let predicate = match subopcode {
+                    55 => lhs_signed == rhs_signed,
+                    56 => lhs_signed != rhs_signed,
+                    57 => lhs_signed < rhs_signed,
+                    58 => lhs_unsigned < rhs_unsigned,
+                    59 => lhs_signed > rhs_signed,
+                    60 => lhs_unsigned > rhs_unsigned,
+                    61 => lhs_signed <= rhs_signed,
+                    62 => lhs_unsigned <= rhs_unsigned,
+                    63 => lhs_signed >= rhs_signed,
+                    64 => lhs_unsigned >= rhs_unsigned,
+                    _ => unreachable!("matched i32x4 comparison opcode"),
+                };
+                let mask = if predicate { u32::MAX } else { 0 };
+                result[start..start + 4].copy_from_slice(&mask.to_le_bytes());
+            }
+            stack.push(Value::V128(Rc::new(result)));
+        }
         77 => {
             let value = numeric::v128_from_stack(stack)?;
             let mut result = [0u8; 16];
@@ -3851,7 +3881,7 @@ fn build_control_map(module: &Module, code: &[u8]) -> Result<ControlMap, Runtime
                         }
                         pc = end;
                     }
-                    17 | 77..=83 | 163 | 164 | 174 | 177 | 181 => {}
+                    17 | 55..=64 | 77..=83 | 163 | 164 | 174 | 177 | 181 => {}
                     27 => {
                         let lane = *code.get(pc).ok_or(RuntimeError::ControlInvariant(
                             "validated i32x4.extract_lane immediate is missing while scanning control",
