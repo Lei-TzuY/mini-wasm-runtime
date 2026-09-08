@@ -207,6 +207,7 @@ With the core interpreter, validator, differential harness, and resource limits 
 - [x] imported memory64 host backing and aliasing semantics with a width-aware bounded `MemoryHandle::new64`, exact memory32/memory64 import-width checks, shared host↔guest backing for i64-addressed scalar/fill operations and i64 `memory.size` / `memory.grow`, preserved physical page ceilings, >2^32 no-truncation traps, and pinned Wasmtime differential evidence
 - [ ] broader pinned upstream memory64 conformance accounting beyond focused reference differentials
 - [x] initial SIMD executable semantics with `v128.const`, `i32x4.splat`, wrapping `i32x4.add`, bounds-checked `i32x4.extract_lane`, fail-closed unsupported forms, and deterministic Wasmtime differential coverage
+- [x] SIMD `v128.load` / `v128.store` linear-memory semantics with exact 16-byte accesses, memory32/i32 and memory64/i64 address typing, full-width memory64 static offsets, atomic OOB stores, structured-control execution, and pinned Wasmtime differential evidence
 - [ ] broaden SIMD lane/arithmetic/memory semantics as subsequent bounded executable slices
 - [ ] threads/shared-memory semantics after an explicit concurrency and threat-model update
 A future JIT is intentionally out of scope until the interpreter and validation model are trustworthy.

@@ -1328,6 +1328,38 @@ impl LinearMemory {
         Ok(address as usize..end as usize)
     }
 
+    fn load_v128(&self, address: u64, displacement: u64) -> Result<[u8; 16], RuntimeError> {
+        let effective =
+            address
+                .checked_add(displacement)
+                .ok_or(RuntimeError::MemoryOutOfBounds {
+                    address: u64::MAX,
+                    width: 16,
+                })?;
+        let range = self.checked_bulk_range(effective, 16)?;
+        Ok(self.bytes[range]
+            .try_into()
+            .expect("checked sixteen-byte SIMD range"))
+    }
+
+    fn store_v128(
+        &mut self,
+        address: u64,
+        displacement: u64,
+        value: &[u8; 16],
+    ) -> Result<(), RuntimeError> {
+        let effective =
+            address
+                .checked_add(displacement)
+                .ok_or(RuntimeError::MemoryOutOfBounds {
+                    address: u64::MAX,
+                    width: 16,
+                })?;
+        let range = self.checked_bulk_range(effective, 16)?;
+        self.bytes[range].copy_from_slice(value);
+        Ok(())
+    }
+
     fn checked_range(
         &self,
         address: i32,
@@ -2827,7 +2859,7 @@ impl Instance {
                     let function_index = read_u32_immediate(code, &mut pc)?;
                     stack.push(Value::FuncRef(Some(function_index)));
                 }
-                0xfd => execute_simd(code, &mut pc, &mut stack)?,
+                0xfd => execute_simd(self, code, &mut pc, &mut stack)?,
                 0xfc => {
                     let subopcode = read_u32_immediate(code, &mut pc)?;
                     match subopcode {
@@ -3513,9 +3545,32 @@ fn branch_to(
 }
 
 #[inline(never)]
-fn execute_simd(code: &[u8], pc: &mut usize, stack: &mut Vec<Value>) -> Result<(), RuntimeError> {
+fn execute_simd(
+    instance: &mut Instance,
+    code: &[u8],
+    pc: &mut usize,
+    stack: &mut Vec<Value>,
+) -> Result<(), RuntimeError> {
     let subopcode = read_u32_immediate(code, pc)?;
     match subopcode {
+        0 => {
+            let (_, memory_index, displacement) = read_memarg(code, pc)?;
+            ensure_runtime_memory_index(instance, memory_index)?;
+            let address = pop_runtime_bulk_memory_address(instance, stack, memory_index)?;
+            let bytes = instance.with_memory_index(memory_index, |memory| {
+                memory.load_v128(address, displacement)
+            })?;
+            stack.push(Value::V128(Rc::new(bytes)));
+        }
+        11 => {
+            let (_, memory_index, displacement) = read_memarg(code, pc)?;
+            ensure_runtime_memory_index(instance, memory_index)?;
+            let value = numeric::v128_from_stack(stack)?;
+            let address = pop_runtime_bulk_memory_address(instance, stack, memory_index)?;
+            instance.with_memory_index_mut(memory_index, |memory| {
+                memory.store_v128(address, displacement, &value)
+            })?;
+        }
         12 => {
             let end = pc.checked_add(16).ok_or(RuntimeError::ControlInvariant(
                 "validated v128.const immediate overflowed",
@@ -3717,6 +3772,9 @@ fn build_control_map(module: &Module, code: &[u8]) -> Result<ControlMap, Runtime
             0xfd => {
                 let subopcode = read_u32_immediate(code, &mut pc)?;
                 match subopcode {
+                    0 | 11 => {
+                        let _ = read_memarg(code, &mut pc)?;
+                    }
                     12 => {
                         let end = pc.checked_add(16).ok_or(RuntimeError::ControlInvariant(
                             "validated v128.const immediate overflowed while scanning control",

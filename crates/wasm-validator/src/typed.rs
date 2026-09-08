@@ -681,6 +681,28 @@ pub(super) fn validate_code(
             0xfd => {
                 let subopcode = read_u32(code, &mut pc, function, offset)?;
                 match subopcode {
+                    0 | 11 => {
+                        super::ensure_memory(module, function, offset)?;
+                        let (_, memory_index, _) =
+                            super::read_memarg(code, &mut pc, module, function, offset, 4)?;
+                        let address_type = if module
+                            .memory_type(memory_index)
+                            .expect("validated memory index")
+                            .limits
+                            .memory64
+                        {
+                            ValueType::I64
+                        } else {
+                            ValueType::I32
+                        };
+                        if subopcode == 11 {
+                            pop_expect(&mut stack, &controls, ValueType::V128, function, offset)?;
+                        }
+                        pop_expect(&mut stack, &controls, address_type, function, offset)?;
+                        if subopcode == 0 {
+                            stack.push(ValueType::V128);
+                        }
+                    }
                     12 => {
                         skip_fixed(code, &mut pc, 16, function, offset)?;
                         stack.push(ValueType::V128);
