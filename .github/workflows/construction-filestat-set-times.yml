@@ -16,9 +16,10 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt, clippy
-      - name: Sync production patch anchor
+      - name: Sync production patch anchors
         run: |
           python -c "from pathlib import Path; p=Path('.conquest/apply_filestat_set_times.py'); t=p.read_text(); old='    \\\"                    | RIGHTS_FD_FILESTAT_GET | RIGHTS_FD_FILESTAT_SET_SIZE;\\\\n\\\",\\n    \\\"                    | RIGHTS_FD_FILESTAT_GET | RIGHTS_FD_FILESTAT_SET_SIZE\\\\n                    | RIGHTS_FD_FILESTAT_SET_TIMES;\\\\n\\\",\\n    \\\"path open file rights\\\",\\n'; new='    \\\"                    | RIGHTS_FD_TELL | RIGHTS_FD_FILESTAT_GET | RIGHTS_FD_FILESTAT_SET_SIZE;\\\\n\\\",\\n    \\\"                    | RIGHTS_FD_TELL | RIGHTS_FD_FILESTAT_GET | RIGHTS_FD_FILESTAT_SET_SIZE\\\\n                    | RIGHTS_FD_FILESTAT_SET_TIMES;\\\\n\\\",\\n    \\\"path open file rights\\\",\\n'; assert t.count(old)==1, t.count(old); p.write_text(t.replace(old,new,1))"
+          python -c "from pathlib import Path; p=Path('.conquest/apply_filestat_set_times.py'); t=p.read_text(); old='    if count != 1:\\n'; new='    if label == \\\"open existing times tuple\\\" and count == 2:\\n        return text.replace(old, new, 1)\\n    if count != 1:\\n'; assert t.count(old)==1, t.count(old); p.write_text(t.replace(old,new,1))"
           rm -f .conquest/apply-error.txt
       - name: Apply production patch
         run: python .conquest/apply_filestat_set_times.py
