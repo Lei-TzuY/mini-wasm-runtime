@@ -73,88 +73,96 @@ fn push_extract_u(instructions: &mut Vec<u8>, lane: u8) {
 }
 
 fn run_i32(instructions: &[u8]) -> i32 {
-    let parsed = parse_module(&module(instructions)).expect("i16x8 arithmetic fixture must parse");
-    let mut instance = Instance::new(parsed).expect("i16x8 arithmetic fixture must validate");
+    let parsed = parse_module(&module(instructions)).expect("i16x8 saturating fixture must parse");
+    let mut instance = Instance::new(parsed).expect("i16x8 saturating fixture must validate");
     match instance
         .invoke_export_values("run", &[])
-        .expect("i16x8 arithmetic fixture must execute")
+        .expect("i16x8 saturating fixture must execute")
         .as_slice()
     {
         [Value::I32(value)] => *value,
-        other => panic!("unexpected i16x8 arithmetic result: {other:?}"),
+        other => panic!("unexpected i16x8 saturating result: {other:?}"),
     }
 }
 
 #[test]
-fn i16x8_add_sub_mul_wrap_per_lane() {
+fn i16x8_signed_saturating_add_and_sub_clamp() {
+    let mut add_hi = Vec::new();
+    push_splat(&mut add_hi, 32_767);
+    push_splat(&mut add_hi, 1);
+    push_simd(&mut add_hi, 143); // i16x8.add_sat_s
+    push_extract_s(&mut add_hi, 0);
+    assert_eq!(run_i32(&add_hi), 32_767);
+
+    let mut add_lo = Vec::new();
+    push_splat(&mut add_lo, -32_768);
+    push_splat(&mut add_lo, -1);
+    push_simd(&mut add_lo, 143); // i16x8.add_sat_s
+    push_extract_s(&mut add_lo, 7);
+    assert_eq!(run_i32(&add_lo), -32_768);
+
+    let mut sub_lo = Vec::new();
+    push_splat(&mut sub_lo, -32_768);
+    push_splat(&mut sub_lo, 1);
+    push_simd(&mut sub_lo, 146); // i16x8.sub_sat_s
+    push_extract_s(&mut sub_lo, 3);
+    assert_eq!(run_i32(&sub_lo), -32_768);
+
+    let mut sub_hi = Vec::new();
+    push_splat(&mut sub_hi, 32_767);
+    push_splat(&mut sub_hi, -1);
+    push_simd(&mut sub_hi, 146); // i16x8.sub_sat_s
+    push_extract_s(&mut sub_hi, 5);
+    assert_eq!(run_i32(&sub_hi), 32_767);
+}
+
+#[test]
+fn i16x8_unsigned_saturating_add_and_sub_clamp() {
     let mut add = Vec::new();
-    push_splat(&mut add, 32_767);
+    push_splat(&mut add, 65_535);
     push_splat(&mut add, 1);
-    push_simd(&mut add, 142); // i16x8.add
-    push_extract_s(&mut add, 4);
-    assert_eq!(run_i32(&add), -32_768);
+    push_simd(&mut add, 144); // i16x8.add_sat_u
+    push_extract_u(&mut add, 2);
+    assert_eq!(run_i32(&add), 65_535);
 
     let mut sub = Vec::new();
-    push_splat(&mut sub, -32_768);
+    push_splat(&mut sub, 0);
     push_splat(&mut sub, 1);
-    push_simd(&mut sub, 145); // i16x8.sub
-    push_extract_s(&mut sub, 6);
-    assert_eq!(run_i32(&sub), 32_767);
-
-    let mut mul = Vec::new();
-    push_splat(&mut mul, 300);
-    push_splat(&mut mul, 300);
-    push_simd(&mut mul, 149); // i16x8.mul
-    push_extract_u(&mut mul, 2);
-    assert_eq!(run_i32(&mul), 24_464);
+    push_simd(&mut sub, 147); // i16x8.sub_sat_u
+    push_extract_u(&mut sub, 6);
+    assert_eq!(run_i32(&sub), 0);
 }
 
 #[test]
-fn i16x8_arithmetic_keeps_lanes_independent() {
-    let mut instructions = Vec::new();
+fn i16x8_saturating_arithmetic_is_lane_independent_and_structured() {
+    let mut instructions = vec![0x02, 0x7f]; // block (result i32)
+    push_splat(&mut instructions, 100);
+    push_i32_const(&mut instructions, 32_767);
+    push_simd(&mut instructions, 26); // i16x8.replace_lane
+    instructions.push(4);
     push_splat(&mut instructions, 10);
-    push_i32_const(&mut instructions, 100);
-    push_simd(&mut instructions, 26); // i16x8.replace_lane 3
-    instructions.push(3);
-    push_splat(&mut instructions, 1);
-    push_i32_const(&mut instructions, 2);
-    push_simd(&mut instructions, 26); // i16x8.replace_lane 3
-    instructions.push(3);
-    push_simd(&mut instructions, 142); // i16x8.add
-    push_extract_u(&mut instructions, 3);
-    assert_eq!(run_i32(&instructions), 102);
+    push_simd(&mut instructions, 143); // i16x8.add_sat_s
+    push_extract_s(&mut instructions, 4);
+    instructions.push(0x0b); // end block
+    assert_eq!(run_i32(&instructions), 32_767);
 
     let mut untouched = Vec::new();
+    push_splat(&mut untouched, 100);
+    push_i32_const(&mut untouched, 32_767);
+    push_simd(&mut untouched, 26);
+    untouched.push(4);
     push_splat(&mut untouched, 10);
-    push_i32_const(&mut untouched, 100);
-    push_simd(&mut untouched, 26);
-    untouched.push(3);
-    push_splat(&mut untouched, 1);
-    push_i32_const(&mut untouched, 2);
-    push_simd(&mut untouched, 26);
-    untouched.push(3);
-    push_simd(&mut untouched, 142);
+    push_simd(&mut untouched, 143);
     push_extract_u(&mut untouched, 0);
-    assert_eq!(run_i32(&untouched), 11);
+    assert_eq!(run_i32(&untouched), 110);
 }
 
 #[test]
-fn i16x8_arithmetic_executes_inside_structured_control() {
-    let mut instructions = vec![0x02, 0x7f]; // block (result i32)
-    push_splat(&mut instructions, 200);
-    push_splat(&mut instructions, 3);
-    push_simd(&mut instructions, 149); // i16x8.mul
-    push_extract_u(&mut instructions, 7);
-    instructions.push(0x0b); // end block
-    assert_eq!(run_i32(&instructions), 600);
-}
-
-#[test]
-fn validator_rejects_i16x8_arithmetic_type_confusion() {
+fn validator_rejects_i16x8_saturating_type_confusion() {
     let mut instructions = Vec::new();
     push_splat(&mut instructions, 1);
     push_i32_const(&mut instructions, 2); // wrong rhs type
-    push_simd(&mut instructions, 142); // i16x8.add requires two v128 values
+    push_simd(&mut instructions, 143);
     push_extract_u(&mut instructions, 0);
 
     let parsed = parse_module(&module(&instructions)).expect("type-confusion fixture must parse");
