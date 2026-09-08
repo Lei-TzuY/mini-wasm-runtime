@@ -1,0 +1,1 @@
+path open file rights: expected exactly one anchor, found 0
