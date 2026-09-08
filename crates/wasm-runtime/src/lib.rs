@@ -3843,6 +3843,86 @@ fn execute_simd(
             let value = numeric::v128_from_stack(stack)?;
             stack.push(Value::I32(i32::from(value.iter().any(|byte| *byte != 0))));
         }
+        128 | 129 => {
+            let value = numeric::v128_from_stack(stack)?;
+            let mut result = [0u8; 16];
+            for lane in 0..8 {
+                let start = lane * 2;
+                let lane_value = i16::from_le_bytes(
+                    value[start..start + 2]
+                        .try_into()
+                        .expect("i16x8 lane width"),
+                );
+                let output = match subopcode {
+                    128 => lane_value.wrapping_abs(),
+                    129 => lane_value.wrapping_neg(),
+                    _ => unreachable!("matched i16x8 unary opcode"),
+                };
+                result[start..start + 2].copy_from_slice(&output.to_le_bytes());
+            }
+            stack.push(Value::V128(Rc::new(result)));
+        }
+        130 => {
+            let rhs = numeric::v128_from_stack(stack)?;
+            let lhs = numeric::v128_from_stack(stack)?;
+            let mut result = [0u8; 16];
+            for lane in 0..8 {
+                let start = lane * 2;
+                let lhs_lane =
+                    i16::from_le_bytes(lhs[start..start + 2].try_into().expect("i16x8 lane width"));
+                let rhs_lane =
+                    i16::from_le_bytes(rhs[start..start + 2].try_into().expect("i16x8 lane width"));
+                let product = i32::from(lhs_lane) * i32::from(rhs_lane);
+                let rounded = (product + 0x4000) >> 15;
+                let output = rounded.clamp(i32::from(i16::MIN), i32::from(i16::MAX)) as i16;
+                result[start..start + 2].copy_from_slice(&output.to_le_bytes());
+            }
+            stack.push(Value::V128(Rc::new(result)));
+        }
+        131 => {
+            let value = numeric::v128_from_stack(stack)?;
+            let all_true = value
+                .chunks_exact(2)
+                .all(|lane| i16::from_le_bytes(lane.try_into().expect("i16x8 lane width")) != 0);
+            stack.push(Value::I32(i32::from(all_true)));
+        }
+        132 => {
+            let value = numeric::v128_from_stack(stack)?;
+            let mut mask = 0i32;
+            for lane in 0..8 {
+                let start = lane * 2;
+                let lane_value = i16::from_le_bytes(
+                    value[start..start + 2]
+                        .try_into()
+                        .expect("i16x8 lane width"),
+                );
+                if lane_value < 0 {
+                    mask |= 1 << lane;
+                }
+            }
+            stack.push(Value::I32(mask));
+        }
+        139..=141 => {
+            let shift = (numeric::i32_from_stack(stack)? as u32) & 15;
+            let value = numeric::v128_from_stack(stack)?;
+            let mut result = [0u8; 16];
+            for lane in 0..8 {
+                let start = lane * 2;
+                let lane_unsigned = u16::from_le_bytes(
+                    value[start..start + 2]
+                        .try_into()
+                        .expect("i16x8 lane width"),
+                );
+                let output = match subopcode {
+                    139 => lane_unsigned.wrapping_shl(shift),
+                    140 => ((lane_unsigned as i16) >> shift) as u16,
+                    141 => lane_unsigned >> shift,
+                    _ => unreachable!("matched i16x8 shift opcode"),
+                };
+                result[start..start + 2].copy_from_slice(&output.to_le_bytes());
+            }
+            stack.push(Value::V128(Rc::new(result)));
+        }
         163 => {
             let value = numeric::v128_from_stack(stack)?;
             let all_true = value
@@ -3866,7 +3946,7 @@ fn execute_simd(
             }
             stack.push(Value::I32(mask));
         }
-        142 | 143 | 144 | 145 | 146 | 147 | 149 => {
+        142 | 143 | 144 | 145 | 146 | 147 | 149 | 150 | 151 | 152 | 153 | 155 => {
             let rhs = numeric::v128_from_stack(stack)?;
             let lhs = numeric::v128_from_stack(stack)?;
             let mut result = [0u8; 16];
@@ -3884,6 +3964,11 @@ fn execute_simd(
                     146 => (lhs_lane as i16).saturating_sub(rhs_lane as i16) as u16,
                     147 => lhs_lane.saturating_sub(rhs_lane),
                     149 => lhs_lane.wrapping_mul(rhs_lane),
+                    150 => (lhs_lane as i16).min(rhs_lane as i16) as u16,
+                    151 => lhs_lane.min(rhs_lane),
+                    152 => (lhs_lane as i16).max(rhs_lane as i16) as u16,
+                    153 => lhs_lane.max(rhs_lane),
+                    155 => ((u32::from(lhs_lane) + u32::from(rhs_lane) + 1) >> 1) as u16,
                     _ => unreachable!("matched i16x8 arithmetic opcode"),
                 };
                 result[start..start + 2].copy_from_slice(&value.to_le_bytes());
@@ -4108,6 +4193,14 @@ fn build_control_map(module: &Module, code: &[u8]) -> Result<ControlMap, Runtime
                     | 35..=54
                     | 55..=64
                     | 77..=83
+                    | 128
+                    | 129
+                    | 130
+                    | 131
+                    | 132
+                    | 139
+                    | 140
+                    | 141
                     | 163
                     | 164
                     | 142
@@ -4117,6 +4210,11 @@ fn build_control_map(module: &Module, code: &[u8]) -> Result<ControlMap, Runtime
                     | 146
                     | 147
                     | 149
+                    | 150
+                    | 151
+                    | 152
+                    | 153
+                    | 155
                     | 174
                     | 177
                     | 181 => {}
