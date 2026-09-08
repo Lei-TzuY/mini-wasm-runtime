@@ -204,7 +204,7 @@ With the core interpreter, validator, differential harness, and resource limits 
 
 - [x] initial bounded memory64 address-width semantics with 64-bit memory limits, i64 scalar addresses, i64 `memory.size` / `memory.grow`, full-width runtime bounds preflight, and pinned Wasmtime differential evidence
 - [x] memory64 bulk-memory address typing for `memory.init`, `memory.fill`, and `memory.copy`, including mixed memory32/memory64 copy typing, full-width runtime bounds preflight, and pinned Wasmtime differential evidence
-- [ ] imported memory64 host backing and aliasing semantics
+- [x] imported memory64 host backing and aliasing semantics with a width-aware bounded `MemoryHandle::new64`, exact memory32/memory64 import-width checks, shared host↔guest backing for i64-addressed scalar/fill operations and i64 `memory.size` / `memory.grow`, preserved physical page ceilings, >2^32 no-truncation traps, and pinned Wasmtime differential evidence
 - [ ] broader pinned upstream memory64 conformance accounting beyond focused reference differentials
 - [ ] SIMD executable semantics with deterministic differential coverage
 - [ ] threads/shared-memory semantics after an explicit concurrency and threat-model update

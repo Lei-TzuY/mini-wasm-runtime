@@ -335,9 +335,9 @@ impl TableHandle {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum MemoryHandleError {
-    InvalidLimits { minimum: u32, maximum: u32 },
-    LimitExceeded { pages: u32, limit: u32 },
-    AllocationFailed { pages: u32 },
+    InvalidLimits { minimum: u64, maximum: u64 },
+    LimitExceeded { pages: u64, limit: u64 },
+    AllocationFailed { pages: u64 },
     OutOfBounds { address: u64, width: usize },
 }
 
@@ -372,6 +372,7 @@ pub struct MemoryHandle {
     memory: Rc<RefCell<LinearMemory>>,
     minimum: u32,
     maximum: Option<u32>,
+    memory64: bool,
 }
 
 impl fmt::Debug for MemoryHandle {
@@ -386,35 +387,75 @@ impl fmt::Debug for MemoryHandle {
 
 impl MemoryHandle {
     pub fn new(minimum: u32, maximum: Option<u32>) -> Result<Self, MemoryHandleError> {
+        Self::new_with_width(minimum, maximum, false)
+    }
+
+    pub fn new64(minimum: u64, maximum: Option<u64>) -> Result<Self, MemoryHandleError> {
+        let limit = u64::from(MAX_MEMORY_PAGES);
         if let Some(maximum) = maximum {
             if minimum > maximum {
                 return Err(MemoryHandleError::InvalidLimits { minimum, maximum });
             }
-            if maximum > MAX_MEMORY_PAGES {
+            if maximum > limit {
                 return Err(MemoryHandleError::LimitExceeded {
                     pages: maximum,
-                    limit: MAX_MEMORY_PAGES,
+                    limit,
+                });
+            }
+        }
+        if minimum > limit {
+            return Err(MemoryHandleError::LimitExceeded {
+                pages: minimum,
+                limit,
+            });
+        }
+        let minimum = u32::try_from(minimum).expect("bounded memory64 minimum fits u32");
+        let maximum = maximum
+            .map(|maximum| u32::try_from(maximum).expect("bounded memory64 maximum fits u32"));
+        Self::new_with_width(minimum, maximum, true)
+    }
+
+    fn new_with_width(
+        minimum: u32,
+        maximum: Option<u32>,
+        memory64: bool,
+    ) -> Result<Self, MemoryHandleError> {
+        if let Some(maximum) = maximum {
+            if minimum > maximum {
+                return Err(MemoryHandleError::InvalidLimits {
+                    minimum: u64::from(minimum),
+                    maximum: u64::from(maximum),
+                });
+            }
+            if maximum > MAX_MEMORY_PAGES {
+                return Err(MemoryHandleError::LimitExceeded {
+                    pages: u64::from(maximum),
+                    limit: u64::from(MAX_MEMORY_PAGES),
                 });
             }
         }
         if minimum > MAX_MEMORY_PAGES {
             return Err(MemoryHandleError::LimitExceeded {
-                pages: minimum,
-                limit: MAX_MEMORY_PAGES,
+                pages: u64::from(minimum),
+                limit: u64::from(MAX_MEMORY_PAGES),
             });
         }
-        let byte_len = pages_to_bytes(minimum)
-            .ok_or(MemoryHandleError::AllocationFailed { pages: minimum })?;
+        let byte_len = pages_to_bytes(minimum).ok_or(MemoryHandleError::AllocationFailed {
+            pages: u64::from(minimum),
+        })?;
         let mut bytes = Vec::new();
         bytes
             .try_reserve_exact(byte_len)
-            .map_err(|_| MemoryHandleError::AllocationFailed { pages: minimum })?;
+            .map_err(|_| MemoryHandleError::AllocationFailed {
+                pages: u64::from(minimum),
+            })?;
         bytes.resize(byte_len, 0);
         let max_pages = maximum.unwrap_or(MAX_MEMORY_PAGES);
         Ok(Self {
             memory: Rc::new(RefCell::new(LinearMemory { bytes, max_pages })),
             minimum,
             maximum,
+            memory64,
         })
     }
 
@@ -424,6 +465,10 @@ impl MemoryHandle {
 
     pub fn maximum(&self) -> Option<u32> {
         self.maximum
+    }
+
+    pub fn is_memory64(&self) -> bool {
+        self.memory64
     }
 
     pub fn size_pages(&self) -> u32 {
@@ -850,6 +895,12 @@ pub enum RuntimeError {
         module: String,
         name: String,
     },
+    HostMemoryAddressWidthMismatch {
+        module: String,
+        name: String,
+        expected_memory64: bool,
+        actual_memory64: bool,
+    },
     HostMemoryLimitsMismatch {
         module: String,
         name: String,
@@ -857,6 +908,10 @@ pub enum RuntimeError {
         expected_maximum: Option<u32>,
         actual_minimum: u32,
         actual_maximum: Option<u32>,
+    },
+    HostMemoryLimitWidthOverflow {
+        module: String,
+        name: String,
     },
     HostMemoryRuntimeLimitMismatch {
         module: String,
@@ -1053,6 +1108,19 @@ impl fmt::Display for RuntimeError {
             Self::UnresolvedMemoryImport { module, name } => {
                 write!(f, "unresolved host memory import {module}.{name}")
             }
+            Self::HostMemoryAddressWidthMismatch {
+                module,
+                name,
+                expected_memory64,
+                actual_memory64,
+            } => write!(
+                f,
+                "host memory {module}.{name} has address width memory64={actual_memory64}, expected memory64={expected_memory64}"
+            ),
+            Self::HostMemoryLimitWidthOverflow { module, name } => write!(
+                f,
+                "host memory {module}.{name} cannot satisfy imported memory64 limits outside the bounded u32 physical page representation"
+            ),
             Self::HostMemoryLimitsMismatch {
                 module,
                 name,
@@ -2967,20 +3035,13 @@ fn validate_host_bindings(
                     module: import.module.clone(),
                     name: import.name.clone(),
                 })?;
-        if memory_type.limits.memory64 {
-            return Err(RuntimeError::UnsupportedObjectImport {
-                module: import.module.clone(),
-                name: import.name.clone(),
-                kind: ImportKind::Memory,
-            });
-        }
-        let expected_minimum =
-            u32::try_from(memory_type.limits.min).expect("validated memory32 minimum fits u32");
-        let expected_maximum = memory_type
-            .limits
-            .max
-            .map(|maximum| u32::try_from(maximum).expect("validated memory32 maximum fits u32"));
-        validate_memory_limits(import, expected_minimum, expected_maximum, memory)?;
+        validate_memory_address_width(import, memory_type.limits.memory64, memory)?;
+        validate_memory_limits(
+            import,
+            memory_type.limits.min,
+            memory_type.limits.max,
+            memory,
+        )?;
         validate_memory_runtime_limit(import, memory, limits.max_memory_pages)?;
     }
 
@@ -3018,29 +3079,56 @@ fn validate_host_bindings(
     Ok(())
 }
 
-fn validate_memory_limits(
+fn validate_memory_address_width(
     import: &wasm_parser::Import,
-    expected_minimum: u32,
-    expected_maximum: Option<u32>,
+    expected_memory64: bool,
     memory: &MemoryHandle,
 ) -> Result<(), RuntimeError> {
-    let actual_minimum = memory.minimum();
-    let actual_maximum = memory.maximum();
-    let minimum_matches = actual_minimum >= expected_minimum;
+    let actual_memory64 = memory.is_memory64();
+    if actual_memory64 == expected_memory64 {
+        return Ok(());
+    }
+    Err(RuntimeError::HostMemoryAddressWidthMismatch {
+        module: import.module.clone(),
+        name: import.name.clone(),
+        expected_memory64,
+        actual_memory64,
+    })
+}
+
+fn validate_memory_limits(
+    import: &wasm_parser::Import,
+    expected_minimum: u64,
+    expected_maximum: Option<u64>,
+    memory: &MemoryHandle,
+) -> Result<(), RuntimeError> {
+    let actual_minimum_wide = u64::from(memory.minimum());
+    let actual_maximum_wide = memory.maximum().map(u64::from);
+    let minimum_matches = actual_minimum_wide >= expected_minimum;
     let maximum_matches = match expected_maximum {
         None => true,
-        Some(expected) => matches!(actual_maximum, Some(actual) if actual <= expected),
+        Some(expected) => matches!(actual_maximum_wide, Some(actual) if actual <= expected),
     };
     if minimum_matches && maximum_matches {
         return Ok(());
     }
+    if expected_minimum > u64::from(u32::MAX)
+        || expected_maximum.is_some_and(|maximum| maximum > u64::from(u32::MAX))
+    {
+        return Err(RuntimeError::HostMemoryLimitWidthOverflow {
+            module: import.module.clone(),
+            name: import.name.clone(),
+        });
+    }
+    let expected_minimum = expected_minimum as u32;
+    let expected_maximum = expected_maximum.map(|maximum| maximum as u32);
     Err(RuntimeError::HostMemoryLimitsMismatch {
         module: import.module.clone(),
         name: import.name.clone(),
         expected_minimum,
         expected_maximum,
-        actual_minimum,
-        actual_maximum,
+        actual_minimum: memory.minimum(),
+        actual_maximum: memory.maximum(),
     })
 }
 
@@ -3079,20 +3167,13 @@ fn instantiate_memories(
                 name: import.name.clone(),
             }
         })?;
-        if memory_type.limits.memory64 {
-            return Err(RuntimeError::UnsupportedObjectImport {
-                module: import.module.clone(),
-                name: import.name.clone(),
-                kind: ImportKind::Memory,
-            });
-        }
-        let expected_minimum =
-            u32::try_from(memory_type.limits.min).expect("validated memory32 minimum fits u32");
-        let expected_maximum = memory_type
-            .limits
-            .max
-            .map(|maximum| u32::try_from(maximum).expect("validated memory32 maximum fits u32"));
-        validate_memory_limits(import, expected_minimum, expected_maximum, &memory)?;
+        validate_memory_address_width(import, memory_type.limits.memory64, &memory)?;
+        validate_memory_limits(
+            import,
+            memory_type.limits.min,
+            memory_type.limits.max,
+            &memory,
+        )?;
         validate_memory_runtime_limit(import, &memory, limits.max_memory_pages)?;
         memories.push(RuntimeMemory::Imported(memory));
     }
