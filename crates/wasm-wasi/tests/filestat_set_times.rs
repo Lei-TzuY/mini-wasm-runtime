@@ -74,10 +74,7 @@ fn module() -> Vec<u8> {
     function_type(&mut types, &[0x7f, 0x7f]);
     function_type(&mut types, &[0x7f, 0x7e, 0x7e, 0x7f]);
     function_type(&mut types, &[0x7f, 0x7f, 0x7f, 0x7f, 0x7f]);
-    function_type(
-        &mut types,
-        &[0x7f, 0x7f, 0x7f, 0x7f, 0x7e, 0x7e, 0x7f],
-    );
+    function_type(&mut types, &[0x7f, 0x7f, 0x7f, 0x7f, 0x7e, 0x7e, 0x7f]);
     section(&mut module, 1, &types);
 
     let mut imports = vec![6];
@@ -199,11 +196,7 @@ fn descriptor_and_path_timestamp_updates_share_one_file_metadata_record() {
         ERRNO_SUCCESS
     );
     assert_eq!(
-        errno(
-            &mut vm,
-            "fd_get",
-            &[Value::I32(fd as i32), Value::I32(160)],
-        ),
+        errno(&mut vm, "fd_get", &[Value::I32(fd as i32), Value::I32(160)],),
         ERRNO_SUCCESS
     );
     assert_times(&memory, 160, 11, 22);
@@ -240,11 +233,7 @@ fn descriptor_and_path_timestamp_updates_share_one_file_metadata_record() {
         ERRNO_SUCCESS
     );
     assert_eq!(
-        errno(
-            &mut vm,
-            "fd_get",
-            &[Value::I32(fd as i32), Value::I32(320)],
-        ),
+        errno(&mut vm, "fd_get", &[Value::I32(fd as i32), Value::I32(320)],),
         ERRNO_SUCCESS
     );
     assert_times(&memory, 320, 33, 44);
@@ -282,11 +271,7 @@ fn now_flags_use_the_injected_realtime_clock_without_ambient_time() {
         ERRNO_SUCCESS
     );
     assert_eq!(
-        errno(
-            &mut vm,
-            "fd_get",
-            &[Value::I32(fd as i32), Value::I32(160)],
-        ),
+        errno(&mut vm, "fd_get", &[Value::I32(fd as i32), Value::I32(160)],),
         ERRNO_SUCCESS
     );
     assert_times(&memory, 160, 777, 777);
