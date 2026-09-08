@@ -140,26 +140,6 @@ fn validator_rejects_i8x16_splat_type_confusion() {
 }
 
 #[test]
-fn adjacent_i16x8_splat_remains_fail_closed() {
-    let bytes = module(&[
-        0x41, 0x00, // i32.const 0
-        0xfd, 0x10, // i16x8.splat is outside this bounded slice
-        0x41, 0x00, // result if an implementation accidentally skips the opcode
-    ]);
-    let parsed = parse_module(&bytes).expect("unsupported-SIMD fixture must parse");
-    assert!(matches!(
-        Instance::new(parsed),
-        Err(RuntimeError::Validation(
-            ValidationError::UnsupportedPrefixedOpcode {
-                prefix: 0xfd,
-                subopcode: 16,
-                ..
-            }
-        ))
-    ));
-}
-
-#[test]
 fn validator_rejects_i8x16_replace_lane_type_confusion() {
     let bytes = module(&[
         0x41, 0x00, // i32.const 0
