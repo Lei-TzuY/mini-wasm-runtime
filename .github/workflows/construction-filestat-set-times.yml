@@ -17,7 +17,23 @@ jobs:
         with:
           components: rustfmt, clippy
       - name: Apply production patch
-        run: python .conquest/apply_filestat_set_times.py
+        run: |
+          set +e
+          python .conquest/apply_filestat_set_times.py > .conquest/apply-error.txt 2>&1
+          status=$?
+          set -e
+          if [ "$status" -ne 0 ]; then
+            git config user.name "LeiZ"
+            git config user.email "52287354+Lei-TzuY@users.noreply.github.com"
+            git add .conquest/apply-error.txt
+            if ! git diff --cached --quiet; then
+              git commit -m "chore: capture construction patch failure"
+              git push origin HEAD:conquest/wasi-filestat-set-times
+            fi
+            cat .conquest/apply-error.txt
+            exit "$status"
+          fi
+          rm -f .conquest/apply-error.txt
       - name: Format
         run: cargo fmt --all
       - name: Diff hygiene
