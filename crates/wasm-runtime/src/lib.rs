@@ -3631,7 +3631,7 @@ fn execute_simd(
             let value = numeric::v128_from_stack(stack)?;
             stack.push(Value::I32(i32::from(value.iter().any(|byte| *byte != 0))));
         }
-        174 => {
+        174 | 177 | 181 => {
             let rhs = numeric::v128_from_stack(stack)?;
             let lhs = numeric::v128_from_stack(stack)?;
             let mut result = [0u8; 16];
@@ -3641,8 +3641,13 @@ fn execute_simd(
                     i32::from_le_bytes(lhs[start..start + 4].try_into().expect("i32x4 lane width"));
                 let rhs_lane =
                     i32::from_le_bytes(rhs[start..start + 4].try_into().expect("i32x4 lane width"));
-                result[start..start + 4]
-                    .copy_from_slice(&lhs_lane.wrapping_add(rhs_lane).to_le_bytes());
+                let value = match subopcode {
+                    174 => lhs_lane.wrapping_add(rhs_lane),
+                    177 => lhs_lane.wrapping_sub(rhs_lane),
+                    181 => lhs_lane.wrapping_mul(rhs_lane),
+                    _ => unreachable!("matched i32x4 wrapping arithmetic opcode"),
+                };
+                result[start..start + 4].copy_from_slice(&value.to_le_bytes());
             }
             stack.push(Value::V128(Rc::new(result)));
         }
@@ -3823,7 +3828,7 @@ fn build_control_map(module: &Module, code: &[u8]) -> Result<ControlMap, Runtime
                         }
                         pc = end;
                     }
-                    17 | 77..=83 | 174 => {}
+                    17 | 77..=83 | 174 | 177 | 181 => {}
                     27 => {
                         let lane = *code.get(pc).ok_or(RuntimeError::ControlInvariant(
                             "validated i32x4.extract_lane immediate is missing while scanning control",
