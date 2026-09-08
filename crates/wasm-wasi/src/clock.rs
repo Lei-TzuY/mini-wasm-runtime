@@ -41,6 +41,10 @@ impl ClockSet {
         });
     }
 
+    pub(crate) fn realtime_time(&self) -> Option<u64> {
+        self.snapshots[WasiClockId::Realtime.index()].map(|snapshot| snapshot.time_ns)
+    }
+
     fn snapshot(&self, raw_id: i32) -> Option<ClockSnapshot> {
         let raw_id = raw_id as u32;
         if raw_id > WasiClockId::ThreadCpuTime as u32 {

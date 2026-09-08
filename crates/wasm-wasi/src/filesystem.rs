@@ -8,10 +8,11 @@ use crate::{
     ERRNO_NAMETOOLONG, ERRNO_NOENT, ERRNO_NOSPC, ERRNO_NOTCAPABLE, ERRNO_NOTDIR, ERRNO_NOTEMPTY,
     ERRNO_NOTSUP, ERRNO_OVERFLOW, ERRNO_SUCCESS, FILETYPE_DIRECTORY, FILETYPE_REGULAR_FILE,
     FILETYPE_SYMBOLIC_LINK, LOOKUPFLAGS_SYMLINK_FOLLOW, OFLAGS_CREAT, OFLAGS_DIRECTORY,
-    RIGHTS_FD_FILESTAT_GET, RIGHTS_FD_FILESTAT_SET_SIZE, RIGHTS_FD_READ, RIGHTS_FD_READDIR,
-    RIGHTS_FD_SEEK, RIGHTS_FD_TELL, RIGHTS_FD_WRITE, RIGHTS_PATH_CREATE_DIRECTORY,
-    RIGHTS_PATH_CREATE_FILE, RIGHTS_PATH_FILESTAT_GET, RIGHTS_PATH_LINK_SOURCE,
-    RIGHTS_PATH_LINK_TARGET, RIGHTS_PATH_OPEN, RIGHTS_PATH_READLINK, RIGHTS_PATH_REMOVE_DIRECTORY,
+    RIGHTS_FD_FILESTAT_GET, RIGHTS_FD_FILESTAT_SET_SIZE, RIGHTS_FD_FILESTAT_SET_TIMES,
+    RIGHTS_FD_READ, RIGHTS_FD_READDIR, RIGHTS_FD_SEEK, RIGHTS_FD_TELL, RIGHTS_FD_WRITE,
+    RIGHTS_PATH_CREATE_DIRECTORY, RIGHTS_PATH_CREATE_FILE, RIGHTS_PATH_FILESTAT_GET,
+    RIGHTS_PATH_FILESTAT_SET_TIMES, RIGHTS_PATH_LINK_SOURCE, RIGHTS_PATH_LINK_TARGET,
+    RIGHTS_PATH_OPEN, RIGHTS_PATH_READLINK, RIGHTS_PATH_REMOVE_DIRECTORY,
     RIGHTS_PATH_RENAME_SOURCE, RIGHTS_PATH_RENAME_TARGET, RIGHTS_PATH_SYMLINK,
     RIGHTS_PATH_UNLINK_FILE,
 };
@@ -19,6 +20,7 @@ use crate::{
 const WASI_MODULE: &str = "wasi_snapshot_preview1";
 const PATH_CREATE_DIRECTORY_NAME: &str = "path_create_directory";
 const PATH_FILESTAT_GET_NAME: &str = "path_filestat_get";
+const PATH_FILESTAT_SET_TIMES_NAME: &str = "path_filestat_set_times";
 const PATH_REMOVE_DIRECTORY_NAME: &str = "path_remove_directory";
 const PATH_OPEN_NAME: &str = "path_open";
 const PATH_LINK_NAME: &str = "path_link";
@@ -32,6 +34,12 @@ const FD_SEEK_NAME: &str = "fd_seek";
 const FD_TELL_NAME: &str = "fd_tell";
 const FD_PWRITE_NAME: &str = "fd_pwrite";
 const FD_FILESTAT_SET_SIZE_NAME: &str = "fd_filestat_set_size";
+const FD_FILESTAT_SET_TIMES_NAME: &str = "fd_filestat_set_times";
+const FSTFLAGS_ATIM: u32 = 1 << 0;
+const FSTFLAGS_ATIM_NOW: u32 = 1 << 1;
+const FSTFLAGS_MTIM: u32 = 1 << 2;
+const FSTFLAGS_MTIM_NOW: u32 = 1 << 3;
+const FSTFLAGS_ALL: u32 = FSTFLAGS_ATIM | FSTFLAGS_ATIM_NOW | FSTFLAGS_MTIM | FSTFLAGS_MTIM_NOW;
 const WHENCE_SET: u32 = 0;
 const WHENCE_CUR: u32 = 1;
 const WHENCE_END: u32 = 2;
@@ -43,7 +51,6 @@ const MAX_OPEN_FILES: usize = 256;
 const MAX_PWRITE_IOVECS: u32 = 1_024;
 const DIRENT_SIZE: usize = 24;
 const SYNTHETIC_DEVICE_ID: u64 = 1;
-const LOGICAL_EPOCH_NS: u64 = 0;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum WasiFilesystemError {
@@ -90,6 +97,19 @@ impl fmt::Display for WasiFilesystemError {
 
 impl std::error::Error for WasiFilesystemError {}
 
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+struct FileTimes {
+    atim: u64,
+    mtim: u64,
+    ctim: u64,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct TimeUpdate {
+    atim: Option<u64>,
+    mtim: Option<u64>,
+}
+
 #[derive(Debug, Clone)]
 struct MountedFile {
     preopen_fd: u32,
@@ -97,6 +117,7 @@ struct MountedFile {
     inode: u64,
     bytes: Rc<RefCell<Vec<u8>>>,
     link_count: Rc<RefCell<u64>>,
+    times: Rc<RefCell<FileTimes>>,
     writable: bool,
 }
 
@@ -105,6 +126,7 @@ struct OpenFile {
     inode: u64,
     bytes: Rc<RefCell<Vec<u8>>>,
     link_count: Rc<RefCell<u64>>,
+    times: Rc<RefCell<FileTimes>>,
     offset: u64,
     rights_base: u64,
 }
@@ -114,6 +136,7 @@ struct MountedDirectory {
     preopen_fd: u32,
     relative_path: Vec<u8>,
     inode: u64,
+    times: FileTimes,
 }
 
 #[derive(Debug, Clone)]
@@ -122,6 +145,7 @@ struct MountedSymlink {
     relative_path: Vec<u8>,
     inode: u64,
     target: Vec<u8>,
+    times: FileTimes,
 }
 
 #[derive(Debug, Clone)]
@@ -335,12 +359,14 @@ impl Filesystem {
             .expect("bounded mounted-file count prevents inode exhaustion");
         state.next_inode = inode;
         let link_count = Rc::new(RefCell::new(1));
+        let times = Rc::new(RefCell::new(FileTimes::default()));
         state.mounted_files.push(MountedFile {
             preopen_fd,
             relative_path: relative_path.to_vec(),
             inode,
             bytes: Rc::new(RefCell::new(bytes.to_vec())),
             link_count,
+            times,
             writable,
         });
         Ok(())
@@ -521,15 +547,16 @@ impl Filesystem {
         }
         let size = file.bytes.borrow().len() as u64;
         let nlink = *file.link_count.borrow();
+        let times = *file.times.borrow();
         Ok(DescriptorFilestat {
             dev: SYNTHETIC_DEVICE_ID,
             ino: file.inode,
             filetype: FILETYPE_REGULAR_FILE,
             nlink,
             size,
-            atim: LOGICAL_EPOCH_NS,
-            mtim: LOGICAL_EPOCH_NS,
-            ctim: LOGICAL_EPOCH_NS,
+            atim: times.atim,
+            mtim: times.mtim,
+            ctim: times.ctim,
         })
     }
 
@@ -547,6 +574,60 @@ impl Filesystem {
         }
         file.bytes.borrow_mut().resize(size, 0);
         Ok(())
+    }
+
+    fn set_times(&self, fd: u32, update: TimeUpdate) -> Result<(), DescriptorFilestatError> {
+        let state = self.state.borrow();
+        let Some(file) = state.open_files.get(&fd) else {
+            return Err(DescriptorFilestatError::BadFd);
+        };
+        if file.rights_base & RIGHTS_FD_FILESTAT_SET_TIMES == 0 {
+            return Err(DescriptorFilestatError::NotCapable);
+        }
+        let mut times = file.times.borrow_mut();
+        apply_time_update(&mut times, update);
+        Ok(())
+    }
+
+    fn path_set_times(
+        &self,
+        dir_fd: u32,
+        path: &[u8],
+        update: TimeUpdate,
+    ) -> Result<(), PathFilestatError> {
+        let (preopen_fd, full_path, _) = self
+            .resolve_directory_path(dir_fd, path, RIGHTS_PATH_FILESTAT_SET_TIMES)
+            .map_err(|error| match error {
+                ResolveDirectoryError::BadFd => PathFilestatError::BadFd,
+                ResolveDirectoryError::NotCapable => PathFilestatError::NotCapable,
+                ResolveDirectoryError::NameTooLong => PathFilestatError::NameTooLong,
+            })?;
+        let mut state = self.state.borrow_mut();
+        if let Some(file) = state.mounted_files.iter_mut().find(|file| {
+            file.preopen_fd == preopen_fd && file.relative_path.as_slice() == full_path.as_slice()
+        }) {
+            if !file.writable {
+                return Err(PathFilestatError::NotCapable);
+            }
+            let mut times = file.times.borrow_mut();
+            apply_time_update(&mut times, update);
+            return Ok(());
+        }
+        if let Some(directory) = state.mounted_directories.iter_mut().find(|directory| {
+            directory.preopen_fd == preopen_fd
+                && directory.relative_path.as_slice() == full_path.as_slice()
+        }) {
+            apply_time_update(&mut directory.times, update);
+            return Ok(());
+        }
+        if let Some(symlink) = state.mounted_symlinks.iter_mut().find(|symlink| {
+            symlink.preopen_fd == preopen_fd
+                && symlink.relative_path.as_slice() == full_path.as_slice()
+        }) {
+            apply_time_update(&mut symlink.times, update);
+            return Ok(());
+        }
+        Err(PathFilestatError::NotFound)
     }
 
     fn path_filestat(
@@ -567,15 +648,16 @@ impl Filesystem {
         }) {
             let size = file.bytes.borrow().len() as u64;
             let nlink = *file.link_count.borrow();
+            let times = *file.times.borrow();
             return Ok(DescriptorFilestat {
                 dev: SYNTHETIC_DEVICE_ID,
                 ino: file.inode,
                 filetype: FILETYPE_REGULAR_FILE,
                 nlink,
                 size,
-                atim: LOGICAL_EPOCH_NS,
-                mtim: LOGICAL_EPOCH_NS,
-                ctim: LOGICAL_EPOCH_NS,
+                atim: times.atim,
+                mtim: times.mtim,
+                ctim: times.ctim,
             });
         }
         if let Some(directory) = state.mounted_directories.iter().find(|directory| {
@@ -588,9 +670,9 @@ impl Filesystem {
                 filetype: FILETYPE_DIRECTORY,
                 nlink: 1,
                 size: 0,
-                atim: LOGICAL_EPOCH_NS,
-                mtim: LOGICAL_EPOCH_NS,
-                ctim: LOGICAL_EPOCH_NS,
+                atim: directory.times.atim,
+                mtim: directory.times.mtim,
+                ctim: directory.times.ctim,
             });
         }
         if let Some(symlink) = state.mounted_symlinks.iter().find(|symlink| {
@@ -603,9 +685,9 @@ impl Filesystem {
                 filetype: FILETYPE_SYMBOLIC_LINK,
                 nlink: 1,
                 size: symlink.target.len() as u64,
-                atim: LOGICAL_EPOCH_NS,
-                mtim: LOGICAL_EPOCH_NS,
-                ctim: LOGICAL_EPOCH_NS,
+                atim: symlink.times.atim,
+                mtim: symlink.times.mtim,
+                ctim: symlink.times.ctim,
             });
         }
         Err(PathFilestatError::NotFound)
@@ -726,7 +808,11 @@ impl Filesystem {
         Ok(entries.into_iter().skip(start).collect())
     }
 
-    pub(crate) fn register(&self, registry: &mut HostRegistry) -> Result<(), HostRegistryError> {
+    pub(crate) fn register(
+        &self,
+        registry: &mut HostRegistry,
+        realtime_now: Option<u64>,
+    ) -> Result<(), HostRegistryError> {
         let create_directory_filesystem = self.clone();
         registry.register_values(
             WASI_MODULE,
@@ -994,6 +1080,71 @@ impl Filesystem {
             },
         )?;
 
+        let path_set_times_filesystem = self.clone();
+        registry.register_values(
+            WASI_MODULE,
+            PATH_FILESTAT_SET_TIMES_NAME,
+            vec![
+                ValueType::I32,
+                ValueType::I32,
+                ValueType::I32,
+                ValueType::I32,
+                ValueType::I64,
+                ValueType::I64,
+                ValueType::I32,
+            ],
+            vec![ValueType::I32],
+            HostCapabilities::MEMORY_READ,
+            move |context, args| {
+                let [
+                    Value::I32(dir_fd),
+                    Value::I32(flags),
+                    Value::I32(path_ptr),
+                    Value::I32(path_len),
+                    Value::I64(atim),
+                    Value::I64(mtim),
+                    Value::I32(fst_flags),
+                ] = args
+                else {
+                    return Err(HostError::message(
+                        "validated wasi path_filestat_set_times signature received invalid arguments",
+                    ));
+                };
+                let flags = *flags as u32;
+                if flags & !LOOKUPFLAGS_SYMLINK_FOLLOW != 0 {
+                    return Ok(vec![Value::I32(ERRNO_INVAL)]);
+                }
+                if flags & LOOKUPFLAGS_SYMLINK_FOLLOW != 0 {
+                    return Ok(vec![Value::I32(ERRNO_NOTSUP)]);
+                }
+                let update = match resolve_time_update(*atim as u64, *mtim as u64, *fst_flags as u32, realtime_now) {
+                    Ok(update) => update,
+                    Err(()) => return Ok(vec![Value::I32(ERRNO_INVAL)]),
+                };
+                let path_len = *path_len as u32 as usize;
+                if path_len > MAX_RELATIVE_PATH_BYTES {
+                    return Ok(vec![Value::I32(ERRNO_NAMETOOLONG)]);
+                }
+                let path = match context.read_memory(*path_ptr as u32, path_len) {
+                    Ok(path) => path,
+                    Err(_) => return Ok(vec![Value::I32(ERRNO_FAULT)]),
+                };
+                match validate_guest_path(&path) {
+                    Ok(()) => {}
+                    Err(GuestPathError::Empty) => return Ok(vec![Value::I32(ERRNO_INVAL)]),
+                    Err(GuestPathError::TooLong) => return Ok(vec![Value::I32(ERRNO_NAMETOOLONG)]),
+                    Err(GuestPathError::Unsafe) => return Ok(vec![Value::I32(ERRNO_NOTCAPABLE)]),
+                }
+                match path_set_times_filesystem.path_set_times(*dir_fd as u32, &path, update) {
+                    Ok(()) => Ok(vec![Value::I32(ERRNO_SUCCESS)]),
+                    Err(PathFilestatError::BadFd) => Ok(vec![Value::I32(ERRNO_BADF)]),
+                    Err(PathFilestatError::NotFound) => Ok(vec![Value::I32(ERRNO_NOENT)]),
+                    Err(PathFilestatError::NotCapable) => Ok(vec![Value::I32(ERRNO_NOTCAPABLE)]),
+                    Err(PathFilestatError::NameTooLong) => Ok(vec![Value::I32(ERRNO_NAMETOOLONG)]),
+                }
+            },
+        )?;
+
         let open_filesystem = self.clone();
         registry.register_values(
             WASI_MODULE,
@@ -1038,10 +1189,12 @@ impl Filesystem {
                 let requested_base = *rights_base as u64;
                 let requested_inheriting = *rights_inheriting as u64;
                 let allowed_file_base = RIGHTS_FD_READ | RIGHTS_FD_WRITE | RIGHTS_FD_SEEK
-                    | RIGHTS_FD_TELL | RIGHTS_FD_FILESTAT_GET | RIGHTS_FD_FILESTAT_SET_SIZE;
+                    | RIGHTS_FD_TELL | RIGHTS_FD_FILESTAT_GET | RIGHTS_FD_FILESTAT_SET_SIZE
+                    | RIGHTS_FD_FILESTAT_SET_TIMES;
                     let allowed_directory_base = RIGHTS_FD_READDIR
                         | RIGHTS_PATH_OPEN
                         | RIGHTS_PATH_FILESTAT_GET
+                        | RIGHTS_PATH_FILESTAT_SET_TIMES
                         | RIGHTS_PATH_CREATE_DIRECTORY
                         | RIGHTS_PATH_CREATE_FILE
                         | RIGHTS_PATH_LINK_SOURCE
@@ -1583,6 +1736,49 @@ impl Filesystem {
             },
         )?;
 
+        let set_times_filesystem = self.clone();
+        registry.register_values(
+            WASI_MODULE,
+            FD_FILESTAT_SET_TIMES_NAME,
+            vec![
+                ValueType::I32,
+                ValueType::I64,
+                ValueType::I64,
+                ValueType::I32,
+            ],
+            vec![ValueType::I32],
+            HostCapabilities::NONE,
+            move |_context, args| {
+                let [Value::I32(fd), Value::I64(atim), Value::I64(mtim), Value::I32(fst_flags)] =
+                    args
+                else {
+                    return Err(HostError::message(
+                        "validated wasi fd_filestat_set_times signature received invalid arguments",
+                    ));
+                };
+                let update = match resolve_time_update(
+                    *atim as u64,
+                    *mtim as u64,
+                    *fst_flags as u32,
+                    realtime_now,
+                ) {
+                    Ok(update) => update,
+                    Err(()) => return Ok(vec![Value::I32(ERRNO_INVAL)]),
+                };
+                let fd = *fd as u32;
+                if set_times_filesystem.is_known_non_file(fd) {
+                    return Ok(vec![Value::I32(ERRNO_NOTCAPABLE)]);
+                }
+                match set_times_filesystem.set_times(fd, update) {
+                    Ok(()) => Ok(vec![Value::I32(ERRNO_SUCCESS)]),
+                    Err(DescriptorFilestatError::BadFd) => Ok(vec![Value::I32(ERRNO_BADF)]),
+                    Err(DescriptorFilestatError::NotCapable) => {
+                        Ok(vec![Value::I32(ERRNO_NOTCAPABLE)])
+                    }
+                }
+            },
+        )?;
+
         let close_filesystem = self.clone();
         registry.register_values(
             WASI_MODULE,
@@ -1750,11 +1946,15 @@ impl Filesystem {
                     file.inode,
                     file.bytes.clone(),
                     file.link_count.clone(),
+                    file.times.clone(),
                     file.writable,
                 )
             });
-        let (inode, bytes, link_count, writable, created) = if let Some(existing) = existing {
-            (existing.0, existing.1, existing.2, existing.3, false)
+        let (inode, bytes, link_count, times, writable, created) = if let Some(existing) = existing
+        {
+            (
+                existing.0, existing.1, existing.2, existing.3, existing.4, false,
+            )
         } else {
             if !create {
                 return Err(OpenError::NotFound);
@@ -1775,17 +1975,20 @@ impl Filesystem {
             state.next_inode = inode;
             let bytes = Rc::new(RefCell::new(Vec::new()));
             let link_count = Rc::new(RefCell::new(1));
+            let times = Rc::new(RefCell::new(FileTimes::default()));
             state.mounted_files.push(MountedFile {
                 preopen_fd,
                 relative_path: full_path.clone(),
                 inode,
                 bytes: bytes.clone(),
                 link_count: link_count.clone(),
+                times: times.clone(),
                 writable: true,
             });
-            (inode, bytes, link_count, true, true)
+            (inode, bytes, link_count, times, true, true)
         };
-        let mutation_rights = RIGHTS_FD_WRITE | RIGHTS_FD_FILESTAT_SET_SIZE;
+        let mutation_rights =
+            RIGHTS_FD_WRITE | RIGHTS_FD_FILESTAT_SET_SIZE | RIGHTS_FD_FILESTAT_SET_TIMES;
         if rights_base & mutation_rights != 0
             && (!writable || !state.writable_preopens.contains(&preopen_fd))
         {
@@ -1800,6 +2003,7 @@ impl Filesystem {
                 inode,
                 bytes,
                 link_count,
+                times,
                 offset: 0,
                 rights_base,
             },
@@ -1833,6 +2037,7 @@ impl Filesystem {
             preopen_fd,
             relative_path: full_path,
             inode,
+            times: FileTimes::default(),
         });
         Ok(())
     }
@@ -1905,6 +2110,7 @@ impl Filesystem {
             relative_path: full_path,
             inode,
             target: target.to_vec(),
+            times: FileTimes::default(),
         });
         Ok(())
     }
@@ -1950,7 +2156,7 @@ impl Filesystem {
         if !parent_directory_exists(&state, new_preopen_fd, &new_full_path) {
             return Err(LinkError::NotFound);
         }
-        let Some((inode, bytes, link_count, writable)) = state
+        let Some((inode, bytes, link_count, times, writable)) = state
             .mounted_files
             .iter()
             .find(|file| {
@@ -1962,6 +2168,7 @@ impl Filesystem {
                     file.inode,
                     file.bytes.clone(),
                     file.link_count.clone(),
+                    file.times.clone(),
                     file.writable,
                 )
             })
@@ -1982,6 +2189,7 @@ impl Filesystem {
             inode,
             bytes,
             link_count: link_count.clone(),
+            times,
             writable,
         });
         *link_count.borrow_mut() = new_links;
@@ -2248,7 +2456,8 @@ fn directory_rights(state: &FilesystemState, fd: u32) -> Option<u64> {
     if state.reserved_preopens.contains(&fd) {
         let mut rights = RIGHTS_FD_READDIR | RIGHTS_PATH_OPEN | RIGHTS_PATH_FILESTAT_GET;
         if state.writable_preopens.contains(&fd) {
-            rights |= RIGHTS_PATH_CREATE_DIRECTORY
+            rights |= RIGHTS_PATH_FILESTAT_SET_TIMES
+                | RIGHTS_PATH_CREATE_DIRECTORY
                 | RIGHTS_PATH_CREATE_FILE
                 | RIGHTS_PATH_LINK_SOURCE
                 | RIGHTS_PATH_LINK_TARGET
@@ -2402,6 +2611,47 @@ fn directory_errno(error: DirectoryMutationError) -> i32 {
         DirectoryMutationError::NotDirectory => ERRNO_NOTDIR,
         DirectoryMutationError::NotEmpty => ERRNO_NOTEMPTY,
         DirectoryMutationError::TooManyFiles => ERRNO_NOSPC,
+    }
+}
+
+fn resolve_time_update(
+    atim: u64,
+    mtim: u64,
+    flags: u32,
+    realtime_now: Option<u64>,
+) -> Result<TimeUpdate, ()> {
+    if flags & !FSTFLAGS_ALL != 0
+        || flags & FSTFLAGS_ATIM != 0 && flags & FSTFLAGS_ATIM_NOW != 0
+        || flags & FSTFLAGS_MTIM != 0 && flags & FSTFLAGS_MTIM_NOW != 0
+    {
+        return Err(());
+    }
+    let resolved_atim = if flags & FSTFLAGS_ATIM != 0 {
+        Some(atim)
+    } else if flags & FSTFLAGS_ATIM_NOW != 0 {
+        Some(realtime_now.ok_or(())?)
+    } else {
+        None
+    };
+    let resolved_mtim = if flags & FSTFLAGS_MTIM != 0 {
+        Some(mtim)
+    } else if flags & FSTFLAGS_MTIM_NOW != 0 {
+        Some(realtime_now.ok_or(())?)
+    } else {
+        None
+    };
+    Ok(TimeUpdate {
+        atim: resolved_atim,
+        mtim: resolved_mtim,
+    })
+}
+
+fn apply_time_update(times: &mut FileTimes, update: TimeUpdate) {
+    if let Some(atim) = update.atim {
+        times.atim = atim;
+    }
+    if let Some(mtim) = update.mtim {
+        times.mtim = mtim;
     }
 }
 

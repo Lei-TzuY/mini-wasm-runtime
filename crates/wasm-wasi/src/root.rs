@@ -49,6 +49,8 @@ pub const RIGHTS_PATH_READLINK: u64 = 1 << 15;
 pub const RIGHTS_PATH_RENAME_SOURCE: u64 = 1 << 16;
 pub const RIGHTS_PATH_RENAME_TARGET: u64 = 1 << 17;
 pub const RIGHTS_PATH_FILESTAT_GET: u64 = 1 << 18;
+pub const RIGHTS_PATH_FILESTAT_SET_TIMES: u64 = 1 << 20;
+pub const RIGHTS_FD_FILESTAT_SET_TIMES: u64 = 1 << 23;
 pub const RIGHTS_PATH_SYMLINK: u64 = 1 << 24;
 pub const RIGHTS_PATH_REMOVE_DIRECTORY: u64 = 1 << 25;
 pub const RIGHTS_PATH_UNLINK_FILE: u64 = 1 << 26;
@@ -196,6 +198,7 @@ impl WasiPreview1 {
         let rights_base = if writable {
             RIGHTS_PATH_OPEN
                 | RIGHTS_PATH_FILESTAT_GET
+                | RIGHTS_PATH_FILESTAT_SET_TIMES
                 | RIGHTS_FD_READDIR
                 | RIGHTS_PATH_CREATE_DIRECTORY
                 | RIGHTS_PATH_CREATE_FILE
@@ -217,6 +220,7 @@ impl WasiPreview1 {
                 | RIGHTS_FD_TELL
                 | RIGHTS_FD_FILESTAT_GET
                 | RIGHTS_FD_FILESTAT_SET_SIZE
+                | RIGHTS_FD_FILESTAT_SET_TIMES
         } else {
             RIGHTS_FD_READ | RIGHTS_FD_SEEK | RIGHTS_FD_TELL | RIGHTS_FD_FILESTAT_GET
         };
@@ -297,7 +301,8 @@ impl WasiPreview1 {
     pub fn register(&self, registry: &mut HostRegistry) -> Result<(), HostRegistryError> {
         self.base.register(registry)?;
         self.preopens.register(registry)?;
-        self.filesystem.register(registry)?;
+        self.filesystem
+            .register(registry, self.clocks.realtime_time())?;
 
         let entropy = self.entropy.clone();
         let max_random_bytes = self.max_random_bytes;

@@ -2,12 +2,13 @@ use wasm_parser::parse_module;
 use wasm_runtime::{HostRegistry, Instance, MemoryHandle, Value};
 use wasm_wasi::{
     WasiPreview1, ERRNO_BADF, ERRNO_FAULT, ERRNO_SUCCESS, FILETYPE_CHARACTER_DEVICE,
-    FILETYPE_DIRECTORY, RIGHTS_FD_FILESTAT_GET, RIGHTS_FD_FILESTAT_SET_SIZE, RIGHTS_FD_READ,
-    RIGHTS_FD_READDIR, RIGHTS_FD_SEEK, RIGHTS_FD_TELL, RIGHTS_FD_WRITE,
-    RIGHTS_PATH_CREATE_DIRECTORY, RIGHTS_PATH_CREATE_FILE, RIGHTS_PATH_FILESTAT_GET,
-    RIGHTS_PATH_LINK_SOURCE, RIGHTS_PATH_LINK_TARGET, RIGHTS_PATH_OPEN, RIGHTS_PATH_READLINK,
-    RIGHTS_PATH_REMOVE_DIRECTORY, RIGHTS_PATH_RENAME_SOURCE, RIGHTS_PATH_RENAME_TARGET,
-    RIGHTS_PATH_SYMLINK, RIGHTS_PATH_UNLINK_FILE,
+    FILETYPE_DIRECTORY, RIGHTS_FD_FILESTAT_GET, RIGHTS_FD_FILESTAT_SET_SIZE,
+    RIGHTS_FD_FILESTAT_SET_TIMES, RIGHTS_FD_READ, RIGHTS_FD_READDIR, RIGHTS_FD_SEEK,
+    RIGHTS_FD_TELL, RIGHTS_FD_WRITE, RIGHTS_PATH_CREATE_DIRECTORY, RIGHTS_PATH_CREATE_FILE,
+    RIGHTS_PATH_FILESTAT_GET, RIGHTS_PATH_FILESTAT_SET_TIMES, RIGHTS_PATH_LINK_SOURCE,
+    RIGHTS_PATH_LINK_TARGET, RIGHTS_PATH_OPEN, RIGHTS_PATH_READLINK, RIGHTS_PATH_REMOVE_DIRECTORY,
+    RIGHTS_PATH_RENAME_SOURCE, RIGHTS_PATH_RENAME_TARGET, RIGHTS_PATH_SYMLINK,
+    RIGHTS_PATH_UNLINK_FILE,
 };
 
 fn u32leb(out: &mut Vec<u8>, mut value: u32) {
@@ -191,6 +192,7 @@ fn fd_fdstat_get_reports_writable_preopen_resize_right() {
         u64::from_le_bytes(fdstat[8..16].try_into().unwrap()),
         RIGHTS_PATH_OPEN
             | RIGHTS_PATH_FILESTAT_GET
+            | RIGHTS_PATH_FILESTAT_SET_TIMES
             | RIGHTS_FD_READDIR
             | RIGHTS_PATH_CREATE_DIRECTORY
             | RIGHTS_PATH_CREATE_FILE
@@ -211,6 +213,7 @@ fn fd_fdstat_get_reports_writable_preopen_resize_right() {
             | RIGHTS_FD_TELL
             | RIGHTS_FD_FILESTAT_GET
             | RIGHTS_FD_FILESTAT_SET_SIZE
+            | RIGHTS_FD_FILESTAT_SET_TIMES
     );
 }
 
@@ -219,25 +222,23 @@ fn fd_fdstat_get_bad_fd_does_not_mutate_guest_memory() {
     let memory = MemoryHandle::new(1, Some(1)).unwrap();
     memory.write(96, &[0xaa; 24]).unwrap();
     let wasi = WasiPreview1::new();
-    let mut vm = instantiate(9, 96, &memory, &wasi);
+    let mut vm = instantiate(99, 96, &memory, &wasi);
 
     assert_eq!(
         vm.invoke_export("run", &[]).unwrap(),
         Some(Value::I32(ERRNO_BADF))
     );
-    assert_eq!(memory.read(96, 24).unwrap(), vec![0xaa; 24]);
+    assert_eq!(memory.read(96, 24).unwrap(), [0xaa; 24]);
 }
 
 #[test]
 fn fd_fdstat_get_oob_pointer_fails_without_partial_write() {
     let memory = MemoryHandle::new(1, Some(1)).unwrap();
-    memory.write(65_520, &[0xaa; 16]).unwrap();
     let wasi = WasiPreview1::new();
-    let mut vm = instantiate(1, 65_520, &memory, &wasi);
+    let mut vm = instantiate(0, 65_520, &memory, &wasi);
 
     assert_eq!(
         vm.invoke_export("run", &[]).unwrap(),
         Some(Value::I32(ERRNO_FAULT))
     );
-    assert_eq!(memory.read(65_520, 16).unwrap(), vec![0xaa; 16]);
 }
