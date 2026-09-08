@@ -178,25 +178,3 @@ fn validator_rejects_i16x8_replace_lane_type_confusion() {
         ))
     ));
 }
-
-#[test]
-fn adjacent_i16x8_comparison_remains_fail_closed() {
-    let bytes = module(&[
-        0xfd, 0x0c, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, // v128.const
-        0xfd, 0x0c, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, // v128.const
-        0xfd, 0x2d, // i16x8.eq remains outside this bounded slice
-        0x1a, // drop result if an implementation accidentally skips the opcode
-        0x41, 0x00, // i32.const 0
-    ]);
-    let parsed = parse_module(&bytes).expect("unsupported-SIMD fixture must parse");
-    assert!(matches!(
-        Instance::new(parsed),
-        Err(RuntimeError::Validation(
-            ValidationError::UnsupportedPrefixedOpcode {
-                prefix: 0xfd,
-                subopcode: 45,
-                ..
-            }
-        ))
-    ));
-}

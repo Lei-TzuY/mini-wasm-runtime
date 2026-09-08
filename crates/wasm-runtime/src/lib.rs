@@ -3746,6 +3746,36 @@ fn execute_simd(
             }
             stack.push(Value::V128(Rc::new(result)));
         }
+        45..=54 => {
+            let rhs = numeric::v128_from_stack(stack)?;
+            let lhs = numeric::v128_from_stack(stack)?;
+            let mut result = [0u8; 16];
+            for lane in 0..8 {
+                let start = lane * 2;
+                let lhs_unsigned =
+                    u16::from_le_bytes(lhs[start..start + 2].try_into().expect("i16x8 lane width"));
+                let rhs_unsigned =
+                    u16::from_le_bytes(rhs[start..start + 2].try_into().expect("i16x8 lane width"));
+                let lhs_signed = lhs_unsigned as i16;
+                let rhs_signed = rhs_unsigned as i16;
+                let predicate = match subopcode {
+                    45 => lhs_signed == rhs_signed,
+                    46 => lhs_signed != rhs_signed,
+                    47 => lhs_signed < rhs_signed,
+                    48 => lhs_unsigned < rhs_unsigned,
+                    49 => lhs_signed > rhs_signed,
+                    50 => lhs_unsigned > rhs_unsigned,
+                    51 => lhs_signed <= rhs_signed,
+                    52 => lhs_unsigned <= rhs_unsigned,
+                    53 => lhs_signed >= rhs_signed,
+                    54 => lhs_unsigned >= rhs_unsigned,
+                    _ => unreachable!("matched i16x8 comparison opcode"),
+                };
+                let mask = if predicate { u16::MAX } else { 0 };
+                result[start..start + 2].copy_from_slice(&mask.to_le_bytes());
+            }
+            stack.push(Value::V128(Rc::new(result)));
+        }
         55..=64 => {
             let rhs = numeric::v128_from_stack(stack)?;
             let lhs = numeric::v128_from_stack(stack)?;
@@ -4051,7 +4081,7 @@ fn build_control_map(module: &Module, code: &[u8]) -> Result<ControlMap, Runtime
                     | 15
                     | 16
                     | 17
-                    | 35..=44
+                    | 35..=54
                     | 55..=64
                     | 77..=83
                     | 163
