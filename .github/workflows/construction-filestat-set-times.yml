@@ -27,6 +27,8 @@ jobs:
         run: cargo fmt --all
       - name: Diff hygiene
         run: git diff --check
+      - name: Pinpoint regression line
+        run: nl -ba crates/wasm-wasi/tests/filestat_set_times.rs | sed -n '214,224p'
       - name: Focused filestat timestamp regressions
         run: |
           cargo test -p wasm-wasi --test filestat_set_times -- --nocapture
