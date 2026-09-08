@@ -3843,6 +3843,41 @@ fn execute_simd(
             let value = numeric::v128_from_stack(stack)?;
             stack.push(Value::I32(i32::from(value.iter().any(|byte| *byte != 0))));
         }
+        96 | 97 => {
+            let value = numeric::v128_from_stack(stack)?;
+            let mut result = [0u8; 16];
+            for (output, byte) in result.iter_mut().zip(value.iter().copied()) {
+                let lane = byte as i8;
+                *output = match subopcode {
+                    96 => lane.wrapping_abs() as u8,
+                    97 => lane.wrapping_neg() as u8,
+                    _ => unreachable!("matched i8x16 unary opcode"),
+                };
+            }
+            stack.push(Value::V128(Rc::new(result)));
+        }
+        98 => {
+            let value = numeric::v128_from_stack(stack)?;
+            let mut result = [0u8; 16];
+            for (output, byte) in result.iter_mut().zip(value.iter().copied()) {
+                *output = byte.count_ones() as u8;
+            }
+            stack.push(Value::V128(Rc::new(result)));
+        }
+        99 => {
+            let value = numeric::v128_from_stack(stack)?;
+            stack.push(Value::I32(i32::from(value.iter().all(|byte| *byte != 0))));
+        }
+        100 => {
+            let value = numeric::v128_from_stack(stack)?;
+            let mut mask = 0i32;
+            for (lane, byte) in value.iter().copied().enumerate() {
+                if byte & 0x80 != 0 {
+                    mask |= 1 << lane;
+                }
+            }
+            stack.push(Value::I32(mask));
+        }
         128 | 129 => {
             let value = numeric::v128_from_stack(stack)?;
             let mut result = [0u8; 16];
@@ -4193,6 +4228,11 @@ fn build_control_map(module: &Module, code: &[u8]) -> Result<ControlMap, Runtime
                     | 35..=54
                     | 55..=64
                     | 77..=83
+                    | 96
+                    | 97
+                    | 98
+                    | 99
+                    | 100
                     | 128
                     | 129
                     | 130
