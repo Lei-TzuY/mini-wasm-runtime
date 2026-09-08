@@ -1,0 +1,41 @@
+name: Construction SIMD i16x8 comparisons
+
+on:
+  push:
+    branches:
+      - conquest/simd-i16x8-comparisons
+
+permissions:
+  contents: write
+
+jobs:
+  construct:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - name: Apply production patch
+        run: python .conquest/apply_simd_i16x8_comparisons.py
+      - name: Format
+        run: cargo fmt --all -- --check
+      - name: Clippy
+        run: cargo clippy --workspace --all-targets -- -D warnings
+      - name: Focused regressions
+        run: cargo test -p wasm-runtime --test simd_i16x8_comparisons --test simd_i16x8_lanes
+      - name: Workspace tests
+        run: cargo test --workspace
+      - name: Docs
+        run: cargo doc --workspace --no-deps
+      - name: Commit production patch
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add crates/wasm-validator/src/typed.rs crates/wasm-runtime/src/lib.rs crates/wasm-runtime/tests/simd_i16x8_lanes.rs crates/wasm-runtime/tests/simd_i16x8_comparisons.rs docs/roadmap.md
+          git commit -m "feat: add SIMD i16x8 comparison masks"
+          git push origin HEAD:conquest/simd-i16x8-comparisons
