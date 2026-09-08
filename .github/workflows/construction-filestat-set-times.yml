@@ -31,6 +31,7 @@ jobs:
       - name: Focused filestat timestamp regressions
         run: |
           cargo test -p wasm-wasi --test filestat_set_times -- --nocapture
+          cargo test -p wasm-wasi --test fd_fdstat_get -- --nocapture
           cargo test -p wasm-wasi --test fd_filestat_get -- --nocapture
           cargo test -p wasm-wasi --test path_filestat_get -- --nocapture
           cargo test -p wasm-wasi --test path_link -- --nocapture
@@ -48,6 +49,6 @@ jobs:
           fi
           git config user.name "LeiZ"
           git config user.email "52287354+Lei-TzuY@users.noreply.github.com"
-          git add crates/wasm-wasi/src/root.rs crates/wasm-wasi/src/clock.rs crates/wasm-wasi/src/filesystem.rs crates/wasm-wasi/tests/filestat_set_times.rs
+          git add crates/wasm-wasi/src/root.rs crates/wasm-wasi/src/clock.rs crates/wasm-wasi/src/filesystem.rs crates/wasm-wasi/tests/filestat_set_times.rs crates/wasm-wasi/tests/fd_fdstat_get.rs
           git commit -m "feat: implement deterministic WASI filestat timestamps"
           git push origin HEAD:conquest/wasi-filestat-set-times
