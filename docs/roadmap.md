@@ -214,6 +214,7 @@ With the core interpreter, validator, differential harness, and resource limits 
 - [x] SIMD `i32x4` comparison-mask family (`eq` / `ne`, signed/unsigned `lt` / `gt` / `le` / `ge`) with canonical all-ones/zero lane masks, exact `v128, v128 -> v128` validation, structured-control scanning, deterministic regressions, and pinned Wasmtime differential evidence
 - [x] SIMD `i8x16.splat` / signed+unsigned `extract_lane` / `replace_lane` primitives with low-byte lane semantics, exact scalar/vector typing, bounds-checked lane immediates, structured-control scanning, deterministic regressions, and pinned Wasmtime differential evidence
 - [x] SIMD `i8x16.shuffle` / `i8x16.swizzle` byte-permutation semantics with cross-vector immediate selectors, repeated-lane support, dynamic-index zeroing, exact v128 typing, immediate bounds checks, structured-control scanning, deterministic regressions, and pinned Wasmtime differential evidence
+- [x] SIMD `i8x16` comparison-mask family (`eq` / `ne`, signed/unsigned `lt` / `gt` / `le` / `ge`) with canonical `0xff`/`0x00` byte masks, exact `v128, v128 -> v128` validation, structured-control scanning, signed/unsigned boundary regressions, and pinned Wasmtime differential evidence
 - [ ] broaden SIMD lane/arithmetic/memory semantics as subsequent bounded executable slices
 - [ ] threads/shared-memory semantics after an explicit concurrency and threat-model update
 A future JIT is intentionally out of scope until the interpreter and validation model are trustworthy.
