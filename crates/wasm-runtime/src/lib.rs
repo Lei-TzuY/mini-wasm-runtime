@@ -3878,6 +3878,20 @@ fn execute_simd(
             }
             stack.push(Value::I32(mask));
         }
+        107..=109 => {
+            let shift = (numeric::i32_from_stack(stack)? as u32) & 7;
+            let value = numeric::v128_from_stack(stack)?;
+            let mut result = [0u8; 16];
+            for (output, lane_unsigned) in result.iter_mut().zip(value.iter().copied()) {
+                *output = match subopcode {
+                    107 => lane_unsigned.wrapping_shl(shift),
+                    108 => ((lane_unsigned as i8) >> shift) as u8,
+                    109 => lane_unsigned >> shift,
+                    _ => unreachable!("matched i8x16 shift opcode"),
+                };
+            }
+            stack.push(Value::V128(Rc::new(result)));
+        }
         128 | 129 => {
             let value = numeric::v128_from_stack(stack)?;
             let mut result = [0u8; 16];
@@ -4233,6 +4247,9 @@ fn build_control_map(module: &Module, code: &[u8]) -> Result<ControlMap, Runtime
                     | 98
                     | 99
                     | 100
+                    | 107
+                    | 108
+                    | 109
                     | 128
                     | 129
                     | 130
