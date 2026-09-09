@@ -51,6 +51,10 @@ fn simd(v: &mut Vec<u8>, op: u32) {
     v.push(0xfd);
     push_u32(v, op);
 }
+fn v128_const(v: &mut Vec<u8>, bytes: [u8; 16]) {
+    simd(v, 12);
+    v.extend_from_slice(&bytes);
+}
 fn splat16(v: &mut Vec<u8>, x: i32) {
     push_i32_const(v, x);
     simd(v, 16);
@@ -151,6 +155,54 @@ fn validator_rejects_narrowing_type_confusion() {
     simd(&mut v, 101);
     extract8u(&mut v, 0);
     let parsed = parse_module(&module(&v)).expect("type-confusion fixture parses");
+    assert!(matches!(
+        Instance::new(parsed),
+        Err(RuntimeError::Validation(
+            ValidationError::TypeMismatch { .. }
+        ))
+    ));
+}
+
+#[test]
+fn i16x8_extend_i8x16_low_high_signed_unsigned() {
+    let bytes = [
+        0x80, 0x7f, 0xff, 1, 2, 3, 4, 5, 6, 7, 8, 9, 0xfe, 0xfd, 0xfc, 0xfb,
+    ];
+    let mut v = Vec::new();
+    v128_const(&mut v, bytes);
+    simd(&mut v, 135);
+    extract16s(&mut v, 0);
+    assert_eq!(run(&v), -128);
+    let mut v = Vec::new();
+    v128_const(&mut v, bytes);
+    simd(&mut v, 137);
+    extract16u(&mut v, 2);
+    assert_eq!(run(&v), 255);
+    let mut v = Vec::new();
+    v128_const(&mut v, bytes);
+    simd(&mut v, 136);
+    extract16s(&mut v, 4);
+    assert_eq!(run(&v), -2);
+    let mut v = Vec::new();
+    v128_const(&mut v, bytes);
+    simd(&mut v, 138);
+    extract16u(&mut v, 7);
+    assert_eq!(run(&v), 251);
+}
+
+#[test]
+fn i16x8_extend_validates_and_scans_structured_control() {
+    let mut v = vec![0x02, 0x7f];
+    v128_const(&mut v, [0x81; 16]);
+    simd(&mut v, 135);
+    extract16s(&mut v, 0);
+    v.push(0x0b);
+    assert_eq!(run(&v), -127);
+    let mut bad = Vec::new();
+    push_i32_const(&mut bad, 1);
+    simd(&mut bad, 135);
+    extract16s(&mut bad, 0);
+    let parsed = parse_module(&module(&bad)).expect("fixture parses");
     assert!(matches!(
         Instance::new(parsed),
         Err(RuntimeError::Validation(

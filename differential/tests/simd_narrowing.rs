@@ -18,12 +18,37 @@ const FIXTURE: &str = r#"(module
     v128.const i32x4 -2147483648 -1 1 2147483647
     i16x8.narrow_i32x4_s
     i16x8.extract_lane_s 7)
+  (func (export "extend_low_s") (result i32)
+    v128.const i8x16 -128 127 -1 1 2 3 4 5 6 7 8 9 -2 -3 -4 -5
+    i16x8.extend_low_i8x16_s
+    i16x8.extract_lane_s 0)
+  (func (export "extend_low_u") (result i32)
+    v128.const i8x16 -128 127 -1 1 2 3 4 5 6 7 8 9 -2 -3 -4 -5
+    i16x8.extend_low_i8x16_u
+    i16x8.extract_lane_u 2)
+  (func (export "extend_high_s") (result i32)
+    v128.const i8x16 -128 127 -1 1 2 3 4 5 6 7 8 9 -2 -3 -4 -5
+    i16x8.extend_high_i8x16_s
+    i16x8.extract_lane_s 4)
+  (func (export "extend_high_u") (result i32)
+    v128.const i8x16 -128 127 -1 1 2 3 4 5 6 7 8 9 -2 -3 -4 -5
+    i16x8.extend_high_i8x16_u
+    i16x8.extract_lane_u 7)
   (func (export "i16u") (result i32)
     v128.const i32x4 -1 0 65535 70000
     v128.const i32x4 1 2 3 4
     i16x8.narrow_i32x4_u
     i16x8.extract_lane_u 3))"#;
-const EXPORTS: [&str; 4] = ["i8s", "i8u", "i16s", "i16u"];
+const EXPORTS: [&str; 8] = [
+    "i8s",
+    "i8u",
+    "i16s",
+    "extend_low_s",
+    "extend_low_u",
+    "extend_high_s",
+    "extend_high_u",
+    "i16u",
+];
 fn mini(bytes: &[u8]) -> Vec<i32> {
     let module = parse_module(bytes).expect("mini parses narrowing fixture");
     let mut instance = MiniInstance::new(module).expect("mini instantiates narrowing fixture");
@@ -63,7 +88,7 @@ fn reference(bytes: &[u8]) -> Vec<i32> {
 #[test]
 fn narrowing_matches_wasmtime() {
     let bytes = wat::parse_str(FIXTURE).expect("narrowing WAT parses");
-    let expected = vec![-128, 0, 32767, 65535];
+    let expected = vec![-128, 0, 32767, -128, 255, -2, 251, 65535];
     assert_eq!(mini(&bytes), expected);
     assert_eq!(reference(&bytes), expected);
 }
