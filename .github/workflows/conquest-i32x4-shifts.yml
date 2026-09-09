@@ -43,7 +43,9 @@ jobs:
         run: cargo doc --workspace --no-deps
       - name: Differential format
         working-directory: differential
-        run: cargo fmt --all -- --check
+        run: |
+          cargo fmt --all
+          cargo fmt --all -- --check
       - name: Differential clippy
         working-directory: differential
         run: cargo clippy --all-targets -- -D warnings
