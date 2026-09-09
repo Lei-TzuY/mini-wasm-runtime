@@ -4009,6 +4009,26 @@ fn execute_simd(
             }
             stack.push(Value::V128(Rc::new(result)));
         }
+        135..=138 => {
+            let value = numeric::v128_from_stack(stack)?;
+            let source = if matches!(subopcode, 135 | 137) {
+                &value[..8]
+            } else {
+                &value[8..]
+            };
+            let signed = matches!(subopcode, 135..=136);
+            let mut result = [0u8; 16];
+            for (lane, byte) in source.iter().copied().enumerate() {
+                let extended = if signed {
+                    (byte as i8 as i16) as u16
+                } else {
+                    u16::from(byte)
+                };
+                let start = lane * 2;
+                result[start..start + 2].copy_from_slice(&extended.to_le_bytes());
+            }
+            stack.push(Value::V128(Rc::new(result)));
+        }
         139..=141 => {
             let shift = (numeric::i32_from_stack(stack)? as u32) & 15;
             let value = numeric::v128_from_stack(stack)?;
@@ -4326,6 +4346,7 @@ fn build_control_map(module: &Module, code: &[u8]) -> Result<ControlMap, Runtime
                     | 132
                     | 133
                     | 134
+                    | 135..=138
                     | 139
                     | 140
                     | 141
