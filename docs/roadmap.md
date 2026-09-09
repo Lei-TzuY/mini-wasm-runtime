@@ -202,6 +202,8 @@ The runtime has moved beyond a generic future-WASI placeholder into an executabl
 
 ## Phase 8 — bounded proposal expansion
 
+- SIMD cross-width saturating narrowing is executable for `i8x16.narrow_i16x8_{s,u}` and `i16x8.narrow_i32x4_{s,u}`, with typed validation, structured-control scanning, regressions, and Wasmtime differential coverage.
+
 With the core interpreter, validator, differential harness, and resource limits established, proposal work advances as bounded executable slices rather than broad feature flags. Physical allocation and host-ABI limits remain explicit even when proposal address spaces are wider.
 
 - [x] initial bounded memory64 address-width semantics with 64-bit memory limits, i64 scalar addresses, i64 `memory.size` / `memory.grow`, full-width runtime bounds preflight, and pinned Wasmtime differential evidence
