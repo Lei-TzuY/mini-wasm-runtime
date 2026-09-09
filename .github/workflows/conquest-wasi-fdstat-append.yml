@@ -5,15 +5,38 @@ on:
     branches:
       - conquest/wasi-fdstat-append
 
+permissions:
+  contents: write
+
 jobs:
-  acceptance:
+  construct:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
         with:
-          components: rustfmt
-      - name: Canonicalize acceptance source
+          components: rustfmt, clippy
+      - name: Apply production slice
+        run: python3 .conquest/apply_fdstat_append.py
+      - name: Format
         run: cargo fmt --all
       - name: Focused acceptance
         run: cargo test -p wasm-wasi --test fd_fdstat_set_flags -- --nocapture
+      - name: Existing filesystem regressions
+        run: cargo test -p wasm-wasi --test writable_files --test fd_fdstat_get --test path_open -- --nocapture
+      - name: Clippy
+        run: cargo clippy --workspace --all-targets -- -D warnings
+      - name: Workspace tests
+        run: cargo test --workspace
+      - name: Docs
+        run: cargo doc --workspace --no-deps
+      - name: Commit verified construction result
+        run: |
+          if git diff --quiet; then
+            exit 0
+          fi
+          git config user.name "LeiZ"
+          git config user.email "52287354+Lei-TzuY@users.noreply.github.com"
+          git add crates/wasm-wasi/src/root.rs crates/wasm-wasi/src/filesystem.rs crates/wasm-wasi/src/lib.rs crates/wasm-wasi/tests/fd_fdstat_set_flags.rs
+          git commit -m "feat: add WASI append descriptor semantics"
+          git push origin HEAD:conquest/wasi-fdstat-append
