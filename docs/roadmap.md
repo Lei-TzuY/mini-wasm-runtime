@@ -204,6 +204,7 @@ The runtime has moved beyond a generic future-WASI placeholder into an executabl
 
 - SIMD cross-width saturating narrowing is executable for `i8x16.narrow_i16x8_{s,u}` and `i16x8.narrow_i32x4_{s,u}`, with typed validation, structured-control scanning, regressions, and Wasmtime differential coverage.
 - SIMD cross-width widening is executable for `i16x8.extend_low/high_i8x16_{s,u}`, with signed/unsigned low/high lane semantics, typed validation, structured-control scanning, regressions, and Wasmtime differential coverage.
+- SIMD `i64x2` shift semantics are executable for `shl`, `shr_s`, and `shr_u`, with modulo-64 count masking, typed validation, structured-control scanning, regressions, and Wasmtime differential coverage.
 - SIMD `i32x4.{shl,shr_s,shr_u}` shifts are executable with modulo-32 shift-count masking, signed/unsigned right-shift semantics, typed validation, structured-control scanning, regressions, and Wasmtime differential coverage.
 - SIMD cross-width widening is executable for `i32x4.extend_low/high_i16x8_{s,u}`, with signed/unsigned low/high lane semantics, typed validation, structured-control scanning, regressions, and Wasmtime differential coverage.
 
