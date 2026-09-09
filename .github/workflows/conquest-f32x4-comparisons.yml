@@ -1,0 +1,38 @@
+name: Conquest f32x4 comparisons
+
+on:
+  push:
+    branches:
+      - conquest/simd-f32x4-comparisons
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Apply construction patch
+        run: python .conquest/f32x4_comparisons.py
+      - name: Format
+        run: cargo fmt --all -- --check
+      - name: Clippy
+        run: cargo clippy --workspace --all-targets -- -D warnings
+      - name: Workspace tests
+        run: cargo test --workspace
+      - name: Focused differential
+        run: cargo test -p differential --test simd_f32x4_comparisons
+      - name: Commit verified implementation
+        shell: bash
+        run: |
+          git config user.name "LeiZ"
+          git config user.email "52287354+Lei-TzuY@users.noreply.github.com"
+          git add crates/wasm-runtime/src/lib.rs crates/wasm-validator/src/typed.rs docs/roadmap.md crates/wasm-runtime/tests/simd_f32x4_comparisons.rs differential/tests/simd_f32x4_comparisons.rs
+          git commit -m "feat: add SIMD f32x4 comparison semantics"
+          git rm .github/workflows/conquest-f32x4-comparisons.yml .conquest/f32x4_comparisons.py
+          git commit -m "chore: remove conquest construction artifacts"
+          git push origin HEAD:conquest/simd-f32x4-comparisons
