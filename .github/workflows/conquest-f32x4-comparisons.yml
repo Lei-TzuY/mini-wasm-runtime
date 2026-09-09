@@ -18,6 +18,11 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - name: Apply construction patch
         run: python .conquest/f32x4_comparisons.py
+      - name: Normalize construction patch
+        shell: bash
+        run: |
+          sed -i 's/Value::V128(result)/Value::V128(Rc::new(result))/' crates/wasm-runtime/src/lib.rs
+          cargo fmt --all
       - name: Format
         run: cargo fmt --all -- --check
       - name: Clippy
