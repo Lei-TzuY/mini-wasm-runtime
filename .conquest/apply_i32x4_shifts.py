@@ -38,8 +38,8 @@ replace_once(
 )
 replace_once(
     "crates/wasm-runtime/src/lib.rs",
-    "                        | 167..=170\n",
-    "                        | 167..=170\n                        | 171..=173\n",
+    "                    | 167..=170\n",
+    "                    | 167..=170\n                    | 171..=173\n",
 )
 
 validator_arm = '''                    171..=173 => {
