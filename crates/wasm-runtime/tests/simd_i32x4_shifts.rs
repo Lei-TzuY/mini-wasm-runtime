@@ -41,7 +41,6 @@ fn module(instructions: &[u8]) -> Vec<u8> {
     push_section(&mut bytes, 1, &[0x01, 0x60, 0x00, 0x01, 0x7f]);
     push_section(&mut bytes, 3, &[0x01, 0x00]);
     push_section(&mut bytes, 7, &[0x01, 0x03, b'r', b'u', b'n', 0x00, 0x00]);
-
     let mut body = vec![0x00];
     body.extend_from_slice(instructions);
     body.push(0x0b);
@@ -57,74 +56,74 @@ fn push_simd(instructions: &mut Vec<u8>, subopcode: u32) {
     push_u32(instructions, subopcode);
 }
 
-fn push_i16x8_const(instructions: &mut Vec<u8>, lanes: [i16; 8]) {
-    push_simd(instructions, 12); // v128.const
+fn push_i32x4_const(instructions: &mut Vec<u8>, lanes: [i32; 4]) {
+    push_simd(instructions, 12);
     for lane in lanes {
         instructions.extend_from_slice(&lane.to_le_bytes());
     }
 }
 
 fn push_i32x4_extract(instructions: &mut Vec<u8>, lane: u8) {
-    push_simd(instructions, 27); // i32x4.extract_lane
+    push_simd(instructions, 27);
     instructions.push(lane);
 }
 
 fn run_i32(instructions: &[u8]) -> i32 {
-    let parsed = parse_module(&module(instructions)).expect("i32x4 widening fixture must parse");
-    let mut instance = Instance::new(parsed).expect("i32x4 widening fixture must validate");
+    let parsed = parse_module(&module(instructions)).expect("i32x4 shift fixture must parse");
+    let mut instance = Instance::new(parsed).expect("i32x4 shift fixture must validate");
     match instance
         .invoke_export_values("run", &[])
-        .expect("i32x4 widening fixture must execute")
+        .expect("i32x4 shift fixture must execute")
         .as_slice()
     {
         [Value::I32(value)] => *value,
-        other => panic!("unexpected i32x4 widening result: {other:?}"),
+        other => panic!("unexpected i32x4 shift result: {other:?}"),
     }
 }
 
 #[test]
-fn i32x4_extend_i16x8_low_high_signed_unsigned() {
-    let lanes = [-32_768, 32_767, -1, 1, 2, 3, -2, -3];
+fn i32x4_shift_family_masks_counts_and_preserves_signedness() {
+    let mut shl = Vec::new();
+    push_i32x4_const(&mut shl, [0x4000_0000, 0, 0, 0]);
+    push_i32_const(&mut shl, 33);
+    push_simd(&mut shl, 171);
+    push_i32x4_extract(&mut shl, 0);
+    assert_eq!(run_i32(&shl), i32::MIN);
 
-    let mut low_s = Vec::new();
-    push_i16x8_const(&mut low_s, lanes);
-    push_simd(&mut low_s, 167); // i32x4.extend_low_i16x8_s
-    push_i32x4_extract(&mut low_s, 0);
-    assert_eq!(run_i32(&low_s), -32_768);
+    let mut shr_s = Vec::new();
+    push_i32x4_const(&mut shr_s, [-2, 0, 0, 0]);
+    push_i32_const(&mut shr_s, 1);
+    push_simd(&mut shr_s, 172);
+    push_i32x4_extract(&mut shr_s, 0);
+    assert_eq!(run_i32(&shr_s), -1);
 
-    let mut high_s = Vec::new();
-    push_i16x8_const(&mut high_s, lanes);
-    push_simd(&mut high_s, 168); // i32x4.extend_high_i16x8_s
-    push_i32x4_extract(&mut high_s, 2);
-    assert_eq!(run_i32(&high_s), -2);
-
-    let mut low_u = Vec::new();
-    push_i16x8_const(&mut low_u, lanes);
-    push_simd(&mut low_u, 169); // i32x4.extend_low_i16x8_u
-    push_i32x4_extract(&mut low_u, 2);
-    assert_eq!(run_i32(&low_u), 65_535);
-
-    let mut high_u = Vec::new();
-    push_i16x8_const(&mut high_u, lanes);
-    push_simd(&mut high_u, 170); // i32x4.extend_high_i16x8_u
-    push_i32x4_extract(&mut high_u, 3);
-    assert_eq!(run_i32(&high_u), 65_533);
+    let mut shr_u = Vec::new();
+    push_i32x4_const(&mut shr_u, [i32::MIN, 0, 0, 0]);
+    push_i32_const(&mut shr_u, 1);
+    push_simd(&mut shr_u, 173);
+    push_i32x4_extract(&mut shr_u, 0);
+    assert_eq!(run_i32(&shr_u), 0x4000_0000);
 }
 
 #[test]
-fn i32x4_widening_validates_and_scans_structured_control() {
-    let mut instructions = vec![0x02, 0x7f]; // block (result i32)
-    push_i16x8_const(&mut instructions, [-7, 1, 2, 3, 4, 5, 6, 7]);
-    push_simd(&mut instructions, 167);
+fn i32x4_shifts_execute_inside_structured_control() {
+    let mut instructions = vec![0x02, 0x7f];
+    push_i32x4_const(&mut instructions, [1, 0, 0, 0]);
+    push_i32_const(&mut instructions, 3);
+    push_simd(&mut instructions, 171);
     push_i32x4_extract(&mut instructions, 0);
     instructions.push(0x0b);
-    assert_eq!(run_i32(&instructions), -7);
+    assert_eq!(run_i32(&instructions), 8);
+}
 
-    let mut bad = Vec::new();
-    push_i32_const(&mut bad, 1);
-    push_simd(&mut bad, 167);
-    push_i32x4_extract(&mut bad, 0);
-    let parsed = parse_module(&module(&bad)).expect("type-confusion fixture must parse");
+#[test]
+fn validator_rejects_i32x4_shift_type_confusion() {
+    let mut instructions = Vec::new();
+    push_i32_const(&mut instructions, 0);
+    push_i32_const(&mut instructions, 1);
+    push_simd(&mut instructions, 171);
+    push_i32x4_extract(&mut instructions, 0);
+    let parsed = parse_module(&module(&instructions)).expect("type-confusion fixture must parse");
     assert!(matches!(
         Instance::new(parsed),
         Err(RuntimeError::Validation(
@@ -136,12 +135,10 @@ fn i32x4_widening_validates_and_scans_structured_control() {
 #[test]
 fn adjacent_i64x2_shift_remains_fail_closed() {
     let mut instructions = Vec::new();
-    push_i16x8_const(&mut instructions, [1; 8]);
-    push_simd(&mut instructions, 167);
+    push_i32x4_const(&mut instructions, [1, 0, 0, 0]);
     push_i32_const(&mut instructions, 1);
-    push_simd(&mut instructions, 203); // i64x2.shl remains outside this slice
+    push_simd(&mut instructions, 203);
     push_i32x4_extract(&mut instructions, 0);
-
     let parsed = parse_module(&module(&instructions)).expect("unsupported-SIMD fixture must parse");
     assert!(matches!(
         Instance::new(parsed),
