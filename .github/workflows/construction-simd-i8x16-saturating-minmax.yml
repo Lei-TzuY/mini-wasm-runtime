@@ -20,6 +20,19 @@ jobs:
           components: rustfmt, clippy
       - name: Apply vertical slice
         run: python3 .conquest/apply_simd_i8x16_saturating_minmax.py
+      - name: Normalize rounded average
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          path = Path("crates/wasm-runtime/src/lib.rs")
+          text = path.read_text()
+          old = "((u16::from(lhs_lane) + u16::from(rhs_lane) + 1) / 2) as u8"
+          new = "(u16::from(lhs_lane) + u16::from(rhs_lane)).div_ceil(2) as u8"
+          if text.count(old) != 1:
+              raise SystemExit(f"rounded-average anchor mismatch: {text.count(old)}")
+          path.write_text(text.replace(old, new, 1))
+          PY
       - name: Format generated Rust
         run: cargo fmt --all
       - name: Verify format
