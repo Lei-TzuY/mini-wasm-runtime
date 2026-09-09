@@ -3878,6 +3878,22 @@ fn execute_simd(
             }
             stack.push(Value::I32(mask));
         }
+        101 | 102 => {
+            let rhs = numeric::v128_from_stack(stack)?;
+            let lhs = numeric::v128_from_stack(stack)?;
+            let mut result = [0u8; 16];
+            for (out_lane, source_lane) in
+                lhs.chunks_exact(2).chain(rhs.chunks_exact(2)).enumerate()
+            {
+                let raw = i16::from_le_bytes(source_lane.try_into().expect("i16x8 lane width"));
+                result[out_lane] = match subopcode {
+                    101 => raw.clamp(i16::from(i8::MIN), i16::from(i8::MAX)) as i8 as u8,
+                    102 => raw.clamp(0, i16::from(u8::MAX)) as u8,
+                    _ => unreachable!("matched i8x16 narrowing opcode"),
+                };
+            }
+            stack.push(Value::V128(Rc::new(result)));
+        }
         107..=109 => {
             let shift = (numeric::i32_from_stack(stack)? as u32) & 7;
             let value = numeric::v128_from_stack(stack)?;
@@ -3974,6 +3990,24 @@ fn execute_simd(
                 }
             }
             stack.push(Value::I32(mask));
+        }
+        133 | 134 => {
+            let rhs = numeric::v128_from_stack(stack)?;
+            let lhs = numeric::v128_from_stack(stack)?;
+            let mut result = [0u8; 16];
+            for (out_lane, source_lane) in
+                lhs.chunks_exact(4).chain(rhs.chunks_exact(4)).enumerate()
+            {
+                let raw = i32::from_le_bytes(source_lane.try_into().expect("i32x4 lane width"));
+                let narrowed = match subopcode {
+                    133 => raw.clamp(i32::from(i16::MIN), i32::from(i16::MAX)) as i16 as u16,
+                    134 => raw.clamp(0, i32::from(u16::MAX)) as u16,
+                    _ => unreachable!("matched i16x8 narrowing opcode"),
+                };
+                let start = out_lane * 2;
+                result[start..start + 2].copy_from_slice(&narrowed.to_le_bytes());
+            }
+            stack.push(Value::V128(Rc::new(result)));
         }
         139..=141 => {
             let shift = (numeric::i32_from_stack(stack)? as u32) & 15;
@@ -4271,6 +4305,8 @@ fn build_control_map(module: &Module, code: &[u8]) -> Result<ControlMap, Runtime
                     | 98
                     | 99
                     | 100
+                    | 101
+                    | 102
                     | 107
                     | 108
                     | 109
@@ -4288,6 +4324,8 @@ fn build_control_map(module: &Module, code: &[u8]) -> Result<ControlMap, Runtime
                     | 130
                     | 131
                     | 132
+                    | 133
+                    | 134
                     | 139
                     | 140
                     | 141

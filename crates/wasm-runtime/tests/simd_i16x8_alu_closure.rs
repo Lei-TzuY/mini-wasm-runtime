@@ -258,11 +258,10 @@ fn validator_rejects_i16x8_alu_type_confusion() {
 }
 
 #[test]
-fn adjacent_i16x8_cross_width_narrow_remains_fail_closed() {
+fn adjacent_i16x8_cross_width_extend_remains_fail_closed() {
     let mut instructions = Vec::new();
     push_splat(&mut instructions, 1);
-    push_splat(&mut instructions, 2);
-    push_simd(&mut instructions, 133); // i16x8.narrow_i32x4_s remains outside this slice
+    push_simd(&mut instructions, 135); // i16x8.extend_low_i8x16_s remains outside this slice
     push_extract_s(&mut instructions, 0);
 
     let parsed = parse_module(&module(&instructions)).expect("unsupported-SIMD fixture must parse");
@@ -271,7 +270,7 @@ fn adjacent_i16x8_cross_width_narrow_remains_fail_closed() {
         Err(RuntimeError::Validation(
             ValidationError::UnsupportedPrefixedOpcode {
                 prefix: 0xfd,
-                subopcode: 133,
+                subopcode: 135,
                 ..
             }
         ))
