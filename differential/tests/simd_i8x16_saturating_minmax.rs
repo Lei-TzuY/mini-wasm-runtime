@@ -1,6 +1,8 @@
 use wasm_parser::parse_module;
 use wasm_runtime::{Instance as MiniInstance, Value};
-use wasmtime::{Config, Engine, Instance as ReferenceInstance, Module as ReferenceModule, Store};
+use wasmtime::{
+    Config, Engine, Instance as ReferenceInstance, Module as ReferenceModule, Store,
+};
 
 const FIXTURE: &str = r#"
 (module
