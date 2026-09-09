@@ -1,0 +1,19 @@
+name: Conquest WASI fdstat append construction
+
+on:
+  push:
+    branches:
+      - conquest/wasi-fdstat-append
+
+jobs:
+  acceptance:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+      - name: Canonicalize acceptance source
+        run: cargo fmt --all
+      - name: Focused acceptance
+        run: cargo test -p wasm-wasi --test fd_fdstat_set_flags -- --nocapture
