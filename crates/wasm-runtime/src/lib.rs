@@ -3892,6 +3892,30 @@ fn execute_simd(
             }
             stack.push(Value::V128(Rc::new(result)));
         }
+        111 | 112 | 114 | 115 | 118 | 119 | 120 | 121 | 123 => {
+            let rhs = numeric::v128_from_stack(stack)?;
+            let lhs = numeric::v128_from_stack(stack)?;
+            let mut result = [0u8; 16];
+            for ((output, lhs_lane), rhs_lane) in result
+                .iter_mut()
+                .zip(lhs.iter().copied())
+                .zip(rhs.iter().copied())
+            {
+                *output = match subopcode {
+                    111 => (lhs_lane as i8).saturating_add(rhs_lane as i8) as u8,
+                    112 => lhs_lane.saturating_add(rhs_lane),
+                    114 => (lhs_lane as i8).saturating_sub(rhs_lane as i8) as u8,
+                    115 => lhs_lane.saturating_sub(rhs_lane),
+                    118 => (lhs_lane as i8).min(rhs_lane as i8) as u8,
+                    119 => lhs_lane.min(rhs_lane),
+                    120 => (lhs_lane as i8).max(rhs_lane as i8) as u8,
+                    121 => lhs_lane.max(rhs_lane),
+                    123 => (u16::from(lhs_lane) + u16::from(rhs_lane)).div_ceil(2) as u8,
+                    _ => unreachable!("matched i8x16 saturating/min-max opcode"),
+                };
+            }
+            stack.push(Value::V128(Rc::new(result)));
+        }
         128 | 129 => {
             let value = numeric::v128_from_stack(stack)?;
             let mut result = [0u8; 16];
@@ -4250,6 +4274,15 @@ fn build_control_map(module: &Module, code: &[u8]) -> Result<ControlMap, Runtime
                     | 107
                     | 108
                     | 109
+                    | 111
+                    | 112
+                    | 114
+                    | 115
+                    | 118
+                    | 119
+                    | 120
+                    | 121
+                    | 123
                     | 128
                     | 129
                     | 130
