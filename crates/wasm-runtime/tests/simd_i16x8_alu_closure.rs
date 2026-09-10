@@ -258,13 +258,13 @@ fn validator_rejects_i16x8_alu_type_confusion() {
 }
 
 #[test]
-fn adjacent_i64x2_extmul_remains_fail_closed() {
+fn adjacent_f32x4_frontier_remains_fail_closed() {
     let mut instructions = Vec::new();
     push_splat(&mut instructions, 1);
     push_simd(&mut instructions, 167); // i32x4.extend_low_i16x8_s is supported
     push_splat(&mut instructions, 2);
     push_simd(&mut instructions, 167); // second operand stays V128-typed
-    push_simd(&mut instructions, 220); // next i64x2 extmul opcode remains outside this slice
+    push_simd(&mut instructions, 224); // next f32x4 opcode remains outside this slice
     push_extract_s(&mut instructions, 0);
 
     let parsed = parse_module(&module(&instructions)).expect("unsupported-SIMD fixture must parse");
@@ -273,7 +273,7 @@ fn adjacent_i64x2_extmul_remains_fail_closed() {
         Err(RuntimeError::Validation(
             ValidationError::UnsupportedPrefixedOpcode {
                 prefix: 0xfd,
-                subopcode: 220,
+                subopcode: 224,
                 ..
             }
         ))

@@ -4192,6 +4192,29 @@ fn execute_simd(
             }
             stack.push(Value::V128(Rc::new(result)));
         }
+        220..=223 => {
+            let rhs = numeric::v128_from_stack(stack)?;
+            let lhs = numeric::v128_from_stack(stack)?;
+            let source_start = if matches!(subopcode, 220 | 222) { 0 } else { 2 };
+            let signed = matches!(subopcode, 220 | 221);
+            let mut result = [0u8; 16];
+            for output_lane in 0..2 {
+                let source_lane = source_start + output_lane;
+                let start = source_lane * 4;
+                let lhs_raw =
+                    u32::from_le_bytes(lhs[start..start + 4].try_into().expect("i32x4 lane width"));
+                let rhs_raw =
+                    u32::from_le_bytes(rhs[start..start + 4].try_into().expect("i32x4 lane width"));
+                let product = if signed {
+                    (i64::from(lhs_raw as i32) * i64::from(rhs_raw as i32)) as u64
+                } else {
+                    u64::from(lhs_raw) * u64::from(rhs_raw)
+                };
+                let output_start = output_lane * 8;
+                result[output_start..output_start + 8].copy_from_slice(&product.to_le_bytes());
+            }
+            stack.push(Value::V128(Rc::new(result)));
+        }
         167..=170 => {
             let value = numeric::v128_from_stack(stack)?;
             let source = if matches!(subopcode, 167 | 169) {
@@ -4470,6 +4493,7 @@ fn build_control_map(module: &Module, code: &[u8]) -> Result<ControlMap, Runtime
                     | 209
                     | 213
                     | 214..=219
+                    | 220..=223
                     | 142
                     | 143
                     | 144
