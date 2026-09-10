@@ -98,18 +98,17 @@ fn run_i64(instructions: &[u8]) -> i64 {
         .as_slice()
     {
         [Value::I64(value)] => *value,
-        other => panic!("unexpected i64x2 arithmetic result: {other:?}"),
+        other => panic!("unexpected i64x2 comparison result: {other:?}"),
     }
 }
 
-fn arithmetic_result(lhs: [i64; 2], rhs: [i64; 2], subopcode: u32, lane: u32) -> i64 {
+fn comparison_result(lhs: [i64; 2], rhs: [i64; 2], subopcode: u32, lane: u32) -> i64 {
     let mut instructions = Vec::new();
-    instructions.push(0x02);
-    instructions.push(0x40);
+    instructions.extend_from_slice(&[0x02, 0x40]);
     push_i64x2_const(&mut instructions, lhs);
     push_i64x2_const(&mut instructions, rhs);
     push_simd(&mut instructions, subopcode);
-    instructions.push(0x1a); // drop: exercise the opcode inside structured control
+    instructions.push(0x1a);
     instructions.push(0x0b);
     push_i32_const(&mut instructions, 0);
     push_i64x2_const(&mut instructions, lhs);
@@ -122,18 +121,23 @@ fn arithmetic_result(lhs: [i64; 2], rhs: [i64; 2], subopcode: u32, lane: u32) ->
 }
 
 #[test]
-fn i64x2_add_sub_mul_wrap_and_keep_lanes_independent() {
-    assert_eq!(arithmetic_result([i64::MAX, 7], [1, 5], 206, 0), i64::MIN);
-    assert_eq!(arithmetic_result([11, -4], [7, 3], 209, 1), -7);
-    assert_eq!(arithmetic_result([3, i64::MAX], [4, 2], 213, 1), -2);
+fn i64x2_comparisons_produce_canonical_masks_with_signed_ordering() {
+    assert_eq!(comparison_result([7, -4], [7, 3], 214, 0), -1);
+    assert_eq!(comparison_result([7, -4], [7, 3], 215, 1), -1);
+    assert_eq!(comparison_result([-9, 8], [2, 8], 216, 0), -1);
+    assert_eq!(comparison_result([-9, 8], [2, 3], 217, 1), -1);
+    assert_eq!(comparison_result([5, 9], [5, 7], 218, 0), -1);
+    assert_eq!(comparison_result([5, -1], [5, -1], 219, 1), -1);
+    assert_eq!(comparison_result([1, 9], [2, 7], 214, 0), 0);
+    assert_eq!(comparison_result([1, 9], [2, 7], 216, 1), 0);
 }
 
 #[test]
-fn validator_rejects_i64x2_arithmetic_type_confusion() {
+fn validator_rejects_i64x2_comparison_type_confusion() {
     let mut instructions = Vec::new();
     push_i64x2_const(&mut instructions, [1, 2]);
     push_i64_const(&mut instructions, 3);
-    push_simd(&mut instructions, 206);
+    push_simd(&mut instructions, 214);
     let parsed = parse_module(&module(&instructions)).expect("fixture parses");
     assert!(matches!(
         Instance::new(parsed),

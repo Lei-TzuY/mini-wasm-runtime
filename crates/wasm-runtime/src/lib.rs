@@ -4168,6 +4168,30 @@ fn execute_simd(
             }
             stack.push(Value::V128(Rc::new(result)));
         }
+        214..=219 => {
+            let rhs = numeric::v128_from_stack(stack)?;
+            let lhs = numeric::v128_from_stack(stack)?;
+            let mut result = [0u8; 16];
+            for lane in 0..2 {
+                let start = lane * 8;
+                let lhs_lane =
+                    i64::from_le_bytes(lhs[start..start + 8].try_into().expect("i64x2 lane width"));
+                let rhs_lane =
+                    i64::from_le_bytes(rhs[start..start + 8].try_into().expect("i64x2 lane width"));
+                let matches = match subopcode {
+                    214 => lhs_lane == rhs_lane,
+                    215 => lhs_lane != rhs_lane,
+                    216 => lhs_lane < rhs_lane,
+                    217 => lhs_lane > rhs_lane,
+                    218 => lhs_lane <= rhs_lane,
+                    219 => lhs_lane >= rhs_lane,
+                    _ => unreachable!("matched i64x2 comparison opcode"),
+                };
+                let mask = if matches { u64::MAX } else { 0 };
+                result[start..start + 8].copy_from_slice(&mask.to_le_bytes());
+            }
+            stack.push(Value::V128(Rc::new(result)));
+        }
         167..=170 => {
             let value = numeric::v128_from_stack(stack)?;
             let source = if matches!(subopcode, 167 | 169) {
@@ -4445,6 +4469,7 @@ fn build_control_map(module: &Module, code: &[u8]) -> Result<ControlMap, Runtime
                     | 206
                     | 209
                     | 213
+                    | 214..=219
                     | 142
                     | 143
                     | 144
