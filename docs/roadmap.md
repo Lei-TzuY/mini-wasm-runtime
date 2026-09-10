@@ -207,6 +207,7 @@ The runtime has moved beyond a generic future-WASI placeholder into an executabl
 - SIMD `i64x2` shift semantics are executable for `shl`, `shr_s`, and `shr_u`, with modulo-64 count masking, typed validation, structured-control scanning, regressions, and Wasmtime differential coverage.
 - SIMD `i64x2` wrapping arithmetic is executable for `add`, `sub`, and `mul`, with lane-independent modulo-2^64 semantics, typed validation, structured-control scanning, regressions, and Wasmtime differential coverage.
 - SIMD `i64x2` comparisons are executable for `eq`, `ne`, `lt_s`, `gt_s`, `le_s`, and `ge_s`, producing canonical all-ones/zero lane masks with signed ordering, typed validation, structured-control scanning, regressions, and Wasmtime differential coverage.
+- SIMD `f32x4` unary numeric semantics are executable for `abs`, `neg`, and `sqrt`, with bit-exact sign manipulation for `abs`/`neg`, lane-wise square root, exact `v128 -> v128` validation, structured-control scanning, regressions, and Wasmtime differential coverage.
 - SIMD `i32x4.{shl,shr_s,shr_u}` shifts are executable with modulo-32 shift-count masking, signed/unsigned right-shift semantics, typed validation, structured-control scanning, regressions, and Wasmtime differential coverage.
 - SIMD cross-width widening is executable for `i32x4.extend_low/high_i16x8_{s,u}`, with signed/unsigned low/high lane semantics, typed validation, structured-control scanning, regressions, and Wasmtime differential coverage.
 
