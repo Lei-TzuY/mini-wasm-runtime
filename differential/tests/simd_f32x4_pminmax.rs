@@ -19,11 +19,21 @@ fn f32x4_pmin_pmax_match_wasmtime_reference() {
         [Value::I32(v)] => *v,
         _ => panic!(),
     };
+
     let engine = Engine::default();
     let module = WasmtimeModule::new(&engine, &bytes).unwrap();
     let mut store = Store::new(&engine, ());
     let instance = WasmtimeInstance::new(&mut store, &module, &[]).unwrap();
-    let ref_pmin = instance.get_typed_func::<(), i32>(&mut store, "pmin").unwrap().call(&mut store, ()).unwrap();
-    let ref_pmax = instance.get_typed_func::<(), i32>(&mut store, "pmax").unwrap().call(&mut store, ()).unwrap();
+    let ref_pmin = instance
+        .get_typed_func::<(), i32>(&mut store, "pmin")
+        .unwrap()
+        .call(&mut store, ())
+        .unwrap();
+    let ref_pmax = instance
+        .get_typed_func::<(), i32>(&mut store, "pmax")
+        .unwrap()
+        .call(&mut store, ())
+        .unwrap();
+
     assert_eq!((mini_pmin, mini_pmax), (ref_pmin, ref_pmax));
 }
