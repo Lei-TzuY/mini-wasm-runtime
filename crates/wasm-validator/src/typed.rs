@@ -840,7 +840,7 @@ pub(super) fn validate_code(
                         stack.push(ValueType::V128);
                     }
                     130 | 142 | 143 | 144 | 145 | 146 | 147 | 149 | 150 | 151 | 152 | 153 | 155
-                    | 174 | 177 | 181 => {
+                    | 174 | 177 | 181 | 206 | 209 | 213 => {
                         pop_expect(&mut stack, &controls, ValueType::V128, function, offset)?;
                         pop_expect(&mut stack, &controls, ValueType::V128, function, offset)?;
                         stack.push(ValueType::V128);
