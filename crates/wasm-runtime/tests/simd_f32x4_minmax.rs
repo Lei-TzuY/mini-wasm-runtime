@@ -117,20 +117,57 @@ fn validator_rejects_f32x4_min_type_confusion() {
     ));
 }
 #[test]
-fn adjacent_f32x4_pmin_frontier_remains_fail_closed() {
+fn adjacent_f32x4_f64x2_abs_frontier_remains_fail_closed() {
     let mut i = Vec::new();
     push_f32x4_const(&mut i, [1.0; 4]);
     push_f32x4_const(&mut i, [2.0; 4]);
-    push_simd(&mut i, 234);
+    push_simd(&mut i, 236);
     let parsed = parse_module(&module(&i)).expect("fixture parses");
     assert!(matches!(
         Instance::new(parsed),
         Err(RuntimeError::Validation(
             ValidationError::UnsupportedPrefixedOpcode {
                 prefix: 0xfd,
-                subopcode: 234,
+                subopcode: 236,
                 ..
             }
+        ))
+    ));
+}
+
+#[test]
+fn f32x4_pmin_pmax_preserve_lhs_on_unordered_or_equal_inputs() {
+    assert_eq!(lane_bits([0.0; 4], [-0.0; 4], 234, 0), 0.0f32.to_bits());
+    assert_eq!(lane_bits([-0.0; 4], [0.0; 4], 235, 0), (-0.0f32).to_bits());
+    let lhs_nan = f32::from_bits(lane_bits([f32::NAN; 4], [1.0; 4], 234, 0));
+    assert!(lhs_nan.is_nan());
+    assert_eq!(lane_bits([1.0; 4], [f32::NAN; 4], 234, 0), 1.0f32.to_bits());
+    assert_eq!(lane_bits([1.0; 4], [f32::NAN; 4], 235, 0), 1.0f32.to_bits());
+}
+
+#[test]
+fn f32x4_pmin_pmax_cover_ordered_lanes() {
+    assert_eq!(
+        lane_bits([3.0, -2.0, 8.0, 1.0], [4.0, -5.0, 7.0, 2.0], 234, 1),
+        (-5.0f32).to_bits()
+    );
+    assert_eq!(
+        lane_bits([3.0, -2.0, 8.0, 1.0], [4.0, -5.0, 7.0, 2.0], 235, 3),
+        2.0f32.to_bits()
+    );
+}
+
+#[test]
+fn validator_rejects_f32x4_pmin_type_confusion() {
+    let mut i = Vec::new();
+    push_f32x4_const(&mut i, [1.0; 4]);
+    push_i32_const(&mut i, 1);
+    push_simd(&mut i, 234);
+    let parsed = parse_module(&module(&i)).expect("fixture parses");
+    assert!(matches!(
+        Instance::new(parsed),
+        Err(RuntimeError::Validation(
+            ValidationError::TypeMismatch { .. }
         ))
     ));
 }
