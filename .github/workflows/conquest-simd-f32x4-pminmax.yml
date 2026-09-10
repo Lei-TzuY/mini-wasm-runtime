@@ -18,150 +18,20 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt, clippy
-      - name: Implement f32x4 pmin pmax
-        shell: bash
-        run: |
-          python3 - <<'PY'
-          from pathlib import Path
-          import re
-
-          lib = Path('crates/wasm-runtime/src/lib.rs')
-          s = lib.read_text()
-          s = s.replace('228..=233 => {', '228..=235 => {')
-          s = s.replace('| 228..=233', '| 228..=235')
-          needle = '''                    _ => unreachable!("matched f32x4 binary numeric opcode"),'''
-          insert = '''                    234 => {
-                        if rhs_lane < lhs_lane { rhs_lane } else { lhs_lane }
-                    }
-                    235 => {
-                        if lhs_lane < rhs_lane { rhs_lane } else { lhs_lane }
-                    }
-                    _ => unreachable!("matched f32x4 binary numeric opcode"),'''
-          if needle not in s:
-              raise SystemExit('runtime insertion point missing')
-          s = s.replace(needle, insert, 1)
-          lib.write_text(s)
-
-          typed = Path('crates/wasm-validator/src/typed.rs')
-          s = typed.read_text()
-          if '228..=233' not in s:
-              raise SystemExit('validator range missing')
-          typed.write_text(s.replace('228..=233', '228..=235'))
-
-          for p in Path('crates/wasm-runtime/tests').glob('*.rs'):
-              s = p.read_text()
-              if 'frontier' not in s or 'subopcode: 234' not in s:
-                  continue
-              s = re.sub(r'push_simd\(([^\n]*), 234\);', r'push_simd(\1, 236);', s)
-              s = s.replace('subopcode: 234', 'subopcode: 236')
-              s = s.replace('pmin_frontier', 'f64x2_abs_frontier')
-              p.write_text(s)
-
-          runtime_test = Path('crates/wasm-runtime/tests/simd_f32x4_minmax.rs')
-          s = runtime_test.read_text()
-          addition = r'''
-
-#[test]
-fn f32x4_pmin_pmax_preserve_lhs_on_unordered_or_equal_inputs() {
-    assert_eq!(lane_bits([0.0; 4], [-0.0; 4], 234, 0), 0.0f32.to_bits());
-    assert_eq!(lane_bits([-0.0; 4], [0.0; 4], 235, 0), (-0.0f32).to_bits());
-
-    let lhs_nan = f32::from_bits(lane_bits([f32::NAN; 4], [1.0; 4], 234, 0));
-    assert!(lhs_nan.is_nan());
-    assert_eq!(lane_bits([1.0; 4], [f32::NAN; 4], 234, 0), 1.0f32.to_bits());
-    assert_eq!(lane_bits([1.0; 4], [f32::NAN; 4], 235, 0), 1.0f32.to_bits());
-}
-
-#[test]
-fn f32x4_pmin_pmax_cover_ordered_lanes() {
-    assert_eq!(
-        lane_bits([3.0, -2.0, 8.0, 1.0], [4.0, -5.0, 7.0, 2.0], 234, 1),
-        (-5.0f32).to_bits()
-    );
-    assert_eq!(
-        lane_bits([3.0, -2.0, 8.0, 1.0], [4.0, -5.0, 7.0, 2.0], 235, 3),
-        2.0f32.to_bits()
-    );
-}
-
-#[test]
-fn validator_rejects_f32x4_pmin_type_confusion() {
-    let mut i = Vec::new();
-    push_f32x4_const(&mut i, [1.0; 4]);
-    push_i32_const(&mut i, 1);
-    push_simd(&mut i, 234);
-    let parsed = parse_module(&module(&i)).expect("fixture parses");
-    assert!(matches!(
-        Instance::new(parsed),
-        Err(RuntimeError::Validation(ValidationError::TypeMismatch { .. }))
-    ));
-}
-'''
-          if 'f32x4_pmin_pmax_preserve_lhs' not in s:
-              s += addition
-          runtime_test.write_text(s)
-
-          diff = Path('differential/tests/simd_f32x4_pminmax.rs')
-          diff.write_text(r'''use wasm_runtime::{Instance, Value};
-use wasmtime::{Engine, Instance as WasmtimeInstance, Module as WasmtimeModule, Store};
-
-const FIXTURE: &str = r#"(module
- (memory 1)
- (func (export "pmin") (result i32) i32.const 0 v128.const f32x4 3 -2 8 1 v128.const f32x4 4 -5 7 2 f32x4.pmin v128.store i32.const 0 i32.load offset=4)
- (func (export "pmax") (result i32) i32.const 0 v128.const f32x4 3 -2 8 1 v128.const f32x4 4 -5 7 2 f32x4.pmax v128.store i32.const 0 i32.load offset=12))"#;
-
-#[test]
-fn f32x4_pmin_pmax_match_wasmtime_reference() {
-    let bytes = wat::parse_str(FIXTURE).expect("wat");
-    let parsed = wasm_parser::parse_module(&bytes).expect("parse");
-    let mut mini = Instance::new(parsed).expect("mini");
-    let mini_pmin = match mini.invoke_export_values("pmin", &[]).unwrap().as_slice() {
-        [Value::I32(v)] => *v,
-        _ => panic!(),
-    };
-    let mini_pmax = match mini.invoke_export_values("pmax", &[]).unwrap().as_slice() {
-        [Value::I32(v)] => *v,
-        _ => panic!(),
-    };
-
-    let engine = Engine::default();
-    let module = WasmtimeModule::new(&engine, &bytes).unwrap();
-    let mut store = Store::new(&engine, ());
-    let instance = WasmtimeInstance::new(&mut store, &module, &[]).unwrap();
-    let ref_pmin = instance
-        .get_typed_func::<(), i32>(&mut store, "pmin")
-        .unwrap()
-        .call(&mut store, ())
-        .unwrap();
-    let ref_pmax = instance
-        .get_typed_func::<(), i32>(&mut store, "pmax")
-        .unwrap()
-        .call(&mut store, ())
-        .unwrap();
-
-    assert_eq!((mini_pmin, mini_pmax), (ref_pmin, ref_pmax));
-}
-''')
-
-          roadmap = Path('docs/roadmap.md')
-          s = roadmap.read_text()
-          old = 'SIMD `f32x4` ordered `min`/`max` semantics are executable with NaN propagation, signed-zero handling, typed validation, regressions, and Wasmtime differential coverage; `pmin` remains fail-closed.'
-          new = 'SIMD `f32x4` ordered `min`/`max` plus pseudo-min/max (`pmin`/`pmax`) semantics are executable with NaN/equality behavior, signed-zero handling, typed validation, regressions, and Wasmtime differential coverage; the adjacent `f64x2.abs` opcode remains fail-closed.'
-          if old not in s:
-              raise SystemExit('roadmap marker missing')
-          roadmap.write_text(s.replace(old, new, 1))
-          PY
+      - name: Apply implementation
+        run: python3 .conquest/apply_f32x4_pminmax.py
       - name: Format
         run: cargo fmt --all
       - name: Clippy
         run: cargo clippy --workspace --all-targets -- -D warnings
-      - name: Test workspace
+      - name: Workspace tests
         run: cargo test --workspace
       - name: Docs
         run: cargo doc --workspace --no-deps
       - name: Commit clean candidate
         shell: bash
         run: |
+          rm .conquest/apply_f32x4_pminmax.py
           rm .github/workflows/conquest-simd-f32x4-pminmax.yml
           git config user.name LeiZ
           git config user.email '52287354+Lei-TzuY@users.noreply.github.com'
