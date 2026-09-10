@@ -25,17 +25,20 @@ jobs:
         run: |
           cargo fmt --all
           cargo fmt --manifest-path differential/Cargo.toml
-      - name: Main workspace checks
-        run: |
-          cargo fmt --all -- --check
-          cargo clippy --workspace --all-targets -- -D warnings
-          cargo test --workspace --all-targets
-          cargo doc --workspace --no-deps
-      - name: Differential checks
-        run: |
-          cargo fmt --manifest-path differential/Cargo.toml -- --check
-          cargo clippy --manifest-path differential/Cargo.toml --all-targets -- -D warnings
-          cargo test --manifest-path differential/Cargo.toml -- --nocapture
+      - name: Rustfmt check
+        run: cargo fmt --all -- --check
+      - name: Workspace Clippy
+        run: cargo clippy --workspace --all-targets -- -D warnings
+      - name: Workspace tests
+        run: cargo test --workspace --all-targets
+      - name: Workspace docs
+        run: cargo doc --workspace --no-deps
+      - name: Differential formatting
+        run: cargo fmt --manifest-path differential/Cargo.toml -- --check
+      - name: Differential Clippy
+        run: cargo clippy --manifest-path differential/Cargo.toml --all-targets -- -D warnings
+      - name: Wasmtime differential
+        run: cargo test --manifest-path differential/Cargo.toml -- --nocapture
       - name: Build clean candidate
         run: |
           rm -rf .conquest .github/workflows/conquest-f32x4-unary.yml
