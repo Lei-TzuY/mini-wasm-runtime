@@ -11,19 +11,11 @@ fn f32x4_minmax_matches_wasmtime_reference() {
     let bytes = wat::parse_str(FIXTURE).expect("wat");
     let parsed = wasm_parser::parse_module(&bytes).expect("parse");
     let mut mini = Instance::new(parsed).expect("mini");
-    let mini_min = match mini
-        .invoke_export_values("min", &[])
-        .unwrap()
-        .as_slice()
-    {
+    let mini_min = match mini.invoke_export_values("min", &[]).unwrap().as_slice() {
         [Value::I32(v)] => *v,
         _ => panic!(),
     };
-    let mini_max = match mini
-        .invoke_export_values("max", &[])
-        .unwrap()
-        .as_slice()
-    {
+    let mini_max = match mini.invoke_export_values("max", &[]).unwrap().as_slice() {
         [Value::I32(v)] => *v,
         _ => panic!(),
     };
