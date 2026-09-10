@@ -133,11 +133,11 @@ fn validator_rejects_i32x4_shift_type_confusion() {
 }
 
 #[test]
-fn adjacent_f32x4_frontier_remains_fail_closed() {
+fn adjacent_f32x4_binary_frontier_remains_fail_closed() {
     let mut instructions = Vec::new();
     push_i32x4_const(&mut instructions, [1, 0, 0, 0]);
     push_i32x4_const(&mut instructions, [2, 0, 0, 0]);
-    push_simd(&mut instructions, 224);
+    push_simd(&mut instructions, 228);
     push_i32x4_extract(&mut instructions, 0);
     let parsed = parse_module(&module(&instructions)).expect("unsupported-SIMD fixture must parse");
     assert!(matches!(
@@ -145,7 +145,7 @@ fn adjacent_f32x4_frontier_remains_fail_closed() {
         Err(RuntimeError::Validation(
             ValidationError::UnsupportedPrefixedOpcode {
                 prefix: 0xfd,
-                subopcode: 224,
+                subopcode: 228,
                 ..
             }
         ))
