@@ -15,11 +15,13 @@ fn push_u32(bytes: &mut Vec<u8>, mut value: u32) {
         }
     }
 }
+
 fn push_section(module: &mut Vec<u8>, id: u8, payload: &[u8]) {
     module.push(id);
     push_u32(module, payload.len() as u32);
     module.extend_from_slice(payload);
 }
+
 fn module(instructions: &[u8]) -> Vec<u8> {
     let mut bytes = vec![0x00, 0x61, 0x73, 0x6d, 0x01, 0, 0, 0];
     push_section(&mut bytes, 1, &[0x01, 0x60, 0x00, 0x01, 0x7f]);
@@ -35,16 +37,19 @@ fn module(instructions: &[u8]) -> Vec<u8> {
     push_section(&mut bytes, 10, &code);
     bytes
 }
-fn push_simd(i: &mut Vec<u8>, sub: u32) {
+
+fn push_simd(i: &mut Vec<u8>, subopcode: u32) {
     i.push(0xfd);
-    push_u32(i, sub);
+    push_u32(i, subopcode);
 }
+
 fn push_f32x4_const(i: &mut Vec<u8>, lanes: [f32; 4]) {
     push_simd(i, 12);
     for lane in lanes {
         i.extend_from_slice(&lane.to_bits().to_le_bytes());
     }
 }
+
 fn push_i32_const(i: &mut Vec<u8>, value: i32) {
     i.push(0x41);
     let mut value = value;
@@ -59,28 +64,34 @@ fn push_i32_const(i: &mut Vec<u8>, value: i32) {
         }
     }
 }
+
 fn push_v128_store(i: &mut Vec<u8>) {
     push_simd(i, 11);
     i.extend_from_slice(&[4, 0]);
 }
+
 fn push_i32_load(i: &mut Vec<u8>, offset: u32) {
     i.push(0x28);
     i.push(2);
     push_u32(i, offset);
 }
-fn lane_bits(input: [f32; 4], subopcode: u32, lane: u32) -> u32 {
+
+fn lane_bits(lhs: [f32; 4], rhs: [f32; 4], subopcode: u32, lane: u32) -> u32 {
     let mut instructions = Vec::new();
     instructions.extend_from_slice(&[0x02, 0x40]);
-    push_f32x4_const(&mut instructions, input);
+    push_f32x4_const(&mut instructions, lhs);
+    push_f32x4_const(&mut instructions, rhs);
     push_simd(&mut instructions, subopcode);
     instructions.push(0x1a);
     instructions.push(0x0b);
     push_i32_const(&mut instructions, 0);
-    push_f32x4_const(&mut instructions, input);
+    push_f32x4_const(&mut instructions, lhs);
+    push_f32x4_const(&mut instructions, rhs);
     push_simd(&mut instructions, subopcode);
     push_v128_store(&mut instructions);
     push_i32_const(&mut instructions, 0);
     push_i32_load(&mut instructions, lane * 4);
+
     let parsed = parse_module(&module(&instructions)).expect("fixture parses");
     let mut instance = Instance::new(parsed).expect("fixture validates");
     match instance
@@ -89,24 +100,38 @@ fn lane_bits(input: [f32; 4], subopcode: u32, lane: u32) -> u32 {
         .as_slice()
     {
         [Value::I32(value)] => *value as u32,
-        other => panic!("unexpected f32x4 unary result: {other:?}"),
+        other => panic!("unexpected f32x4 binary result: {other:?}"),
     }
 }
+
 #[test]
-fn f32x4_abs_neg_and_sqrt_are_lane_exact_for_finite_values() {
-    let input = [-0.0, -1.5, 9.0, 16.0];
-    assert_eq!(lane_bits(input, 224, 0), 0.0f32.to_bits());
-    assert_eq!(lane_bits(input, 224, 1), 1.5f32.to_bits());
-    assert_eq!(
-        lane_bits([0.0, 1.5, -9.0, -16.0], 225, 0),
-        (-0.0f32).to_bits()
-    );
-    assert_eq!(lane_bits(input, 227, 2), 3.0f32.to_bits());
-    assert_eq!(lane_bits(input, 227, 3), 4.0f32.to_bits());
+fn f32x4_add_sub_mul_div_are_lane_exact_for_finite_values() {
+    let lhs = [1.5, -8.0, 6.0, -9.0];
+    let rhs = [2.5, 2.0, -0.5, 3.0];
+    assert_eq!(lane_bits(lhs, rhs, 228, 0), 4.0f32.to_bits());
+    assert_eq!(lane_bits(lhs, rhs, 229, 1), (-10.0f32).to_bits());
+    assert_eq!(lane_bits(lhs, rhs, 230, 2), (-3.0f32).to_bits());
+    assert_eq!(lane_bits(lhs, rhs, 231, 3), (-3.0f32).to_bits());
 }
+
 #[test]
-fn validator_rejects_f32x4_unary_type_confusion() {
-    let instructions = vec![0x41, 0x01, 0xfd, 0xe0, 0x01];
+fn f32x4_binary_preserves_ieee_zero_and_infinity_behavior() {
+    assert_eq!(
+        lane_bits([-0.0, 1.0, 0.0, 1.0], [0.0, -1.0, 0.0, 0.0], 228, 0),
+        0.0f32.to_bits()
+    );
+    assert_eq!(
+        lane_bits([1.0, 1.0, 1.0, 1.0], [0.0, 1.0, 1.0, 1.0], 231, 0),
+        f32::INFINITY.to_bits()
+    );
+}
+
+#[test]
+fn validator_rejects_f32x4_binary_type_confusion() {
+    let mut instructions = Vec::new();
+    push_f32x4_const(&mut instructions, [1.0; 4]);
+    push_i32_const(&mut instructions, 1);
+    push_simd(&mut instructions, 228);
     let parsed = parse_module(&module(&instructions)).expect("fixture parses");
     assert!(matches!(
         Instance::new(parsed),
@@ -115,6 +140,7 @@ fn validator_rejects_f32x4_unary_type_confusion() {
         ))
     ));
 }
+
 #[test]
 fn adjacent_f32x4_min_frontier_remains_fail_closed() {
     let mut instructions = Vec::new();
