@@ -4235,7 +4235,7 @@ fn execute_simd(
             }
             stack.push(Value::V128(Rc::new(result)));
         }
-        228..=231 => {
+        228..=233 => {
             let rhs = numeric::v128_from_stack(stack)?;
             let lhs = numeric::v128_from_stack(stack)?;
             let mut result = [0u8; 16];
@@ -4252,7 +4252,29 @@ fn execute_simd(
                     229 => lhs_lane - rhs_lane,
                     230 => lhs_lane * rhs_lane,
                     231 => lhs_lane / rhs_lane,
-                    _ => unreachable!("matched f32x4 binary arithmetic opcode"),
+                    232 => {
+                        if lhs_lane.is_nan() || rhs_lane.is_nan() {
+                            f32::NAN
+                        } else if lhs_lane == 0.0 && rhs_lane == 0.0 {
+                            f32::from_bits(lhs_lane.to_bits() | rhs_lane.to_bits())
+                        } else if lhs_lane < rhs_lane {
+                            lhs_lane
+                        } else {
+                            rhs_lane
+                        }
+                    }
+                    233 => {
+                        if lhs_lane.is_nan() || rhs_lane.is_nan() {
+                            f32::NAN
+                        } else if lhs_lane == 0.0 && rhs_lane == 0.0 {
+                            f32::from_bits(lhs_lane.to_bits() & rhs_lane.to_bits())
+                        } else if lhs_lane > rhs_lane {
+                            lhs_lane
+                        } else {
+                            rhs_lane
+                        }
+                    }
+                    _ => unreachable!("matched f32x4 binary numeric opcode"),
                 };
                 result[start..start + 4].copy_from_slice(&output.to_bits().to_le_bytes());
             }
@@ -4540,7 +4562,7 @@ fn build_control_map(module: &Module, code: &[u8]) -> Result<ControlMap, Runtime
                     | 224
                     | 225
                     | 227
-                    | 228..=231
+                    | 228..=233
                     | 142
                     | 143
                     | 144

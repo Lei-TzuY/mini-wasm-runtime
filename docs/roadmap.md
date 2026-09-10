@@ -238,3 +238,5 @@ With the core interpreter, validator, differential harness, and resource limits 
 - [ ] broaden SIMD lane/arithmetic/memory semantics as subsequent bounded executable slices
 - [ ] threads/shared-memory semantics after an explicit concurrency and threat-model update
 A future JIT is intentionally out of scope until the interpreter and validation model are trustworthy.
+
+- SIMD `f32x4` ordered `min`/`max` semantics are executable with NaN propagation, signed-zero handling, typed validation, regressions, and Wasmtime differential coverage; `pmin` remains fail-closed.
