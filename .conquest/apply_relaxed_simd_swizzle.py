@@ -248,7 +248,7 @@ Path("differential/tests/simd_relaxed_swizzle.rs").write_text(differential)
 
 roadmap = Path("docs/roadmap.md")
 roadmap_text = roadmap.read_text()
-needle = "- SIMD terminal conversions (subopcodes 248-255) are executable across saturating f32/f64-to-i32 lanes, signed/unsigned i32-to-f32/f64 lanes, structured-control scanning, focused regressions, and Wasmtime differential coverage; relaxed-SIMD subopcode 256 remains fail-closed."
+needle = "- SIMD terminal conversions (subopcodes 248-255) are executable across saturating f32/f64-to-i32 lanes, signed/unsigned integer-to-f32/f64 lanes, structured-control scanning, focused regressions, and Wasmtime differential coverage; relaxed-SIMD subopcode 256 remains fail-closed."
 replacement = needle.replace("; relaxed-SIMD subopcode 256 remains fail-closed.", ".\n- Relaxed SIMD `i8x16.relaxed_swizzle` (subopcode 256) is executable with the portable deterministic zero-on-out-of-range lowering, typed validation, structured-control coverage, deterministic-lane Wasmtime differential evidence, and subopcode 257 retained as the fail-closed frontier.")
 if needle not in roadmap_text:
     raise SystemExit("roadmap frontier marker not found")
