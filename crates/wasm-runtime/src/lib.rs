@@ -4235,6 +4235,26 @@ fn execute_simd(
             }
             stack.push(Value::V128(Rc::new(result)));
         }
+        236 | 237 | 239 => {
+            let value = numeric::v128_from_stack(stack)?;
+            let mut result = [0u8; 16];
+            for lane in 0..2 {
+                let start = lane * 8;
+                let bits = u64::from_le_bytes(
+                    value[start..start + 8]
+                        .try_into()
+                        .expect("f64x2 lane width"),
+                );
+                let output = match subopcode {
+                    236 => bits & 0x7fff_ffff_ffff_ffff,
+                    237 => bits ^ 0x8000_0000_0000_0000,
+                    239 => f64::from_bits(bits).sqrt().to_bits(),
+                    _ => unreachable!("matched f64x2 unary opcode"),
+                };
+                result[start..start + 8].copy_from_slice(&output.to_le_bytes());
+            }
+            stack.push(Value::V128(Rc::new(result)));
+        }
         228..=235 => {
             let rhs = numeric::v128_from_stack(stack)?;
             let lhs = numeric::v128_from_stack(stack)?;
@@ -4577,6 +4597,9 @@ fn build_control_map(module: &Module, code: &[u8]) -> Result<ControlMap, Runtime
                     | 225
                     | 227
                     | 228..=235
+                    | 236
+                    | 237
+                    | 239
                     | 142
                     | 143
                     | 144

@@ -239,4 +239,4 @@ With the core interpreter, validator, differential harness, and resource limits 
 - [ ] threads/shared-memory semantics after an explicit concurrency and threat-model update
 A future JIT is intentionally out of scope until the interpreter and validation model are trustworthy.
 
-- SIMD `f32x4` ordered `min`/`max` plus pseudo-min/max (`pmin`/`pmax`) semantics are executable with NaN/equality behavior, signed-zero handling, typed validation, regressions, and Wasmtime differential coverage; the adjacent `f64x2.abs` opcode remains fail-closed.
+- SIMD `f32x4` ordered `min`/`max` plus pseudo-min/max (`pmin`/`pmax`) semantics are executable with NaN/equality behavior, signed-zero handling, typed validation, regressions, and Wasmtime differential coverage; `f64x2.abs`, `f64x2.neg`, and `f64x2.sqrt` are executable with typed validation, structured-control handling, focused regressions, and Wasmtime differential coverage; the adjacent `f64x2.add` opcode remains fail-closed.
