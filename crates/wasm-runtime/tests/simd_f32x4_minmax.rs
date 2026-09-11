@@ -117,18 +117,18 @@ fn validator_rejects_f32x4_min_type_confusion() {
     ));
 }
 #[test]
-fn adjacent_f32x4_f64x2_abs_frontier_remains_fail_closed() {
+fn adjacent_f32x4_f64x2_add_frontier_remains_fail_closed() {
     let mut i = Vec::new();
     push_f32x4_const(&mut i, [1.0; 4]);
     push_f32x4_const(&mut i, [2.0; 4]);
-    push_simd(&mut i, 236);
+    push_simd(&mut i, 240);
     let parsed = parse_module(&module(&i)).expect("fixture parses");
     assert!(matches!(
         Instance::new(parsed),
         Err(RuntimeError::Validation(
             ValidationError::UnsupportedPrefixedOpcode {
                 prefix: 0xfd,
-                subopcode: 236,
+                subopcode: 240,
                 ..
             }
         ))

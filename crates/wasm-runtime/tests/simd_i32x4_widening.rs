@@ -134,12 +134,12 @@ fn i32x4_widening_validates_and_scans_structured_control() {
 }
 
 #[test]
-fn adjacent_f32x4_f64x2_abs_frontier_remains_fail_closed() {
+fn adjacent_f32x4_f64x2_add_frontier_remains_fail_closed() {
     let mut instructions = Vec::new();
     push_i16x8_const(&mut instructions, [1; 8]);
     push_simd(&mut instructions, 167);
     push_i32_const(&mut instructions, 1);
-    push_simd(&mut instructions, 236); // f32x4 frontier remains outside this slice
+    push_simd(&mut instructions, 240); // f32x4 frontier remains outside this slice
     push_i32x4_extract(&mut instructions, 0);
 
     let parsed = parse_module(&module(&instructions)).expect("unsupported-SIMD fixture must parse");
@@ -148,7 +148,7 @@ fn adjacent_f32x4_f64x2_abs_frontier_remains_fail_closed() {
         Err(RuntimeError::Validation(
             ValidationError::UnsupportedPrefixedOpcode {
                 prefix: 0xfd,
-                subopcode: 236,
+                subopcode: 240,
                 ..
             }
         ))
