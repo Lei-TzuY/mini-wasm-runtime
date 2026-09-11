@@ -152,14 +152,14 @@ fn adjacent_f32x4_f64x2_min_frontier_remains_fail_closed() {
     let mut instructions = Vec::new();
     push_i64x2_const(&mut instructions, [1, 2]);
     push_i64x2_const(&mut instructions, [1, 3]);
-    push_simd(&mut instructions, 246);
+    push_simd(&mut instructions, 248);
     let parsed = parse_module(&module(&instructions)).expect("fixture parses");
     assert!(matches!(
         Instance::new(parsed),
         Err(RuntimeError::Validation(
             ValidationError::UnsupportedPrefixedOpcode {
                 prefix: 0xfd,
-                subopcode: 246,
+                subopcode: 248,
                 ..
             }
         ))
