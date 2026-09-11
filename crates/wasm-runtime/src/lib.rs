@@ -4296,6 +4296,99 @@ fn execute_simd(
             }
             stack.push(Value::V128(Rc::new(result)));
         }
+        248..=251 => {
+            let value = numeric::v128_from_stack(stack)?;
+            let mut result = [0u8; 16];
+            for lane in 0..4 {
+                let start = lane * 4;
+                match subopcode {
+                    248 => {
+                        let input = f32::from_bits(u32::from_le_bytes(
+                            value[start..start + 4]
+                                .try_into()
+                                .expect("f32x4 lane width"),
+                        ));
+                        result[start..start + 4].copy_from_slice(&(input as i32).to_le_bytes());
+                    }
+                    249 => {
+                        let input = f32::from_bits(u32::from_le_bytes(
+                            value[start..start + 4]
+                                .try_into()
+                                .expect("f32x4 lane width"),
+                        ));
+                        result[start..start + 4].copy_from_slice(&(input as u32).to_le_bytes());
+                    }
+                    250 => {
+                        let input = i32::from_le_bytes(
+                            value[start..start + 4]
+                                .try_into()
+                                .expect("i32x4 lane width"),
+                        );
+                        result[start..start + 4]
+                            .copy_from_slice(&(input as f32).to_bits().to_le_bytes());
+                    }
+                    251 => {
+                        let input = u32::from_le_bytes(
+                            value[start..start + 4]
+                                .try_into()
+                                .expect("i32x4 lane width"),
+                        );
+                        result[start..start + 4]
+                            .copy_from_slice(&(input as f32).to_bits().to_le_bytes());
+                    }
+                    _ => unreachable!("matched f32x4 conversion opcode"),
+                }
+            }
+            stack.push(Value::V128(Rc::new(result)));
+        }
+        252..=255 => {
+            let value = numeric::v128_from_stack(stack)?;
+            let mut result = [0u8; 16];
+            match subopcode {
+                252 | 253 => {
+                    for lane in 0..2 {
+                        let input_start = lane * 8;
+                        let output_start = lane * 4;
+                        let input = f64::from_bits(u64::from_le_bytes(
+                            value[input_start..input_start + 8]
+                                .try_into()
+                                .expect("f64x2 lane width"),
+                        ));
+                        let output = if subopcode == 252 {
+                            (input as i32).to_le_bytes()
+                        } else {
+                            (input as u32).to_le_bytes()
+                        };
+                        result[output_start..output_start + 4].copy_from_slice(&output);
+                    }
+                }
+                254 | 255 => {
+                    for lane in 0..2 {
+                        let input_start = lane * 4;
+                        let output_start = lane * 8;
+                        let output = if subopcode == 254 {
+                            let input = i32::from_le_bytes(
+                                value[input_start..input_start + 4]
+                                    .try_into()
+                                    .expect("i32x4 lane width"),
+                            );
+                            (input as f64).to_bits()
+                        } else {
+                            let input = u32::from_le_bytes(
+                                value[input_start..input_start + 4]
+                                    .try_into()
+                                    .expect("i32x4 lane width"),
+                            );
+                            (input as f64).to_bits()
+                        };
+                        result[output_start..output_start + 8]
+                            .copy_from_slice(&output.to_le_bytes());
+                    }
+                }
+                _ => unreachable!("matched terminal SIMD conversion opcode"),
+            }
+            stack.push(Value::V128(Rc::new(result)));
+        }
         246..=247 => {
             let rhs = numeric::v128_from_stack(stack)?;
             let lhs = numeric::v128_from_stack(stack)?;
@@ -4697,7 +4790,7 @@ fn build_control_map(module: &Module, code: &[u8]) -> Result<ControlMap, Runtime
                     | 236
                     | 237
                     | 239
-                    | 240..=247
+                    | 240..=255
                     | 142
                     | 143
                     | 144
