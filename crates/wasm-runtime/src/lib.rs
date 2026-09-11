@@ -4235,7 +4235,7 @@ fn execute_simd(
             }
             stack.push(Value::V128(Rc::new(result)));
         }
-        228..=233 => {
+        228..=235 => {
             let rhs = numeric::v128_from_stack(stack)?;
             let lhs = numeric::v128_from_stack(stack)?;
             let mut result = [0u8; 16];
@@ -4272,6 +4272,20 @@ fn execute_simd(
                             lhs_lane
                         } else {
                             rhs_lane
+                        }
+                    }
+                    234 => {
+                        if rhs_lane < lhs_lane {
+                            rhs_lane
+                        } else {
+                            lhs_lane
+                        }
+                    }
+                    235 => {
+                        if lhs_lane < rhs_lane {
+                            rhs_lane
+                        } else {
+                            lhs_lane
                         }
                     }
                     _ => unreachable!("matched f32x4 binary numeric opcode"),
@@ -4562,7 +4576,7 @@ fn build_control_map(module: &Module, code: &[u8]) -> Result<ControlMap, Runtime
                     | 224
                     | 225
                     | 227
-                    | 228..=233
+                    | 228..=235
                     | 142
                     | 143
                     | 144
