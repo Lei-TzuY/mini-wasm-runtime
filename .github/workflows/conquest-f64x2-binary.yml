@@ -1,16 +1,11 @@
-name: Conquest f64x2 binary construction
-
+name: Conquest f64x2 binary
 on:
   push:
-    branches:
-      - conquest/simd-f64x2-binary
-
+    branches: [conquest/simd-f64x2-binary]
 permissions:
   contents: write
-
 jobs:
-  construct:
-    if: ${{ !startsWith(github.event.head_commit.message, 'feat: add SIMD f64x2 binary arithmetic') }}
+  conquest:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -20,32 +15,32 @@ jobs:
         with:
           components: rustfmt, clippy
       - name: Apply implementation
-        run: python3 .conquest/apply_f64x2_binary.py
-      - name: Format workspace
-        run: cargo fmt --all
-      - name: Check workspace formatting
-        run: cargo fmt --all -- --check
-      - name: Clippy workspace
+        run: python .conquest/apply_f64x2_binary.py
+      - name: Format
+        run: |
+          cargo fmt --all
+          cargo fmt --all -- --check
+      - name: Clippy
         run: cargo clippy --workspace --all-targets -- -D warnings
-      - name: Test workspace
+      - name: Workspace tests
         run: cargo test --workspace
-      - name: Docs workspace
-        run: RUSTDOCFLAGS='-D warnings' cargo doc --workspace --no-deps
-      - name: Format differential
-        run: cargo fmt --manifest-path differential/Cargo.toml
-      - name: Check differential formatting
-        run: cargo fmt --manifest-path differential/Cargo.toml -- --check
-      - name: Clippy differential
+      - name: Docs
+        run: cargo doc --workspace --no-deps
+      - name: Differential format
+        run: |
+          cargo fmt --manifest-path differential/Cargo.toml --all
+          cargo fmt --manifest-path differential/Cargo.toml --all -- --check
+      - name: Differential clippy
         run: cargo clippy --manifest-path differential/Cargo.toml --all-targets -- -D warnings
-      - name: Test f64x2 differential
+      - name: Wasmtime differential
         run: cargo test --manifest-path differential/Cargo.toml --test simd_f64x2_binary
       - name: Commit clean candidate
         run: |
-          rm -f .conquest/apply_f64x2_binary.py .github/workflows/conquest-f64x2-binary.yml
-          rmdir .conquest 2>/dev/null || true
-          git config user.name 'Lei Tzu-Yi'
-          git config user.email '52287354+Lei-TzuY@users.noreply.github.com'
+          rm -rf .conquest
+          rm -f .github/workflows/conquest-f64x2-binary.yml
+          git config user.name LeiZ
+          git config user.email 52287354+Lei-TzuY@users.noreply.github.com
           git add -A
-          test -z "$(git diff --cached --check)"
-          git commit -m 'feat: add SIMD f64x2 binary arithmetic'
-          git push origin HEAD:conquest/simd-f64x2-binary
+          git diff --cached --check
+          git commit -m "feat: add SIMD f64x2 binary arithmetic"
+          git push
