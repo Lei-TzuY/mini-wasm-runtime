@@ -1,0 +1,176 @@
+from pathlib import Path
+import re
+
+
+def replace_once(path: str, old: str, new: str) -> None:
+    p = Path(path)
+    text = p.read_text()
+    count = text.count(old)
+    if count != 1:
+        raise SystemExit(f"{path}: expected one occurrence, found {count}: {old!r}")
+    p.write_text(text.replace(old, new, 1))
+
+
+lib_path = Path("crates/wasm-runtime/src/lib.rs")
+lib = lib_path.read_text()
+marker = "        240..=243 => {"
+if lib.count(marker) != 1:
+    raise SystemExit("runtime insertion marker drifted")
+block = '''        246..=247 => {
+            let rhs = numeric::v128_from_stack(stack)?;
+            let lhs = numeric::v128_from_stack(stack)?;
+            let mut result = [0u8; 16];
+            for lane in 0..2 {
+                let start = lane * 8;
+                let lhs_lane = f64::from_bits(u64::from_le_bytes(
+                    lhs[start..start + 8].try_into().expect("f64x2 lane width"),
+                ));
+                let rhs_lane = f64::from_bits(u64::from_le_bytes(
+                    rhs[start..start + 8].try_into().expect("f64x2 lane width"),
+                ));
+                let output = match subopcode {
+                    246 => {
+                        if rhs_lane < lhs_lane {
+                            rhs_lane
+                        } else {
+                            lhs_lane
+                        }
+                    }
+                    247 => {
+                        if lhs_lane < rhs_lane {
+                            rhs_lane
+                        } else {
+                            lhs_lane
+                        }
+                    }
+                    _ => unreachable!("matched f64x2 pseudo-min/max opcode"),
+                };
+                result[start..start + 8].copy_from_slice(&output.to_bits().to_le_bytes());
+            }
+            stack.push(Value::V128(Rc::new(result)));
+        }
+'''
+lib = lib.replace(marker, block + marker, 1)
+if lib.count("| 240..=245") != 1:
+    raise SystemExit("runtime control-map frontier drifted")
+lib = lib.replace("| 240..=245", "| 240..=247", 1)
+lib_path.write_text(lib)
+
+replace_once(
+    "crates/wasm-validator/src/typed.rs",
+    "| 240..=245 => {",
+    "| 240..=247 => {",
+)
+
+tests_dir = Path("crates/wasm-runtime/tests")
+moved = []
+for p in sorted(tests_dir.glob("simd_*.rs")):
+    text = p.read_text()
+    if "subopcode: 246" not in text:
+        continue
+    text, n = re.subn(r"\b246\b", "248", text)
+    if n < 2:
+        raise SystemExit(f"{p}: suspicious frontier replacement count {n}")
+    text = text.replace(
+        "adjacent_f64x2_pmin_frontier_remains_fail_closed",
+        "adjacent_f64x2_conversion_frontier_remains_fail_closed",
+    )
+    p.write_text(text)
+    moved.append(str(p))
+if len(moved) < 10:
+    raise SystemExit(f"expected broad stale-frontier set, moved only {len(moved)} files: {moved}")
+
+f64_test = Path("crates/wasm-runtime/tests/simd_f64x2_minmax.rs")
+text = f64_test.read_text()
+addition = r'''
+
+#[test]
+fn f64x2_pmin_pmax_preserve_lhs_on_unordered_or_equal_inputs() {
+    assert_eq!(lane_bits([0.0; 2], [-0.0; 2], 246, 0), 0.0f64.to_bits());
+    assert_eq!(lane_bits([-0.0; 2], [0.0; 2], 247, 0), (-0.0f64).to_bits());
+
+    let lhs_nan = f64::from_bits(lane_bits([f64::NAN; 2], [1.0; 2], 246, 0));
+    assert!(lhs_nan.is_nan());
+    assert_eq!(lane_bits([1.0; 2], [f64::NAN; 2], 246, 0), 1.0f64.to_bits());
+    assert_eq!(lane_bits([1.0; 2], [f64::NAN; 2], 247, 0), 1.0f64.to_bits());
+}
+
+#[test]
+fn f64x2_pmin_pmax_cover_ordered_lanes() {
+    assert_eq!(lane_bits([3.0, -2.0], [4.0, -5.0], 246, 1), (-5.0f64).to_bits());
+    assert_eq!(lane_bits([3.0, -2.0], [4.0, -5.0], 247, 0), 4.0f64.to_bits());
+}
+
+#[test]
+fn validator_rejects_f64x2_pmin_type_confusion() {
+    let mut instructions = Vec::new();
+    push_f64x2_const(&mut instructions, [1.0; 2]);
+    push_i32_const(&mut instructions, 1);
+    push_simd(&mut instructions, 246);
+    let parsed = parse_module(&module(&instructions)).expect("fixture parses");
+    assert!(matches!(
+        Instance::new(parsed),
+        Err(RuntimeError::Validation(
+            ValidationError::TypeMismatch { .. }
+        ))
+    ));
+}
+'''
+if "f64x2_pmin_pmax_preserve_lhs_on_unordered_or_equal_inputs" in text:
+    raise SystemExit("pmin/pmax tests already present")
+f64_test.write_text(text.rstrip() + addition + "\n")
+
+diff = Path("differential/tests/simd_f64x2_pminmax.rs")
+if diff.exists():
+    raise SystemExit("differential pmin/pmax test already exists")
+diff.write_text(r'''use wasm_runtime::{Instance, Value};
+use wasmtime::{Engine, Instance as WasmtimeInstance, Module as WasmtimeModule, Store};
+
+const FIXTURE: &str = r#"(module
+ (memory 1)
+ (func (export "pmin") (result i64) i32.const 0 v128.const f64x2 3 -2 v128.const f64x2 4 -5 f64x2.pmin v128.store i32.const 0 i64.load offset=8)
+ (func (export "pmax") (result i64) i32.const 0 v128.const f64x2 3 -2 v128.const f64x2 4 -5 f64x2.pmax v128.store i32.const 0 i64.load))"#;
+
+#[test]
+fn f64x2_pmin_pmax_match_wasmtime_reference() {
+    let bytes = wat::parse_str(FIXTURE).expect("wat");
+    let parsed = wasm_parser::parse_module(&bytes).expect("parse");
+    let mut mini = Instance::new(parsed).expect("mini");
+    let mini_pmin = match mini.invoke_export_values("pmin", &[]).unwrap().as_slice() {
+        [Value::I64(v)] => *v,
+        _ => panic!(),
+    };
+    let mini_pmax = match mini.invoke_export_values("pmax", &[]).unwrap().as_slice() {
+        [Value::I64(v)] => *v,
+        _ => panic!(),
+    };
+
+    let engine = Engine::default();
+    let module = WasmtimeModule::new(&engine, &bytes).unwrap();
+    let mut store = Store::new(&engine, ());
+    let instance = WasmtimeInstance::new(&mut store, &module, &[]).unwrap();
+    let ref_pmin = instance
+        .get_typed_func::<(), i64>(&mut store, "pmin")
+        .unwrap()
+        .call(&mut store, ())
+        .unwrap();
+    let ref_pmax = instance
+        .get_typed_func::<(), i64>(&mut store, "pmax")
+        .unwrap()
+        .call(&mut store, ())
+        .unwrap();
+
+    assert_eq!((mini_pmin, mini_pmax), (ref_pmin, ref_pmax));
+}
+''')
+
+roadmap = Path("docs/roadmap.md")
+lines = roadmap.read_text().splitlines()
+needle = "SIMD `f64x2` ordered `min`/`max`"
+positions = [i for i, line in enumerate(lines) if needle in line]
+if len(positions) != 1:
+    raise SystemExit(f"roadmap f64x2 min/max marker count={len(positions)}")
+note = "- SIMD `f64x2.pmin` / `f64x2.pmax` pseudo-min/max semantics are executable with left-preserving unordered/equal behavior, exact `v128, v128 -> v128` validation, structured-control scanning, deterministic signed-zero/NaN/type-confusion regressions, and Wasmtime differential evidence; subopcode 248 remains fail-closed."
+if note not in lines:
+    lines.insert(positions[0] + 1, note)
+roadmap.write_text("\n".join(lines) + "\n")
