@@ -23,6 +23,26 @@ jobs:
         run: |
           sed -i 's/signed\/unsigned integer-to-f32\/f64 lanes/signed\/unsigned integer-to-float lanes, the f64x2 low-lane conversion forms, typed validation/' .conquest/apply_relaxed_simd_swizzle.py
           python3 .conquest/apply_relaxed_simd_swizzle.py
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+
+          tests = Path("crates/wasm-runtime/tests")
+          for path in tests.glob("simd_*.rs"):
+              if path.name == "simd_relaxed_swizzle.rs":
+                  continue
+              text = path.read_text()
+              if "subopcode: 256" not in text:
+                  continue
+              text = text.replace("subopcode: 256", "subopcode: 257")
+              text = re.sub(r"(simd\([^,\n]+,\s*)256(\);)", r"\g<1>257\2", text)
+              lines = []
+              for line in text.splitlines(keepends=True):
+                  if line.lstrip().startswith("fn ") and "frontier" in line and "256" in line:
+                      line = line.replace("256", "257")
+                  lines.append(line)
+              path.write_text("".join(lines))
+          PY
           cargo fmt --all
       - name: Format
         run: cargo fmt --all -- --check
@@ -43,7 +63,7 @@ jobs:
         run: |
           git config user.name LeiZ
           git config user.email 52287354+Lei-TzuY@users.noreply.github.com
-          git add crates/wasm-runtime/src/lib.rs crates/wasm-validator/src/typed.rs crates/wasm-runtime/tests/simd_relaxed_swizzle.rs differential/tests/simd_relaxed_swizzle.rs docs/roadmap.md
+          git add crates/wasm-runtime/src/lib.rs crates/wasm-validator/src/typed.rs crates/wasm-runtime/tests/simd_*.rs differential/tests/simd_relaxed_swizzle.rs docs/roadmap.md
           git rm .conquest/apply_relaxed_simd_swizzle.py .github/workflows/conquest-relaxed-simd-swizzle.yml
           git commit -m "feat: add relaxed SIMD swizzle semantics"
           git push origin HEAD:$BRANCH
