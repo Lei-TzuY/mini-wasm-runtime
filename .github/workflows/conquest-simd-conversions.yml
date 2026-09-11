@@ -19,7 +19,9 @@ jobs:
           rustup toolchain install stable --profile minimal --component rustfmt,clippy
           rustup default stable
       - name: Apply implementation
-        run: python .conquest/apply_simd_conversions.py
+        run: |
+          python .conquest/apply_simd_conversions.py
+          python .conquest/update_simd_frontier.py
       - name: Format workspace
         run: |
           cargo fmt --all
@@ -44,7 +46,7 @@ jobs:
         run: cargo test -p wasm-runtime --test simd_conversions relaxed_simd_frontier_remains_fail_closed_at_256
       - name: Create clean candidate
         run: |
-          rm -f .conquest/apply_simd_conversions.py .github/workflows/conquest-simd-conversions.yml
+          rm -f .conquest/apply_simd_conversions.py .conquest/update_simd_frontier.py .github/workflows/conquest-simd-conversions.yml
           rmdir .conquest 2>/dev/null || true
           git add -A
           git diff --cached --check
