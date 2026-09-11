@@ -20,6 +20,8 @@ jobs:
         run: |
           cargo fmt --all
           cargo fmt --all -- --check
+      - name: Clippy fix
+        run: cargo clippy --fix --workspace --all-targets --allow-dirty --allow-staged
       - name: Clippy
         run: cargo clippy --workspace --all-targets -- -D warnings
       - name: Test
