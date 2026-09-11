@@ -264,7 +264,7 @@ fn adjacent_f32x4_f64x2_min_frontier_remains_fail_closed() {
     push_simd(&mut instructions, 167); // i32x4.extend_low_i16x8_s is supported
     push_splat(&mut instructions, 2);
     push_simd(&mut instructions, 167); // second operand stays V128-typed
-    push_simd(&mut instructions, 244); // next f64x2 opcode remains outside this slice
+    push_simd(&mut instructions, 246); // next f64x2 opcode remains outside this slice
     push_extract_s(&mut instructions, 0);
 
     let parsed = parse_module(&module(&instructions)).expect("unsupported-SIMD fixture must parse");
@@ -273,7 +273,7 @@ fn adjacent_f32x4_f64x2_min_frontier_remains_fail_closed() {
         Err(RuntimeError::Validation(
             ValidationError::UnsupportedPrefixedOpcode {
                 prefix: 0xfd,
-                subopcode: 244,
+                subopcode: 246,
                 ..
             }
         ))
