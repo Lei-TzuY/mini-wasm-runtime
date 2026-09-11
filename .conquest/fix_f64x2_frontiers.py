@@ -1,4 +1,5 @@
 from pathlib import Path
+import re
 
 root = Path("crates/wasm-runtime/tests")
 updated = []
@@ -10,11 +11,11 @@ for path in sorted(root.glob("simd_*.rs")):
         continue
     original = text
     text = text.replace("f64x2_abs_frontier", "f64x2_add_frontier")
-    text = text.replace("push_simd(&mut instructions, 236);", "push_simd(&mut instructions, 240);")
+    text = re.sub(r"push_simd\(&mut ([A-Za-z_][A-Za-z0-9_]*), 236\);", r"push_simd(&mut \1, 240);", text)
     text = text.replace("subopcode: 236,", "subopcode: 240,")
     if text == original:
         raise SystemExit(f"stale 236 frontier not rewritten in {path}")
-    if "subopcode: 236" in text:
+    if "subopcode: 236" in text or re.search(r"push_simd\(&mut [A-Za-z_][A-Za-z0-9_]*, 236\);", text):
         raise SystemExit(f"residual stale 236 frontier in {path}")
     path.write_text(text)
     updated.append(path.as_posix())
