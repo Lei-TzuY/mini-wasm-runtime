@@ -165,12 +165,9 @@ fn f64x2_pmin_pmax_match_wasmtime_reference() {
 ''')
 
 roadmap = Path("docs/roadmap.md")
-lines = roadmap.read_text().splitlines()
-needle = "SIMD `f64x2` ordered `min`/`max`"
-positions = [i for i, line in enumerate(lines) if needle in line]
-if len(positions) != 1:
-    raise SystemExit(f"roadmap f64x2 min/max marker count={len(positions)}")
-note = "- SIMD `f64x2.pmin` / `f64x2.pmax` pseudo-min/max semantics are executable with left-preserving unordered/equal behavior, exact `v128, v128 -> v128` validation, structured-control scanning, deterministic signed-zero/NaN/type-confusion regressions, and Wasmtime differential evidence; subopcode 248 remains fail-closed."
-if note not in lines:
-    lines.insert(positions[0] + 1, note)
-roadmap.write_text("\n".join(lines) + "\n")
+text = roadmap.read_text()
+old = "the adjacent `f64x2.pmin` opcode remains fail-closed."
+new = "`f64x2.pmin` and `f64x2.pmax` are executable with left-preserving unordered/equal behavior, exact `v128, v128 -> v128` validation, structured-control scanning, deterministic signed-zero/NaN/type-confusion regressions, and Wasmtime differential evidence; subopcode 248 remains fail-closed."
+if text.count(old) != 1:
+    raise SystemExit(f"roadmap frontier marker count={text.count(old)}")
+roadmap.write_text(text.replace(old, new, 1))
