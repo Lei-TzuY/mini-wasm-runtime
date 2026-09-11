@@ -139,20 +139,58 @@ fn validator_rejects_f64x2_minmax_type_confusion() {
 }
 
 #[test]
-fn adjacent_f64x2_pmin_frontier_remains_fail_closed() {
+fn adjacent_f64x2_conversion_frontier_remains_fail_closed() {
     let mut instructions = Vec::new();
     push_f64x2_const(&mut instructions, [1.0, 2.0]);
     push_f64x2_const(&mut instructions, [3.0, 4.0]);
-    push_simd(&mut instructions, 246);
+    push_simd(&mut instructions, 248);
     let parsed = parse_module(&module(&instructions)).expect("fixture parses");
     assert!(matches!(
         Instance::new(parsed),
         Err(RuntimeError::Validation(
             ValidationError::UnsupportedPrefixedOpcode {
                 prefix: 0xfd,
-                subopcode: 246,
+                subopcode: 248,
                 ..
             }
+        ))
+    ));
+}
+
+#[test]
+fn f64x2_pmin_pmax_preserve_lhs_on_unordered_or_equal_inputs() {
+    assert_eq!(lane_bits([0.0; 2], [-0.0; 2], 246, 0), 0.0f64.to_bits());
+    assert_eq!(lane_bits([-0.0; 2], [0.0; 2], 247, 0), (-0.0f64).to_bits());
+
+    let lhs_nan = f64::from_bits(lane_bits([f64::NAN; 2], [1.0; 2], 246, 0));
+    assert!(lhs_nan.is_nan());
+    assert_eq!(lane_bits([1.0; 2], [f64::NAN; 2], 246, 0), 1.0f64.to_bits());
+    assert_eq!(lane_bits([1.0; 2], [f64::NAN; 2], 247, 0), 1.0f64.to_bits());
+}
+
+#[test]
+fn f64x2_pmin_pmax_cover_ordered_lanes() {
+    assert_eq!(
+        lane_bits([3.0, -2.0], [4.0, -5.0], 246, 1),
+        (-5.0f64).to_bits()
+    );
+    assert_eq!(
+        lane_bits([3.0, -2.0], [4.0, -5.0], 247, 0),
+        4.0f64.to_bits()
+    );
+}
+
+#[test]
+fn validator_rejects_f64x2_pmin_type_confusion() {
+    let mut instructions = Vec::new();
+    push_f64x2_const(&mut instructions, [1.0; 2]);
+    push_i32_const(&mut instructions, 1);
+    push_simd(&mut instructions, 246);
+    let parsed = parse_module(&module(&instructions)).expect("fixture parses");
+    assert!(matches!(
+        Instance::new(parsed),
+        Err(RuntimeError::Validation(
+            ValidationError::TypeMismatch { .. }
         ))
     ));
 }
