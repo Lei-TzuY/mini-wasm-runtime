@@ -42,6 +42,7 @@ jobs:
           s = s.replace(marker, tests, 1)
           s = s.replace('push_simd(&mut instructions, 259);\n    let parsed = parse_module(&module(&instructions)).expect("fixture parses");\n    assert!(matches!(\n        Instance::new(parsed),\n        Err(RuntimeError::Validation(\n            ValidationError::UnsupportedPrefixedOpcode {\n                prefix: 0xfd,\n                subopcode: 259,', 'push_simd(&mut instructions, 260);\n    let parsed = parse_module(&module(&instructions)).expect("fixture parses");\n    assert!(matches!(\n        Instance::new(parsed),\n        Err(RuntimeError::Validation(\n            ValidationError::UnsupportedPrefixedOpcode {\n                prefix: 0xfd,\n                subopcode: 260,', 1)
           p.write_text(s)
+      - run: cargo fmt --all
       - run: cargo fmt --all -- --check
       - run: cargo clippy --workspace --all-targets -- -D warnings
       - run: cargo test --workspace
