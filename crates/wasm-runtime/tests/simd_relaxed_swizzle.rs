@@ -123,7 +123,7 @@ fn next_relaxed_simd_subopcode_remains_fail_closed() {
     let mut code = Vec::new();
     push_v128_const(&mut code, table());
     push_v128_const(&mut code, table());
-    simd(&mut code, 259);
+    simd(&mut code, 260);
     code.extend_from_slice(&[0xfd, 0x16, 0x00]);
     let parsed = parse_module(&module(&code)).expect("257 frontier fixture must parse");
     assert!(matches!(
@@ -131,7 +131,7 @@ fn next_relaxed_simd_subopcode_remains_fail_closed() {
         Err(RuntimeError::Validation(
             ValidationError::UnsupportedPrefixedOpcode {
                 prefix: 0xfd,
-                subopcode: 259,
+                subopcode: 260,
                 ..
             }
         ))

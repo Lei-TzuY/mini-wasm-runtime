@@ -233,14 +233,14 @@ fn conversion_validates_and_scans_structured_control() {
 fn relaxed_simd_frontier_remains_fail_closed_at_257() {
     let mut instructions = Vec::new();
     v128_const(&mut instructions, [0; 16]);
-    simd(&mut instructions, 259);
+    simd(&mut instructions, 260);
     let parsed = parse_module(&module(0x7b, &instructions)).expect("frontier fixture parses");
     assert!(matches!(
         Instance::new(parsed),
         Err(RuntimeError::Validation(
             ValidationError::UnsupportedPrefixedOpcode {
                 prefix: 0xfd,
-                subopcode: 259,
+                subopcode: 260,
                 ..
             }
         ))
