@@ -1,8 +1,6 @@
 use wasm_parser::parse_module;
 use wasm_runtime::{Instance as MiniInstance, Value};
-use wasmtime::{
-    Config, Engine, Instance as ReferenceInstance, Module as ReferenceModule, Store,
-};
+use wasmtime::{Config, Engine, Instance as ReferenceInstance, Module as ReferenceModule, Store};
 
 const FIXTURE: &str = r#"
 (module
@@ -27,13 +25,15 @@ fn mini_trace(bytes: &[u8]) -> Vec<i32> {
         MiniInstance::new(module).expect("mini runtime must instantiate relaxed madd fixture");
     EXPORTS
         .into_iter()
-        .map(|export| match instance
-            .invoke_export_values(export, &[])
-            .expect("mini relaxed madd execution must succeed")
-            .as_slice()
-        {
-            [Value::I32(value)] => *value,
-            other => panic!("unexpected mini result for {export}: {other:?}"),
+        .map(|export| {
+            match instance
+                .invoke_export_values(export, &[])
+                .expect("mini relaxed madd execution must succeed")
+                .as_slice()
+            {
+                [Value::I32(value)] => *value,
+                other => panic!("unexpected mini result for {export}: {other:?}"),
+            }
         })
         .collect()
 }
@@ -43,8 +43,8 @@ fn reference_trace(bytes: &[u8]) -> Vec<i32> {
     config.wasm_simd(true);
     config.wasm_relaxed_simd(true);
     let engine = Engine::new(&config).expect("relaxed-SIMD Wasmtime engine must initialize");
-    let module = ReferenceModule::new(&engine, bytes)
-        .expect("Wasmtime must compile relaxed madd fixture");
+    let module =
+        ReferenceModule::new(&engine, bytes).expect("Wasmtime must compile relaxed madd fixture");
     let mut store = Store::new(&engine, ());
     let instance = ReferenceInstance::new(&mut store, &module, &[])
         .expect("Wasmtime must instantiate relaxed madd fixture");
