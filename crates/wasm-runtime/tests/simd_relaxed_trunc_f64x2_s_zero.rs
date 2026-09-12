@@ -37,7 +37,7 @@ fn module(instructions: &[u8]) -> Vec<u8> {
     bytes
 }
 
-fn push_f32x4_const(code: &mut Vec<u8>, lanes: [f32; 4]) {
+fn push_f64x2_const(code: &mut Vec<u8>, lanes: [f64; 2]) {
     code.extend_from_slice(&[0xfd, 0x0c]);
     for lane in lanes {
         code.extend_from_slice(&lane.to_bits().to_le_bytes());
@@ -49,47 +49,46 @@ fn simd(code: &mut Vec<u8>, subopcode: u32) {
     push_u32(code, subopcode);
 }
 
-fn run_lane(lanes: [f32; 4], lane: u8) -> i32 {
+fn run_lane(lanes: [f64; 2], lane: u8) -> i32 {
     let mut code = Vec::new();
-    push_f32x4_const(&mut code, lanes);
-    simd(&mut code, 258);
+    push_f64x2_const(&mut code, lanes);
+    simd(&mut code, 259);
     code.extend_from_slice(&[0xfd, 0x1b, lane]);
-    let parsed = parse_module(&module(&code)).expect("relaxed trunc fixture must parse");
-    let mut instance = Instance::new(parsed).expect("relaxed trunc fixture must validate");
+    let parsed = parse_module(&module(&code)).expect("fixture parses");
+    let mut instance = Instance::new(parsed).expect("fixture validates");
     match instance
         .invoke_export_values("run", &[])
-        .expect("relaxed trunc must execute")
+        .expect("execution succeeds")
         .as_slice()
     {
         [Value::I32(value)] => *value,
-        other => panic!("unexpected relaxed trunc result: {other:?}"),
+        other => panic!("unexpected result: {other:?}"),
     }
 }
 
 #[test]
-fn relaxed_trunc_executes_deterministic_in_range_lanes() {
-    let lanes = [1.75, 2.75, 0.0, 12345.5];
+fn executes_in_range_and_zeroes_upper_lanes() {
+    let lanes = [1.75, -12345.75];
     assert_eq!(run_lane(lanes, 0), 1);
-    assert_eq!(run_lane(lanes, 1), 2);
+    assert_eq!(run_lane(lanes, 1), -12345);
     assert_eq!(run_lane(lanes, 2), 0);
-    assert_eq!(run_lane(lanes, 3), 12345);
+    assert_eq!(run_lane(lanes, 3), 0);
 }
 
 #[test]
-fn relaxed_trunc_uses_permitted_saturating_choices_for_special_lanes() {
-    let lanes = [f32::NAN, f32::INFINITY, f32::NEG_INFINITY, 42.9];
-    assert_eq!(run_lane(lanes, 0), 0);
-    assert_eq!(run_lane(lanes, 1), -1);
-    assert_eq!(run_lane(lanes, 2), 0);
-    assert_eq!(run_lane(lanes, 3), 42);
+fn uses_permitted_saturating_choices_for_special_lanes() {
+    assert_eq!(run_lane([f64::NAN, f64::INFINITY], 0), 0);
+    assert_eq!(run_lane([f64::NAN, f64::INFINITY], 1), i32::MAX);
+    assert_eq!(run_lane([f64::NEG_INFINITY, 42.9], 0), i32::MIN);
+    assert_eq!(run_lane([f64::NEG_INFINITY, 42.9], 1), 42);
 }
 
 #[test]
-fn validator_rejects_relaxed_trunc_type_confusion() {
+fn validator_rejects_type_confusion() {
     let mut code = vec![0x41, 0x00];
-    simd(&mut code, 258);
+    simd(&mut code, 259);
     code.extend_from_slice(&[0xfd, 0x1b, 0x00]);
-    let parsed = parse_module(&module(&code)).expect("type-confusion fixture must parse");
+    let parsed = parse_module(&module(&code)).expect("fixture parses");
     assert!(matches!(
         Instance::new(parsed),
         Err(RuntimeError::Validation(
@@ -99,12 +98,12 @@ fn validator_rejects_relaxed_trunc_type_confusion() {
 }
 
 #[test]
-fn next_relaxed_simd_subopcode_remains_fail_closed() {
+fn next_subopcode_remains_fail_closed() {
     let mut code = Vec::new();
-    push_f32x4_const(&mut code, [1.0; 4]);
+    push_f64x2_const(&mut code, [1.0; 2]);
     simd(&mut code, 260);
     code.extend_from_slice(&[0xfd, 0x1b, 0x00]);
-    let parsed = parse_module(&module(&code)).expect("259 frontier fixture must parse");
+    let parsed = parse_module(&module(&code)).expect("fixture parses");
     assert!(matches!(
         Instance::new(parsed),
         Err(RuntimeError::Validation(
