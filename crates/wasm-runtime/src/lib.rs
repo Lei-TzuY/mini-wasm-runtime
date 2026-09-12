@@ -3659,21 +3659,22 @@ fn execute_simd(
             stack.push(Value::V128(Rc::new(result)));
         }
         259 => {
-            // f32x4.relaxed_madd permits either fused or unfused evaluation.
-            // Use ordinary multiply followed by add for a portable deterministic lowering.
-            let c = numeric::v128_from_stack(stack)?;
-            let b = numeric::v128_from_stack(stack)?;
-            let a = numeric::v128_from_stack(stack)?;
+            // i32x4.relaxed_trunc_f64x2_s_zero permits a saturating signed result
+            // for non-deterministic lanes. Rust's f64-to-i32 cast truncates and
+            // saturates (NaN -> 0), providing a valid deterministic lowering.
+            // The upper two i32 lanes are required to be zero.
+            let value = numeric::v128_from_stack(stack)?;
             let mut result = [0u8; 16];
-            for (lane, output) in result.chunks_exact_mut(4).enumerate() {
-                let start = lane * 4;
-                let lhs =
-                    f32::from_le_bytes(a[start..start + 4].try_into().expect("f32x4 lane width"));
-                let rhs =
-                    f32::from_le_bytes(b[start..start + 4].try_into().expect("f32x4 lane width"));
-                let addend =
-                    f32::from_le_bytes(c[start..start + 4].try_into().expect("f32x4 lane width"));
-                output.copy_from_slice(&(lhs * rhs + addend).to_le_bytes());
+            for lane in 0..2 {
+                let start = lane * 8;
+                let input = f64::from_bits(u64::from_le_bytes(
+                    value[start..start + 8]
+                        .try_into()
+                        .expect("f64x2 lane width"),
+                ));
+                let output_start = lane * 4;
+                result[output_start..output_start + 4]
+                    .copy_from_slice(&(input as i32).to_le_bytes());
             }
             stack.push(Value::V128(Rc::new(result)));
         }
