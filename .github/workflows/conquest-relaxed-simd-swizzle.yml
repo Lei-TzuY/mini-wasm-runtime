@@ -21,8 +21,7 @@ jobs:
           components: rustfmt, clippy
       - name: Apply implementation
         run: |
-          sed -i 's/signed\/unsigned integer-to-f32\/f64 lanes/signed\/unsigned integer-to-float lanes, the f64x2 low-lane conversion forms/' .conquest/apply_relaxed_simd_swizzle.py
-          sed -i 's/the f64x2 low-lane conversion forms, structured-control scanning/the f64x2 low-lane conversion forms, typed validation, structured-control scanning/' .conquest/apply_relaxed_simd_swizzle.py
+          sed -i 's/signed\/unsigned integer-to-f32\/f64 lanes/signed\/unsigned integer-to-float lanes, the f64x2 low-lane conversion forms, typed validation/' .conquest/apply_relaxed_simd_swizzle.py
           python3 .conquest/apply_relaxed_simd_swizzle.py
           python3 - <<'PY'
           from pathlib import Path
