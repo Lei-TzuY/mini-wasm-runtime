@@ -21,8 +21,19 @@ jobs:
           components: rustfmt, clippy
       - name: Apply implementation
         run: |
-          sed -i 's/signed\/unsigned integer-to-f32\/f64 lanes/signed\/unsigned integer-to-float lanes, the f64x2 low-lane conversion forms, typed validation/' .conquest/apply_relaxed_simd_swizzle.py
-          python3 .conquest/apply_relaxed_simd_swizzle.py
+          python3 - <<'PY'
+          from pathlib import Path
+
+          path = Path('.conquest/apply_relaxed_simd_swizzle.py')
+          text = path.read_text()
+          old = 'needle = "- SIMD terminal conversions (subopcodes 248-255) are executable across saturating f32/f64-to-i32 lanes, signed/unsigned integer-to-f32/f64 lanes, structured-control scanning, focused regressions, and Wasmtime differential coverage; relaxed-SIMD subopcode 256 remains fail-closed."'
+          new = 'needle = "- SIMD terminal conversions (subopcodes 248-255) are executable across saturating f32/f64-to-i32 lanes, signed/unsigned integer-to-float lanes, the f64x2 low-lane conversion forms, typed validation, structured-control scanning, focused regressions, and Wasmtime differential coverage; relaxed-SIMD subopcode 256 remains fail-closed."'
+          if text.count(old) != 1:
+              raise SystemExit(f'expected exactly one generator roadmap needle, got {text.count(old)}')
+          path.write_text(text.replace(old, new, 1))
+          PY
+          set -o pipefail
+          python3 .conquest/apply_relaxed_simd_swizzle.py 2>&1 | tee apply.log
           python3 - <<'PY'
           from pathlib import Path
           import re
@@ -44,6 +55,13 @@ jobs:
               path.write_text("".join(lines))
           PY
           cargo fmt --all
+      - name: Upload apply diagnostics
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: relaxed-simd-apply-log
+          path: apply.log
+          if-no-files-found: warn
       - name: Format
         run: cargo fmt --all -- --check
       - name: Clippy
