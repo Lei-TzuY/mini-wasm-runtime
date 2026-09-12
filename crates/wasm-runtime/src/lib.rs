@@ -3624,6 +3624,23 @@ fn execute_simd(
             }
             stack.push(Value::V128(Rc::new(result)));
         }
+        256 => {
+            // Relaxed swizzle permits implementation-defined results for selectors 16..=127,
+            // while selectors >= 128 must produce zero. Choosing zero for every selector >= 16
+            // is a deterministic lowering that is valid on every host.
+            let indices = numeric::v128_from_stack(stack)?;
+            let input = numeric::v128_from_stack(stack)?;
+            let mut result = [0u8; 16];
+            for index in 0..16 {
+                let lane = indices[index];
+                result[index] = if lane < 16 {
+                    input[usize::from(lane)]
+                } else {
+                    0
+                };
+            }
+            stack.push(Value::V128(Rc::new(result)));
+        }
         15 => {
             let scalar = numeric::i32_from_stack(stack)?;
             stack.push(Value::V128(Rc::new([scalar as u8; 16])));
@@ -4790,7 +4807,7 @@ fn build_control_map(module: &Module, code: &[u8]) -> Result<ControlMap, Runtime
                     | 236
                     | 237
                     | 239
-                    | 240..=255
+                    | 240..=256
                     | 142
                     | 143
                     | 144
