@@ -20,13 +20,21 @@ const EXPORTS: [&str; 2] = ["in_range", "high_oob"];
 
 fn mini_trace(bytes: &[u8]) -> Vec<i32> {
     let module = parse_module(bytes).expect("mini runtime must parse relaxed swizzle fixture");
-    let mut instance = MiniInstance::new(module).expect("mini runtime must instantiate relaxed swizzle fixture");
-    EXPORTS.into_iter().map(|export| {
-        match instance.invoke_export_values(export, &[]).expect("mini relaxed swizzle execution must succeed").as_slice() {
-            [Value::I32(value)] => *value,
-            other => panic!("unexpected mini result for {export}: {other:?}"),
-        }
-    }).collect()
+    let mut instance =
+        MiniInstance::new(module).expect("mini runtime must instantiate relaxed swizzle fixture");
+    EXPORTS
+        .into_iter()
+        .map(|export| {
+            match instance
+                .invoke_export_values(export, &[])
+                .expect("mini relaxed swizzle execution must succeed")
+                .as_slice()
+            {
+                [Value::I32(value)] => *value,
+                other => panic!("unexpected mini result for {export}: {other:?}"),
+            }
+        })
+        .collect()
 }
 
 fn reference_trace(bytes: &[u8]) -> Vec<i32> {
@@ -34,12 +42,21 @@ fn reference_trace(bytes: &[u8]) -> Vec<i32> {
     config.wasm_simd(true);
     config.wasm_relaxed_simd(true);
     let engine = Engine::new(&config).expect("relaxed-SIMD Wasmtime engine must initialize");
-    let module = ReferenceModule::new(&engine, bytes).expect("Wasmtime must compile relaxed swizzle fixture");
+    let module = ReferenceModule::new(&engine, bytes)
+        .expect("Wasmtime must compile relaxed swizzle fixture");
     let mut store = Store::new(&engine, ());
-    let instance = ReferenceInstance::new(&mut store, &module, &[]).expect("Wasmtime must instantiate relaxed swizzle fixture");
-    EXPORTS.into_iter().map(|export| {
-        instance.get_typed_func::<(), i32>(&mut store, export).expect("relaxed swizzle export must be [] -> [i32]").call(&mut store, ()).expect("Wasmtime relaxed swizzle execution must succeed")
-    }).collect()
+    let instance = ReferenceInstance::new(&mut store, &module, &[])
+        .expect("Wasmtime must instantiate relaxed swizzle fixture");
+    EXPORTS
+        .into_iter()
+        .map(|export| {
+            instance
+                .get_typed_func::<(), i32>(&mut store, export)
+                .expect("relaxed swizzle export must be [] -> [i32]")
+                .call(&mut store, ())
+                .expect("Wasmtime relaxed swizzle execution must succeed")
+        })
+        .collect()
 }
 
 #[test]
@@ -48,7 +65,16 @@ fn relaxed_swizzle_matches_wasmtime_on_deterministic_lanes() {
     let expected = vec![25, 0];
     let mini = mini_trace(&bytes);
     let reference = reference_trace(&bytes);
-    assert_eq!(mini, expected, "mini relaxed swizzle deterministic lanes drifted");
-    assert_eq!(reference, expected, "Wasmtime relaxed swizzle deterministic lanes drifted");
-    assert_eq!(mini, reference, "relaxed swizzle deterministic traces diverged");
+    assert_eq!(
+        mini, expected,
+        "mini relaxed swizzle deterministic lanes drifted"
+    );
+    assert_eq!(
+        reference, expected,
+        "Wasmtime relaxed swizzle deterministic lanes drifted"
+    );
+    assert_eq!(
+        mini, reference,
+        "relaxed swizzle deterministic traces diverged"
+    );
 }
