@@ -3641,6 +3641,23 @@ fn execute_simd(
             }
             stack.push(Value::V128(Rc::new(result)));
         }
+        258 => {
+            // i32x4.relaxed_trunc_f32x4_u permits a saturating result for
+            // non-deterministic lanes. Rust's f32-to-u32 cast truncates and
+            // saturates (NaN/negative -> 0), giving a valid deterministic lowering.
+            let value = numeric::v128_from_stack(stack)?;
+            let mut result = [0u8; 16];
+            for lane in 0..4 {
+                let start = lane * 4;
+                let input = f32::from_bits(u32::from_le_bytes(
+                    value[start..start + 4]
+                        .try_into()
+                        .expect("f32x4 lane width"),
+                ));
+                result[start..start + 4].copy_from_slice(&(input as u32).to_le_bytes());
+            }
+            stack.push(Value::V128(Rc::new(result)));
+        }
         256 => {
             // Relaxed swizzle permits implementation-defined results for selectors 16..=127,
             // while selectors >= 128 must produce zero. Choosing zero for every selector >= 16
@@ -4824,7 +4841,7 @@ fn build_control_map(module: &Module, code: &[u8]) -> Result<ControlMap, Runtime
                     | 236
                     | 237
                     | 239
-                    | 240..=257
+                    | 240..=258
                     | 142
                     | 143
                     | 144

@@ -102,15 +102,15 @@ fn validator_rejects_relaxed_trunc_type_confusion() {
 fn next_relaxed_simd_subopcode_remains_fail_closed() {
     let mut code = Vec::new();
     push_f32x4_const(&mut code, [1.0; 4]);
-    simd(&mut code, 258);
+    simd(&mut code, 259);
     code.extend_from_slice(&[0xfd, 0x1b, 0x00]);
-    let parsed = parse_module(&module(&code)).expect("258 frontier fixture must parse");
+    let parsed = parse_module(&module(&code)).expect("259 frontier fixture must parse");
     assert!(matches!(
         Instance::new(parsed),
         Err(RuntimeError::Validation(
             ValidationError::UnsupportedPrefixedOpcode {
                 prefix: 0xfd,
-                subopcode: 258,
+                subopcode: 259,
                 ..
             }
         ))
