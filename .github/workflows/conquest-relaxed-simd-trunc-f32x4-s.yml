@@ -1,0 +1,44 @@
+name: Qualify relaxed SIMD trunc f32x4_s conquest
+
+on:
+  push:
+    branches:
+      - conquest/relaxed-simd-trunc-f32x4-s
+
+permissions:
+  contents: write
+
+jobs:
+  qualify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - name: Apply implementation
+        run: python .conquest/apply_relaxed_simd_trunc_f32x4_s.py
+      - name: Format candidate
+        run: cargo fmt --all
+      - name: Check formatting
+        run: cargo fmt --all -- --check
+      - name: Clippy
+        run: cargo clippy --workspace --all-targets -- -D warnings
+      - name: Workspace tests
+        run: cargo test --workspace
+      - name: Differential relaxed trunc
+        run: cargo test --manifest-path differential/Cargo.toml --test simd_relaxed_trunc_f32x4_s
+      - name: Docs
+        run: cargo doc --workspace --no-deps
+      - name: Commit clean candidate
+        env:
+          BRANCH: conquest/relaxed-simd-trunc-f32x4-s
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add crates/wasm-runtime/src/lib.rs crates/wasm-validator/src/typed.rs crates/wasm-runtime/tests differential/tests docs/roadmap.md
+          git rm -f .conquest/apply_relaxed_simd_trunc_f32x4_s.py .github/workflows/conquest-relaxed-simd-trunc-f32x4-s.yml
+          git commit -m "feat: add relaxed SIMD signed f32x4 truncation"
+          git push origin "HEAD:${BRANCH}"
