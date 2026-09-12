@@ -17,7 +17,19 @@ jobs:
       - run: cargo fmt --all
       - run: cargo fmt --all -- --check
       - run: cargo clippy --workspace --all-targets -- -D warnings
-      - run: cargo test --workspace
+      - name: Workspace tests
+        shell: bash
+        run: |
+          set +e
+          cargo test --workspace 2>&1 | tee workspace-tests.log
+          status=${PIPESTATUS[0]}
+          exit "$status"
+      - name: Upload workspace test log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: relaxed-madd-workspace-tests
+          path: workspace-tests.log
       - name: Commit qualified implementation
         run: |
           git config user.name LeiZ
