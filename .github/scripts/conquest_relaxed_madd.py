@@ -56,14 +56,13 @@ assert needle in s
 p.write_text(s.replace(needle, insert, 1))
 
 # Before this slice every 259 reference outside the target file is a fail-closed frontier sentinel.
+# Helper names vary across fixtures, so migrate the call-site argument generically together with
+# the asserted decoded subopcode instead of assuming every file uses push_simd().
 for test_path in Path('crates/wasm-runtime/tests').glob('simd_*.rs'):
     if test_path.name == 'simd_f32x4_binary.rs':
         continue
     text = test_path.read_text()
-    updated = text.replace(
-        'push_simd(&mut instructions, 259);',
-        'push_simd(&mut instructions, 260);',
-    ).replace('subopcode: 259,', 'subopcode: 260,')
+    updated = text.replace(', 259);', ', 260);').replace('subopcode: 259,', 'subopcode: 260,')
     if updated != text:
         test_path.write_text(updated)
 
