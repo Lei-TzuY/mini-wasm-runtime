@@ -12,6 +12,14 @@ const FIXTURE: &str = r#"
     v128.const f64x2 1.75 -12345.75
     i32x4.relaxed_trunc_f64x2_s_zero
     i32x4.extract_lane 1)
+  (func (export "min") (result i32)
+    v128.const f64x2 -2147483648 2147483647
+    i32x4.relaxed_trunc_f64x2_s_zero
+    i32x4.extract_lane 0)
+  (func (export "max") (result i32)
+    v128.const f64x2 -2147483648 2147483647
+    i32x4.relaxed_trunc_f64x2_s_zero
+    i32x4.extract_lane 1)
   (func (export "z2") (result i32)
     v128.const f64x2 1.75 -12345.75
     i32x4.relaxed_trunc_f64x2_s_zero
@@ -21,7 +29,7 @@ const FIXTURE: &str = r#"
     i32x4.relaxed_trunc_f64x2_s_zero
     i32x4.extract_lane 3))
 "#;
-const EXPORTS: [&str; 4] = ["a", "b", "z2", "z3"];
+const EXPORTS: [&str; 6] = ["a", "b", "min", "max", "z2", "z3"];
 
 fn mini_trace(bytes: &[u8]) -> Vec<i32> {
     let module = parse_module(bytes).expect("mini parses fixture");
@@ -64,7 +72,7 @@ fn reference_trace(bytes: &[u8]) -> Vec<i32> {
 #[test]
 fn matches_wasmtime_on_deterministic_lanes() {
     let bytes = wat::parse_str(FIXTURE).expect("WAT parses");
-    let expected = vec![1, -12345, 0, 0];
+    let expected = vec![1, -12345, i32::MIN, i32::MAX, 0, 0];
     let mini = mini_trace(&bytes);
     let reference = reference_trace(&bytes);
     assert_eq!(mini, expected);
