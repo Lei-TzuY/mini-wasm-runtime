@@ -1,0 +1,54 @@
+name: Conquest relaxed SIMD madd
+on:
+  push:
+    branches: [conquest/relaxed-simd-f32x4-madd]
+permissions:
+  contents: write
+jobs:
+  implement:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Apply coherent 259 slice
+        shell: python
+        run: |
+          from pathlib import Path
+
+          p = Path('crates/wasm-runtime/src/lib.rs')
+          s = p.read_text()
+          needle = '''        256 => {\n            // Relaxed swizzle permits implementation-defined results for selectors 16..=127,'''
+          insert = '''        259 => {\n            // f32x4.relaxed_madd permits either fused or unfused evaluation.\n            // Use ordinary multiply followed by add for a portable deterministic lowering.\n            let c = numeric::v128_from_stack(stack)?;\n            let b = numeric::v128_from_stack(stack)?;\n            let a = numeric::v128_from_stack(stack)?;\n            let mut result = [0u8; 16];\n            for lane in 0..4 {\n                let start = lane * 4;\n                let read = |value: &[u8; 16]| {\n                    f32::from_bits(u32::from_le_bytes(\n                        value[start..start + 4].try_into().expect("f32x4 lane width"),\n                    ))\n                };\n                let value = read(&a) * read(&b) + read(&c);\n                result[start..start + 4].copy_from_slice(&value.to_bits().to_le_bytes());\n            }\n            stack.push(Value::V128(Rc::new(result)));\n        }\n        256 => {\n            // Relaxed swizzle permits implementation-defined results for selectors 16..=127,'''
+          assert needle in s
+          s = s.replace(needle, insert, 1)
+          assert '240..=258' in s
+          s = s.replace('240..=258', '240..=259', 1)
+          p.write_text(s)
+
+          p = Path('crates/wasm-validator/src/typed.rs')
+          s = p.read_text()
+          needle = '''                    258 => {\n                        pop_expect(&mut stack, &controls, ValueType::V128, function, offset)?;\n                        stack.push(ValueType::V128);\n                    }\n                    14 | 256 => {'''
+          insert = '''                    258 => {\n                        pop_expect(&mut stack, &controls, ValueType::V128, function, offset)?;\n                        stack.push(ValueType::V128);\n                    }\n                    259 => {\n                        pop_expect(&mut stack, &controls, ValueType::V128, function, offset)?;\n                        pop_expect(&mut stack, &controls, ValueType::V128, function, offset)?;\n                        pop_expect(&mut stack, &controls, ValueType::V128, function, offset)?;\n                        stack.push(ValueType::V128);\n                    }\n                    14 | 256 => {'''
+          assert needle in s
+          p.write_text(s.replace(needle, insert, 1))
+
+          p = Path('crates/wasm-runtime/tests/simd_f32x4_binary.rs')
+          s = p.read_text()
+          marker = '''#[test]\nfn adjacent_f32x4_f64x2_min_frontier_remains_fail_closed() {'''
+          tests = '''fn relaxed_madd_lane_bits(a: [f32; 4], b: [f32; 4], c: [f32; 4], lane: u32) -> u32 {\n    let mut instructions = Vec::new();\n    push_i32_const(&mut instructions, 0);\n    push_f32x4_const(&mut instructions, a);\n    push_f32x4_const(&mut instructions, b);\n    push_f32x4_const(&mut instructions, c);\n    push_simd(&mut instructions, 259);\n    push_v128_store(&mut instructions);\n    push_i32_const(&mut instructions, 0);\n    push_i32_load(&mut instructions, lane * 4);\n    let parsed = parse_module(&module(&instructions)).expect("fixture parses");\n    let mut instance = Instance::new(parsed).expect("fixture validates");\n    match instance.invoke_export_values("run", &[]).expect("fixture executes").as_slice() {\n        [Value::I32(value)] => *value as u32,\n        other => panic!("unexpected relaxed madd result: {other:?}"),\n    }\n}\n\n#[test]\nfn relaxed_madd_executes_unfused_lane_semantics() {\n    assert_eq!(\n        relaxed_madd_lane_bits([2.0, -3.0, 0.5, 4.0], [3.0, 2.0, 8.0, -0.5], [1.0, 1.0, -1.0, 5.0], 0),\n        7.0f32.to_bits()\n    );\n    assert_eq!(\n        relaxed_madd_lane_bits([2.0, -3.0, 0.5, 4.0], [3.0, 2.0, 8.0, -0.5], [1.0, 1.0, -1.0, 5.0], 3),\n        3.0f32.to_bits()\n    );\n}\n\n#[test]\nfn relaxed_madd_validator_rejects_missing_third_v128_operand() {\n    let mut instructions = Vec::new();\n    push_f32x4_const(&mut instructions, [1.0; 4]);\n    push_f32x4_const(&mut instructions, [2.0; 4]);\n    push_simd(&mut instructions, 259);\n    let parsed = parse_module(&module(&instructions)).expect("fixture parses");\n    assert!(matches!(Instance::new(parsed), Err(RuntimeError::Validation(ValidationError::StackUnderflow { .. }))));\n}\n\n#[test]\nfn adjacent_f32x4_f64x2_min_frontier_remains_fail_closed() {'''
+          assert marker in s
+          s = s.replace(marker, tests, 1)
+          s = s.replace('push_simd(&mut instructions, 259);\n    let parsed = parse_module(&module(&instructions)).expect("fixture parses");\n    assert!(matches!(\n        Instance::new(parsed),\n        Err(RuntimeError::Validation(\n            ValidationError::UnsupportedPrefixedOpcode {\n                prefix: 0xfd,\n                subopcode: 259,', 'push_simd(&mut instructions, 260);\n    let parsed = parse_module(&module(&instructions)).expect("fixture parses");\n    assert!(matches!(\n        Instance::new(parsed),\n        Err(RuntimeError::Validation(\n            ValidationError::UnsupportedPrefixedOpcode {\n                prefix: 0xfd,\n                subopcode: 260,', 1)
+          p.write_text(s)
+      - run: cargo fmt --all -- --check
+      - run: cargo clippy --workspace --all-targets -- -D warnings
+      - run: cargo test --workspace
+      - name: Commit qualified implementation
+        run: |
+          git config user.name LeiZ
+          git config user.email 52287354+Lei-TzuY@users.noreply.github.com
+          git add crates/wasm-runtime/src/lib.rs crates/wasm-validator/src/typed.rs crates/wasm-runtime/tests/simd_f32x4_binary.rs
+          git commit -m 'feat: add relaxed SIMD f32x4 madd'
+          git push origin HEAD:conquest/relaxed-simd-f32x4-madd
