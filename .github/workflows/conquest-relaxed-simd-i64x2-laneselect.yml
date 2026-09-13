@@ -34,7 +34,7 @@ jobs:
           src=src.replace('0x01, 0x60, 0x00, 0x01, 0x7f','0x01, 0x60, 0x00, 0x01, 0x7e').replace('-> i32 {','-> i64 {').replace('Value::I32(value)','Value::I64(value)').replace('-1431655766','-6148914691236517206').replace('1431655765','6148914691236517205').replace('mixed[..4]','mixed[..8]').replace('-1515870811','-6510615555426900571')
           src=src.replace('push_section(&mut bytes, 3, &[0x01, 0x00]);','push_section(&mut bytes, 3, &[0x01, 0x00]);\n    push_section(&mut bytes, 5, &[0x01, 0x00, 0x01]);')
           src=src.replace('let mut code = Vec::new();','let mut code = Vec::new();\n    code.extend_from_slice(&[0x41, 0x00]);')
-          src=src.replace('simd(&mut code, 27);','simd(&mut code, 11);\n    code.extend_from_slice(&[4, 0]);\n    code.extend_from_slice(&[0x41, 0x00, 0x29, 3, 0]);')
+          src=src.replace('simd(&mut code, 27);\n    code.push(0);','simd(&mut code, 11);\n    code.extend_from_slice(&[4, 0]);\n    code.extend_from_slice(&[0x41, 0x00, 0x29, 3, 0]);')
           (root/'simd_relaxed_laneselect_i64x2.rs').write_text(src)
           d=Path('differential/tests/simd_relaxed_laneselect_i32x4.rs').read_text(); d=d.replace('i32x4','i64x2').replace('(result i32)','(result i64)').replace('Vec<i32>','Vec<i64>').replace('Value::I32(value)','Value::I64(value)').replace('::<(), i32>','::<(), i64>').replace('[i32]','[i64]').replace('-1431655766','-6148914691236517206').replace('1431655765','6148914691236517205'); d=d.replace('(module\n','(module\n  (memory 1)\n',1).replace('(result i64)\n    v128.const','(result i64)\n    i32.const 0\n    v128.const').replace('i64x2.extract_lane 0','v128.store\n    i32.const 0\n    i64.load'); Path('differential/tests/simd_relaxed_laneselect_i64x2.rs').write_text(d)
       - name: rustfmt
