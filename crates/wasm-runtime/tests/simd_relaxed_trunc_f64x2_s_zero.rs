@@ -101,7 +101,7 @@ fn validator_rejects_type_confusion() {
 fn next_subopcode_remains_fail_closed() {
     let mut code = Vec::new();
     push_f64x2_const(&mut code, [1.0; 2]);
-    simd(&mut code, 263);
+    simd(&mut code, 264);
     code.extend_from_slice(&[0xfd, 0x1b, 0x00]);
     let parsed = parse_module(&module(&code)).expect("fixture parses");
     assert!(matches!(
@@ -109,7 +109,7 @@ fn next_subopcode_remains_fail_closed() {
         Err(RuntimeError::Validation(
             ValidationError::UnsupportedPrefixedOpcode {
                 prefix: 0xfd,
-                subopcode: 263,
+                subopcode: 264,
                 ..
             }
         ))
