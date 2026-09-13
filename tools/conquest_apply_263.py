@@ -45,6 +45,7 @@ def runtime_transform(block: str) -> str:
         ("f32::from_le_bytes", "f64::from_le_bytes"),
         ("chunks_exact_mut(4)", "chunks_exact_mut(8)"),
         ("lane * 4", "lane * 8"),
+        ("start + 4", "start + 8"),
     ]
     for old, new in replacements:
         if old not in block:
