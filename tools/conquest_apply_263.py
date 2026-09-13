@@ -142,18 +142,25 @@ use wasmtime::{Config, Engine, Instance as ReferenceInstance, Module as Referenc
 
 const FIXTURE: &str = r#"
 (module
+  (memory 1)
   (func (export "a") (result i64)
+    i32.const 0
     v128.const f64x2 2 -3
     v128.const f64x2 3 2
     v128.const f64x2 1 8
     f64x2.relaxed_madd
-    i64x2.extract_lane 0)
+    v128.store
+    i32.const 0
+    i64.load)
   (func (export "b") (result i64)
+    i32.const 0
     v128.const f64x2 2 -3
     v128.const f64x2 3 2
     v128.const f64x2 1 8
     f64x2.relaxed_madd
-    i64x2.extract_lane 1))
+    v128.store
+    i32.const 8
+    i64.load))
 "#;
 const EXPORTS: [&str; 2] = ["a", "b"];
 
