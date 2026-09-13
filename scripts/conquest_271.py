@@ -25,22 +25,22 @@ block = '''        271 => {
             let mut result = [0u8; 16];
             for lane in 0..2 {
                 let start = lane * 8;
-                let lhs_lane =
-                    f64::from_le_bytes(lhs[start..start + 8].try_into().expect("f64x2 lane width"));
-                let rhs_lane =
-                    f64::from_le_bytes(rhs[start..start + 8].try_into().expect("f64x2 lane width"));
+                let lhs_lane = f64::from_bits(u64::from_le_bytes(
+                    lhs[start..start + 8].try_into().expect("f64x2 lane width"),
+                ));
+                let rhs_lane = f64::from_bits(u64::from_le_bytes(
+                    rhs[start..start + 8].try_into().expect("f64x2 lane width"),
+                ));
                 let value = if lhs_lane.is_nan() || rhs_lane.is_nan() {
                     f64::NAN
-                } else if lhs_lane == rhs_lane {
-                    if lhs_lane == 0.0 {
-                        f64::from_bits(lhs_lane.to_bits() | rhs_lane.to_bits())
-                    } else {
-                        lhs_lane
-                    }
+                } else if lhs_lane == 0.0 && rhs_lane == 0.0 {
+                    f64::from_bits(lhs_lane.to_bits() | rhs_lane.to_bits())
+                } else if lhs_lane < rhs_lane {
+                    lhs_lane
                 } else {
-                    lhs_lane.min(rhs_lane)
+                    rhs_lane
                 };
-                result[start..start + 8].copy_from_slice(&value.to_le_bytes());
+                result[start..start + 8].copy_from_slice(&value.to_bits().to_le_bytes());
             }
             stack.push(Value::V128(Rc::new(result)));
         }
