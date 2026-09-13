@@ -33,8 +33,12 @@ jobs:
         run: cargo fmt --all && cargo fmt --all -- --check
       - name: clippy
         run: cargo clippy --workspace --all-targets -- -D warnings
-      - name: targeted runtime
-        run: cargo test -p wasm-runtime --test simd_relaxed_laneselect_i64x2
+      - name: runtime masks
+        run: cargo test -p wasm-runtime --test simd_relaxed_laneselect_i64x2 relaxed_laneselect_handles_deterministic_and_mixed_masks
+      - name: runtime types
+        run: cargo test -p wasm-runtime --test simd_relaxed_laneselect_i64x2 relaxed_laneselect_validates_three_v128_operands
+      - name: runtime frontier
+        run: cargo test -p wasm-runtime --test simd_relaxed_laneselect_i64x2 next_relaxed_simd_subopcode_remains_fail_closed
       - name: Wasmtime differential
         run: cargo test -p mini-wasm-differential --test simd_relaxed_laneselect_i64x2
       - name: workspace tests
