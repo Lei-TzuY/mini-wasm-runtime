@@ -19,7 +19,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt, clippy
-      - name: Apply 263 slice
+      - name: Apply corrected 263 slice
         run: python3 tools/conquest_apply_263.py
       - name: Format
         run: cargo fmt --all
