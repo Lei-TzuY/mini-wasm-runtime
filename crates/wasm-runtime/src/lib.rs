@@ -3755,6 +3755,25 @@ fn execute_simd(
             }
             stack.push(Value::V128(Rc::new(result)));
         }
+        264 => {
+            // f64x2.relaxed_nmadd permits either fused or unfused evaluation.
+            // Use ordinary multiply, negate, then add for a portable deterministic lowering.
+            let c = numeric::v128_from_stack(stack)?;
+            let b = numeric::v128_from_stack(stack)?;
+            let a = numeric::v128_from_stack(stack)?;
+            let mut result = [0u8; 16];
+            for (lane, output) in result.chunks_exact_mut(8).enumerate() {
+                let start = lane * 8;
+                let lhs =
+                    f64::from_le_bytes(a[start..start + 8].try_into().expect("f64x2 lane width"));
+                let rhs =
+                    f64::from_le_bytes(b[start..start + 8].try_into().expect("f64x2 lane width"));
+                let addend =
+                    f64::from_le_bytes(c[start..start + 8].try_into().expect("f64x2 lane width"));
+                output.copy_from_slice(&(-(lhs * rhs) + addend).to_le_bytes());
+            }
+            stack.push(Value::V128(Rc::new(result)));
+        }
         256 => {
             // Relaxed swizzle permits implementation-defined results for selectors 16..=127,
             // while selectors >= 128 must produce zero. Choosing zero for every selector >= 16
@@ -4938,7 +4957,7 @@ fn build_control_map(module: &Module, code: &[u8]) -> Result<ControlMap, Runtime
                     | 236
                     | 237
                     | 239
-                    | 240..=263
+                    | 240..=264
                     | 142
                     | 143
                     | 144
