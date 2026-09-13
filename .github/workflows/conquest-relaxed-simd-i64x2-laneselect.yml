@@ -22,64 +22,25 @@ jobs:
         shell: python
         run: |
           from pathlib import Path
-
-          lib = Path('crates/wasm-runtime/src/lib.rs')
-          s = lib.read_text()
-          start = s.index('        267 => {')
-          next_arm = s.index('        256 => {', start)
-          block = s[start:next_arm]
-          assert 'v128.bitselect-equivalent semantics' in block
-          s = s[:next_arm] + block.replace('        267 => {', '        268 => {', 1) + s[next_arm:]
-          assert '| 240..=267' in s
-          lib.write_text(s.replace('| 240..=267', '| 240..=268', 1))
-
-          typed = Path('crates/wasm-validator/src/typed.rs')
-          s = typed.read_text()
-          assert '265..=267 => {' in s
-          typed.write_text(s.replace('265..=267 => {', '265..=268 => {', 1))
-
-          names = ['simd_conversions.rs','simd_f32x4_binary.rs','simd_f32x4_minmax.rs','simd_f32x4_unary.rs','simd_f64x2_binary.rs','simd_f64x2_minmax.rs','simd_f64x2_unary.rs','simd_i16x8_alu_closure.rs','simd_i32x4_shifts.rs','simd_i32x4_widening.rs','simd_i64x2_arithmetic.rs','simd_i64x2_comparisons.rs','simd_i64x2_extmul.rs','simd_i64x2_shifts.rs','simd_relaxed_laneselect_i8x16.rs','simd_relaxed_laneselect_i16x8.rs','simd_relaxed_laneselect_i32x4.rs','simd_relaxed_swizzle.rs','simd_relaxed_trunc_f32x4_s.rs','simd_relaxed_trunc_f32x4_u.rs','simd_relaxed_trunc_f64x2_s_zero.rs','simd_relaxed_trunc_f64x2_u_zero.rs']
-          root = Path('crates/wasm-runtime/tests')
+          lib=Path('crates/wasm-runtime/src/lib.rs'); s=lib.read_text(); start=s.index('        267 => {'); nxt=s.index('        256 => {',start); block=s[start:nxt]; assert 'v128.bitselect-equivalent semantics' in block; s=s[:nxt]+block.replace('        267 => {','        268 => {',1)+s[nxt:]; assert '| 240..=267' in s; lib.write_text(s.replace('| 240..=267','| 240..=268',1))
+          typed=Path('crates/wasm-validator/src/typed.rs'); s=typed.read_text(); assert '265..=267 => {' in s; typed.write_text(s.replace('265..=267 => {','265..=268 => {',1))
+          root=Path('crates/wasm-runtime/tests'); names=['simd_conversions.rs','simd_f32x4_binary.rs','simd_f32x4_minmax.rs','simd_f32x4_unary.rs','simd_f64x2_binary.rs','simd_f64x2_minmax.rs','simd_f64x2_unary.rs','simd_i16x8_alu_closure.rs','simd_i32x4_shifts.rs','simd_i32x4_widening.rs','simd_i64x2_arithmetic.rs','simd_i64x2_comparisons.rs','simd_i64x2_extmul.rs','simd_i64x2_shifts.rs','simd_relaxed_laneselect_i8x16.rs','simd_relaxed_laneselect_i16x8.rs','simd_relaxed_laneselect_i32x4.rs','simd_relaxed_swizzle.rs','simd_relaxed_trunc_f32x4_s.rs','simd_relaxed_trunc_f32x4_u.rs','simd_relaxed_trunc_f64x2_s_zero.rs','simd_relaxed_trunc_f64x2_u_zero.rs']
           for name in names:
-              p = root / name
-              t = p.read_text()
-              assert '268' in t, name
-              p.write_text(t.replace('268', '269'))
-
-          src = (root / 'simd_relaxed_laneselect_i32x4.rs').read_text()
-          src = src.replace('simd(&mut code, 268);', 'simd(&mut code, 269);')
-          src = src.replace('subopcode: 268', 'subopcode: 269')
-          src = src.replace('simd(&mut code, 267);', 'simd(&mut code, 268);')
-          src = src.replace('simd(&mut code, 27);', 'simd(&mut code, 29);')
-          src = src.replace('0x01, 0x60, 0x00, 0x01, 0x7f', '0x01, 0x60, 0x00, 0x01, 0x7e')
-          src = src.replace('-> i32 {', '-> i64 {')
-          src = src.replace('Value::I32(value)', 'Value::I64(value)')
-          src = src.replace('-1431655766', '-6148914691236517206')
-          src = src.replace('1431655765', '6148914691236517205')
-          src = src.replace('mixed[..4]', 'mixed[..8]')
-          src = src.replace('-1515870811', '-6510615555426900571')
-          src = src.replace('[0x41, 0x00]', '[0x42, 0x00]')
-          (root / 'simd_relaxed_laneselect_i64x2.rs').write_text(src)
-
-          d = Path('differential/tests/simd_relaxed_laneselect_i32x4.rs').read_text()
-          d = d.replace('i32x4', 'i64x2')
-          d = d.replace('Vec<i32>', 'Vec<i64>')
-          d = d.replace('Value::I32(value)', 'Value::I64(value)')
-          d = d.replace('::<(), i32>', '::<(), i64>')
-          d = d.replace('[i32]', '[i64]')
-          d = d.replace('-1431655766', '-6148914691236517206')
-          d = d.replace('1431655765', '6148914691236517205')
-          Path('differential/tests/simd_relaxed_laneselect_i64x2.rs').write_text(d)
+              p=root/name; t=p.read_text(); assert '268' in t,name; p.write_text(t.replace('268','269'))
+          src=(root/'simd_relaxed_laneselect_i32x4.rs').read_text(); src=src.replace('simd(&mut code, 268);','simd(&mut code, 269);').replace('subopcode: 268','subopcode: 269').replace('simd(&mut code, 267);','simd(&mut code, 268);').replace('simd(&mut code, 27);','simd(&mut code, 29);').replace('0x01, 0x60, 0x00, 0x01, 0x7f','0x01, 0x60, 0x00, 0x01, 0x7e').replace('-> i32 {','-> i64 {').replace('Value::I32(value)','Value::I64(value)').replace('-1431655766','-6148914691236517206').replace('1431655765','6148914691236517205').replace('mixed[..4]','mixed[..8]').replace('-1515870811','-6510615555426900571').replace('[0x41, 0x00]','[0x42, 0x00]'); (root/'simd_relaxed_laneselect_i64x2.rs').write_text(src)
+          d=Path('differential/tests/simd_relaxed_laneselect_i32x4.rs').read_text(); d=d.replace('i32x4','i64x2').replace('(result i32)','(result i64)').replace('Vec<i32>','Vec<i64>').replace('Value::I32(value)','Value::I64(value)').replace('::<(), i32>','::<(), i64>').replace('[i32]','[i64]').replace('-1431655766','-6148914691236517206').replace('1431655765','6148914691236517205'); Path('differential/tests/simd_relaxed_laneselect_i64x2.rs').write_text(d)
       - name: rustfmt
         run: cargo fmt --all && cargo fmt --all -- --check
       - name: clippy
         run: cargo clippy --workspace --all-targets -- -D warnings
+      - name: targeted runtime
+        run: cargo test -p wasm-runtime --test simd_relaxed_laneselect_i64x2
+      - name: Wasmtime differential
+        run: cargo test -p mini-wasm-differential --test simd_relaxed_laneselect_i64x2
       - name: workspace tests
         run: cargo test --workspace
       - name: docs
         run: cargo doc --workspace --no-deps
-      - name: Wasmtime differential
-        run: cargo test -p mini-wasm-differential --test simd_relaxed_laneselect_i64x2
       - name: Promote clean candidate
         run: |
           rm .github/workflows/conquest-relaxed-simd-i64x2-laneselect.yml
