@@ -161,7 +161,7 @@ jobs:
           cargo clippy --workspace --all-targets -- -D warnings
           cargo test --workspace
           cargo doc --workspace --no-deps
-          cargo test -p mini-wasm-differential --test simd_relaxed_f32x4_min
+          cargo test --manifest-path differential/Cargo.toml --test simd_relaxed_f32x4_min
           rm .github/workflows/conquest-f32x4-relaxed-min.yml
           git config user.name LeiZ
           git config user.email 52287354+Lei-TzuY@users.noreply.github.com
