@@ -3900,6 +3900,33 @@ fn execute_simd(
             }
             stack.push(Value::V128(Rc::new(result)));
         }
+        272 => {
+            // f64x2.relaxed_max permits implementation-defined choice for NaN and
+            // signed-zero ties. Reuse deterministic f64x2.max-compatible semantics.
+            let rhs = numeric::v128_from_stack(stack)?;
+            let lhs = numeric::v128_from_stack(stack)?;
+            let mut result = [0u8; 16];
+            for lane in 0..2 {
+                let start = lane * 8;
+                let lhs_lane = f64::from_bits(u64::from_le_bytes(
+                    lhs[start..start + 8].try_into().expect("f64x2 lane width"),
+                ));
+                let rhs_lane = f64::from_bits(u64::from_le_bytes(
+                    rhs[start..start + 8].try_into().expect("f64x2 lane width"),
+                ));
+                let value = if lhs_lane.is_nan() || rhs_lane.is_nan() {
+                    f64::NAN
+                } else if lhs_lane == 0.0 && rhs_lane == 0.0 {
+                    f64::from_bits(lhs_lane.to_bits() & rhs_lane.to_bits())
+                } else if lhs_lane > rhs_lane {
+                    lhs_lane
+                } else {
+                    rhs_lane
+                };
+                result[start..start + 8].copy_from_slice(&value.to_bits().to_le_bytes());
+            }
+            stack.push(Value::V128(Rc::new(result)));
+        }
         256 => {
             // Relaxed swizzle permits implementation-defined results for selectors 16..=127,
             // while selectors >= 128 must produce zero. Choosing zero for every selector >= 16
@@ -5083,7 +5110,7 @@ fn build_control_map(module: &Module, code: &[u8]) -> Result<ControlMap, Runtime
                     | 236
                     | 237
                     | 239
-                    | 240..=271
+                    | 240..=272
                     | 142
                     | 143
                     | 144
