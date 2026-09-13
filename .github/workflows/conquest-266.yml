@@ -1,0 +1,36 @@
+name: conquest-266
+on:
+  push:
+    branches: [conquest/relaxed-laneselect-i16x8]
+permissions:
+  contents: write
+jobs:
+  qualify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - name: Implement
+        run: python3 .github/conquest-266.py
+      - name: Format
+        run: cargo fmt --all
+      - name: Clippy
+        run: cargo clippy --workspace --all-targets -- -D warnings
+      - name: Workspace tests
+        run: cargo test --workspace
+      - name: Docs
+        run: cargo doc --workspace --no-deps
+      - name: Wasmtime differential
+        run: cargo test -p differential --test simd_relaxed_laneselect_i16x8
+      - name: Promote clean candidate
+        run: |
+          rm .github/conquest-266.py .github/workflows/conquest-266.yml
+          git config user.name LeiZ
+          git config user.email 52287354+Lei-TzuY@users.noreply.github.com
+          git add -A
+          git commit -m "feat: add relaxed SIMD i16x8 laneselect"
+          git push origin HEAD:conquest/relaxed-laneselect-i16x8
