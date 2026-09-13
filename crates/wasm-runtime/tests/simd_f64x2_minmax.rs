@@ -143,14 +143,14 @@ fn adjacent_f64x2_conversion_frontier_remains_fail_closed() {
     let mut instructions = Vec::new();
     push_f64x2_const(&mut instructions, [1.0, 2.0]);
     push_f64x2_const(&mut instructions, [3.0, 4.0]);
-    push_simd(&mut instructions, 271);
+    push_simd(&mut instructions, 272);
     let parsed = parse_module(&module(&instructions)).expect("fixture parses");
     assert!(matches!(
         Instance::new(parsed),
         Err(RuntimeError::Validation(
             ValidationError::UnsupportedPrefixedOpcode {
                 prefix: 0xfd,
-                subopcode: 271,
+                subopcode: 272,
                 ..
             }
         ))
@@ -186,6 +186,41 @@ fn validator_rejects_f64x2_pmin_type_confusion() {
     push_f64x2_const(&mut instructions, [1.0; 2]);
     push_i32_const(&mut instructions, 1);
     push_simd(&mut instructions, 246);
+    let parsed = parse_module(&module(&instructions)).expect("fixture parses");
+    assert!(matches!(
+        Instance::new(parsed),
+        Err(RuntimeError::Validation(
+            ValidationError::TypeMismatch { .. }
+        ))
+    ));
+}
+
+#[test]
+fn relaxed_f64x2_min_executes_ordered_lanes() {
+    assert_eq!(
+        lane_bits([3.0, -2.0], [4.0, -5.0], 271, 0),
+        3.0f64.to_bits()
+    );
+    assert_eq!(
+        lane_bits([3.0, -2.0], [4.0, -5.0], 271, 1),
+        (-5.0f64).to_bits()
+    );
+}
+
+#[test]
+fn relaxed_f64x2_min_selects_negative_zero() {
+    assert_eq!(
+        lane_bits([0.0, -0.0], [-0.0, 0.0], 271, 0),
+        (-0.0f64).to_bits()
+    );
+}
+
+#[test]
+fn validator_rejects_relaxed_f64x2_min_type_confusion() {
+    let mut instructions = Vec::new();
+    push_f64x2_const(&mut instructions, [1.0; 2]);
+    push_i32_const(&mut instructions, 1);
+    push_simd(&mut instructions, 271);
     let parsed = parse_module(&module(&instructions)).expect("fixture parses");
     assert!(matches!(
         Instance::new(parsed),
