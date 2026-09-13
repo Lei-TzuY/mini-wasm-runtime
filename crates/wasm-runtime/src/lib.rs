@@ -3774,6 +3774,18 @@ fn execute_simd(
             }
             stack.push(Value::V128(Rc::new(result)));
         }
+        265 => {
+            // i8x16.relaxed_laneselect permits either lane-sign selection or bit selection
+            // for mixed masks. Choose deterministic bit-selection semantics for every byte.
+            let mask = numeric::v128_from_stack(stack)?;
+            let b = numeric::v128_from_stack(stack)?;
+            let a = numeric::v128_from_stack(stack)?;
+            let mut result = [0u8; 16];
+            for index in 0..16 {
+                result[index] = (a[index] & mask[index]) | (b[index] & !mask[index]);
+            }
+            stack.push(Value::V128(Rc::new(result)));
+        }
         256 => {
             // Relaxed swizzle permits implementation-defined results for selectors 16..=127,
             // while selectors >= 128 must produce zero. Choosing zero for every selector >= 16
@@ -4957,7 +4969,7 @@ fn build_control_map(module: &Module, code: &[u8]) -> Result<ControlMap, Runtime
                     | 236
                     | 237
                     | 239
-                    | 240..=264
+                    | 240..=265
                     | 142
                     | 143
                     | 144
