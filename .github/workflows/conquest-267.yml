@@ -29,7 +29,20 @@ jobs:
       - name: Docs
         run: cargo doc --workspace --no-deps
       - name: Targeted Wasmtime differential
-        run: cargo test -p differential --test simd_relaxed_laneselect_i32x4
+        run: |
+          set +e
+          cargo test -p differential --test simd_relaxed_laneselect_i32x4 > .conquest/differential.log 2>&1
+          status=$?
+          cat .conquest/differential.log
+          if [ "$status" -ne 0 ]; then
+            git config user.name "LeiZ"
+            git config user.email "52287354+Lei-TzuY@users.noreply.github.com"
+            git add .conquest/differential.log
+            git commit -m "chore: capture differential blocker"
+            git push origin "HEAD:conquest/relaxed-laneselect-i32x4-267"
+            exit "$status"
+          fi
+          rm .conquest/differential.log
       - name: Commit qualified implementation and remove construction files
         env:
           BRANCH: conquest/relaxed-laneselect-i32x4-267
