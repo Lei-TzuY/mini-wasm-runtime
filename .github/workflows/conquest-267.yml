@@ -17,24 +17,13 @@ jobs:
         with:
           fetch-depth: 0
       - name: Apply vertical slice
-        run: python3 .conquest/apply_267.py
+        run: |
+          python3 .conquest/apply_267.py
+          sed -i 's/265 | 266 | 267 =>/265..=267 =>/' crates/wasm-validator/src/typed.rs
       - name: Format
         run: cargo fmt --all
       - name: Clippy
-        run: |
-          set +e
-          cargo clippy --workspace --all-targets --all-features -- -D warnings > .conquest/clippy.log 2>&1
-          status=$?
-          cat .conquest/clippy.log
-          if [ "$status" -ne 0 ]; then
-            git config user.name "LeiZ"
-            git config user.email "52287354+Lei-TzuY@users.noreply.github.com"
-            git add .conquest/clippy.log
-            git commit -m "chore: capture qualification blocker"
-            git push origin "HEAD:conquest/relaxed-laneselect-i32x4-267"
-            exit "$status"
-          fi
-          rm .conquest/clippy.log
+        run: cargo clippy --workspace --all-targets --all-features -- -D warnings
       - name: Workspace tests
         run: cargo test --workspace
       - name: Docs
@@ -49,6 +38,6 @@ jobs:
           git config user.email "52287354+Lei-TzuY@users.noreply.github.com"
           git add crates differential
           git commit -m "feat: add relaxed SIMD i32x4 laneselect"
-          git rm .github/workflows/conquest-267.yml .conquest/apply_267.py
+          git rm .github/workflows/conquest-267.yml .conquest/apply_267.py .conquest/trigger-267 .conquest/clippy.log
           git commit -m "chore: remove construction qualification files"
           git push origin "HEAD:${BRANCH}"
