@@ -28,11 +28,21 @@ const EXPORTS: [&str; 2] = ["a", "b"];
 
 fn mini_trace(bytes: &[u8]) -> Vec<i64> {
     let module = parse_module(bytes).expect("mini runtime must parse relaxed f64x2 madd fixture");
-    let mut instance = MiniInstance::new(module).expect("mini runtime must instantiate relaxed f64x2 madd fixture");
-    EXPORTS.into_iter().map(|export| match instance.invoke_export_values(export, &[]).expect("mini relaxed f64x2 madd execution must succeed").as_slice() {
-        [Value::I64(value)] => *value,
-        other => panic!("unexpected mini result for {export}: {other:?}"),
-    }).collect()
+    let mut instance = MiniInstance::new(module)
+        .expect("mini runtime must instantiate relaxed f64x2 madd fixture");
+    EXPORTS
+        .into_iter()
+        .map(|export| {
+            match instance
+                .invoke_export_values(export, &[])
+                .expect("mini relaxed f64x2 madd execution must succeed")
+                .as_slice()
+            {
+                [Value::I64(value)] => *value,
+                other => panic!("unexpected mini result for {export}: {other:?}"),
+            }
+        })
+        .collect()
 }
 
 fn reference_trace(bytes: &[u8]) -> Vec<i64> {
@@ -40,10 +50,21 @@ fn reference_trace(bytes: &[u8]) -> Vec<i64> {
     config.wasm_simd(true);
     config.wasm_relaxed_simd(true);
     let engine = Engine::new(&config).expect("relaxed-SIMD Wasmtime engine must initialize");
-    let module = ReferenceModule::new(&engine, bytes).expect("Wasmtime must compile relaxed f64x2 madd fixture");
+    let module = ReferenceModule::new(&engine, bytes)
+        .expect("Wasmtime must compile relaxed f64x2 madd fixture");
     let mut store = Store::new(&engine, ());
-    let instance = ReferenceInstance::new(&mut store, &module, &[]).expect("Wasmtime must instantiate relaxed f64x2 madd fixture");
-    EXPORTS.into_iter().map(|export| instance.get_typed_func::<(), i64>(&mut store, export).expect("relaxed f64x2 madd export must be [] -> [i64]").call(&mut store, ()).expect("Wasmtime relaxed f64x2 madd execution must succeed")).collect()
+    let instance = ReferenceInstance::new(&mut store, &module, &[])
+        .expect("Wasmtime must instantiate relaxed f64x2 madd fixture");
+    EXPORTS
+        .into_iter()
+        .map(|export| {
+            instance
+                .get_typed_func::<(), i64>(&mut store, export)
+                .expect("relaxed f64x2 madd export must be [] -> [i64]")
+                .call(&mut store, ())
+                .expect("Wasmtime relaxed f64x2 madd execution must succeed")
+        })
+        .collect()
 }
 
 #[test]
