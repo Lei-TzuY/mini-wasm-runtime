@@ -1,0 +1,31 @@
+    Updating crates.io index
+     Locking 6 packages to latest compatible versions
+      Adding wast v217.0.0 (available: v217.0.1)
+ Downloading crates ...
+  Downloaded leb128 v0.2.7
+  Downloaded memchr v2.8.3
+  Downloaded wasm-encoder v0.217.1
+  Downloaded bumpalo v3.20.3
+  Downloaded wast v217.0.0
+  Downloaded unicode-width v0.1.14
+    Checking wasm-parser v0.1.0 (/home/runner/work/mini-wasm-runtime/mini-wasm-runtime/crates/wasm-parser)
+    Checking leb128 v0.2.7
+    Checking bumpalo v3.20.3
+    Checking memchr v2.8.3
+    Checking wasm-encoder v0.217.1
+    Checking unicode-width v0.1.14
+    Checking wast v217.0.0
+    Checking wasm-validator v0.1.0 (/home/runner/work/mini-wasm-runtime/mini-wasm-runtime/crates/wasm-validator)
+error: this OR pattern can be rewritten using a range
+   --> crates/wasm-validator/src/typed.rs:759:21
+    |
+759 |                     265 | 266 | 267 => {
+    |                     ^^^^^^^^^^^^^^^ help: try: `265..=267`
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#manual_range_patterns
+    = note: `-D clippy::manual-range-patterns` implied by `-D warnings`
+    = help: to override `-D warnings` add `#[allow(clippy::manual_range_patterns)]`
+
+error: could not compile `wasm-validator` (lib) due to 1 previous error
+warning: build failed, waiting for other jobs to finish...
+error: could not compile `wasm-validator` (lib test) due to 1 previous error
