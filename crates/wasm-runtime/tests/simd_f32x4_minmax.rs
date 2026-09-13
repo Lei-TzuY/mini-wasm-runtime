@@ -121,14 +121,14 @@ fn adjacent_f32x4_f64x2_min_frontier_remains_fail_closed() {
     let mut i = Vec::new();
     push_f32x4_const(&mut i, [1.0; 4]);
     push_f32x4_const(&mut i, [2.0; 4]);
-    push_simd(&mut i, 269);
+    push_simd(&mut i, 270);
     let parsed = parse_module(&module(&i)).expect("fixture parses");
     assert!(matches!(
         Instance::new(parsed),
         Err(RuntimeError::Validation(
             ValidationError::UnsupportedPrefixedOpcode {
                 prefix: 0xfd,
-                subopcode: 269,
+                subopcode: 270,
                 ..
             }
         ))
@@ -163,6 +163,33 @@ fn validator_rejects_f32x4_pmin_type_confusion() {
     push_f32x4_const(&mut i, [1.0; 4]);
     push_i32_const(&mut i, 1);
     push_simd(&mut i, 234);
+    let parsed = parse_module(&module(&i)).expect("fixture parses");
+    assert!(matches!(
+        Instance::new(parsed),
+        Err(RuntimeError::Validation(
+            ValidationError::TypeMismatch { .. }
+        ))
+    ));
+}
+
+#[test]
+fn relaxed_f32x4_min_executes_ordered_lanes() {
+    assert_eq!(
+        lane_bits([3.0, -2.0, 8.0, 1.0], [4.0, -5.0, 7.0, 2.0], 269, 0),
+        3.0f32.to_bits()
+    );
+    assert_eq!(
+        lane_bits([3.0, -2.0, 8.0, 1.0], [4.0, -5.0, 7.0, 2.0], 269, 1),
+        (-5.0f32).to_bits()
+    );
+}
+
+#[test]
+fn validator_rejects_relaxed_f32x4_min_type_confusion() {
+    let mut i = Vec::new();
+    push_f32x4_const(&mut i, [1.0; 4]);
+    push_i32_const(&mut i, 1);
+    push_simd(&mut i, 269);
     let parsed = parse_module(&module(&i)).expect("fixture parses");
     assert!(matches!(
         Instance::new(parsed),

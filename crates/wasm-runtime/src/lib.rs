@@ -3819,6 +3819,33 @@ fn execute_simd(
             }
             stack.push(Value::V128(Rc::new(result)));
         }
+        269 => {
+            // f32x4.relaxed_min permits implementation-defined choice for NaN and
+            // signed-zero ties. Reuse deterministic f32x4.min-compatible semantics.
+            let rhs = numeric::v128_from_stack(stack)?;
+            let lhs = numeric::v128_from_stack(stack)?;
+            let mut result = [0u8; 16];
+            for lane in 0..4 {
+                let start = lane * 4;
+                let lhs_lane =
+                    f32::from_le_bytes(lhs[start..start + 4].try_into().expect("f32x4 lane width"));
+                let rhs_lane =
+                    f32::from_le_bytes(rhs[start..start + 4].try_into().expect("f32x4 lane width"));
+                let value = if lhs_lane.is_nan() || rhs_lane.is_nan() {
+                    f32::NAN
+                } else if lhs_lane == rhs_lane {
+                    if lhs_lane == 0.0 {
+                        f32::from_bits(lhs_lane.to_bits() | rhs_lane.to_bits())
+                    } else {
+                        lhs_lane
+                    }
+                } else {
+                    lhs_lane.min(rhs_lane)
+                };
+                result[start..start + 4].copy_from_slice(&value.to_le_bytes());
+            }
+            stack.push(Value::V128(Rc::new(result)));
+        }
         256 => {
             // Relaxed swizzle permits implementation-defined results for selectors 16..=127,
             // while selectors >= 128 must produce zero. Choosing zero for every selector >= 16
@@ -5002,7 +5029,7 @@ fn build_control_map(module: &Module, code: &[u8]) -> Result<ControlMap, Runtime
                     | 236
                     | 237
                     | 239
-                    | 240..=268
+                    | 240..=269
                     | 142
                     | 143
                     | 144
