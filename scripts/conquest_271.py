@@ -52,7 +52,7 @@ runtime.write_text(s)
 replace_exact(
     "crates/wasm-validator/src/typed.rs",
     "                    269 | 270 => {",
-    "                    269 | 270 | 271 => {",
+    "                    269..=271 => {",
     1,
 )
 
