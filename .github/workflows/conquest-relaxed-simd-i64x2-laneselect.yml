@@ -22,46 +22,17 @@ jobs:
         shell: python
         run: |
           from pathlib import Path
+          import re
 
           lib = Path('crates/wasm-runtime/src/lib.rs')
           s = lib.read_text()
-          anchor = '''        267 => {
-              // Deterministic-profile lowering: use v128.bitselect-equivalent semantics.
-              let mask = numeric::v128_from_stack(stack)?;
-              let b = numeric::v128_from_stack(stack)?;
-              let a = numeric::v128_from_stack(stack)?;
-              let mut result = [0u8; 16];
-              for index in 0..16 {
-                  result[index] = (a[index] & mask[index]) | (b[index] & !mask[index]);
-              }
-              stack.push(Value::V128(Rc::new(result)));
-          }
-          256 => {'''
-          replacement = '''        267 => {
-              // Deterministic-profile lowering: use v128.bitselect-equivalent semantics.
-              let mask = numeric::v128_from_stack(stack)?;
-              let b = numeric::v128_from_stack(stack)?;
-              let a = numeric::v128_from_stack(stack)?;
-              let mut result = [0u8; 16];
-              for index in 0..16 {
-                  result[index] = (a[index] & mask[index]) | (b[index] & !mask[index]);
-              }
-              stack.push(Value::V128(Rc::new(result)));
-          }
-          268 => {
-              // Deterministic-profile lowering: use v128.bitselect-equivalent semantics.
-              let mask = numeric::v128_from_stack(stack)?;
-              let b = numeric::v128_from_stack(stack)?;
-              let a = numeric::v128_from_stack(stack)?;
-              let mut result = [0u8; 16];
-              for index in 0..16 {
-                  result[index] = (a[index] & mask[index]) | (b[index] & !mask[index]);
-              }
-              stack.push(Value::V128(Rc::new(result)));
-          }
-          256 => {'''
-          assert anchor in s
-          s = s.replace(anchor, replacement, 1)
+          marker = '        267 => {'
+          start = s.index(marker)
+          next_arm = s.index('        256 => {', start)
+          block = s[start:next_arm]
+          assert 'v128.bitselect-equivalent semantics' in block
+          arm268 = block.replace('        267 => {', '        268 => {', 1)
+          s = s[:next_arm] + arm268 + s[next_arm:]
           assert '| 240..=267' in s
           s = s.replace('| 240..=267', '| 240..=268', 1)
           lib.write_text(s)
@@ -72,31 +43,17 @@ jobs:
           typed.write_text(s.replace('265..=267 => {', '265..=268 => {', 1))
 
           frontier = [
-            'crates/wasm-runtime/tests/simd_conversions.rs',
-            'crates/wasm-runtime/tests/simd_f32x4_binary.rs',
-            'crates/wasm-runtime/tests/simd_f32x4_minmax.rs',
-            'crates/wasm-runtime/tests/simd_f32x4_unary.rs',
-            'crates/wasm-runtime/tests/simd_f64x2_binary.rs',
-            'crates/wasm-runtime/tests/simd_f64x2_minmax.rs',
-            'crates/wasm-runtime/tests/simd_f64x2_unary.rs',
-            'crates/wasm-runtime/tests/simd_i16x8_alu_closure.rs',
-            'crates/wasm-runtime/tests/simd_i32x4_shifts.rs',
-            'crates/wasm-runtime/tests/simd_i32x4_widening.rs',
-            'crates/wasm-runtime/tests/simd_i64x2_arithmetic.rs',
-            'crates/wasm-runtime/tests/simd_i64x2_comparisons.rs',
-            'crates/wasm-runtime/tests/simd_i64x2_extmul.rs',
-            'crates/wasm-runtime/tests/simd_i64x2_shifts.rs',
-            'crates/wasm-runtime/tests/simd_relaxed_laneselect_i8x16.rs',
-            'crates/wasm-runtime/tests/simd_relaxed_laneselect_i16x8.rs',
-            'crates/wasm-runtime/tests/simd_relaxed_laneselect_i32x4.rs',
-            'crates/wasm-runtime/tests/simd_relaxed_swizzle.rs',
-            'crates/wasm-runtime/tests/simd_relaxed_trunc_f32x4_s.rs',
-            'crates/wasm-runtime/tests/simd_relaxed_trunc_f32x4_u.rs',
-            'crates/wasm-runtime/tests/simd_relaxed_trunc_f64x2_s_zero.rs',
-            'crates/wasm-runtime/tests/simd_relaxed_trunc_f64x2_u_zero.rs',
+            'simd_conversions.rs','simd_f32x4_binary.rs','simd_f32x4_minmax.rs','simd_f32x4_unary.rs',
+            'simd_f64x2_binary.rs','simd_f64x2_minmax.rs','simd_f64x2_unary.rs','simd_i16x8_alu_closure.rs',
+            'simd_i32x4_shifts.rs','simd_i32x4_widening.rs','simd_i64x2_arithmetic.rs','simd_i64x2_comparisons.rs',
+            'simd_i64x2_extmul.rs','simd_i64x2_shifts.rs','simd_relaxed_laneselect_i8x16.rs',
+            'simd_relaxed_laneselect_i16x8.rs','simd_relaxed_laneselect_i32x4.rs','simd_relaxed_swizzle.rs',
+            'simd_relaxed_trunc_f32x4_s.rs','simd_relaxed_trunc_f32x4_u.rs',
+            'simd_relaxed_trunc_f64x2_s_zero.rs','simd_relaxed_trunc_f64x2_u_zero.rs',
           ]
+          root = Path('crates/wasm-runtime/tests')
           for name in frontier:
-              p = Path(name)
+              p = root / name
               text = p.read_text()
               assert '268' in text, name
               p.write_text(text.replace('268', '269'))
@@ -106,155 +63,44 @@ jobs:
           use wasm_validator::ValidationError;
 
           fn push_u32(bytes: &mut Vec<u8>, mut value: u32) {
-              loop {
-                  let mut byte = (value & 0x7f) as u8;
-                  value >>= 7;
-                  if value != 0 { byte |= 0x80; }
-                  bytes.push(byte);
-                  if value == 0 { break; }
-              }
+              loop { let mut byte = (value & 0x7f) as u8; value >>= 7; if value != 0 { byte |= 0x80; } bytes.push(byte); if value == 0 { break; } }
           }
-
-          fn push_section(module: &mut Vec<u8>, id: u8, payload: &[u8]) {
-              module.push(id);
-              push_u32(module, payload.len() as u32);
-              module.extend_from_slice(payload);
-          }
-
+          fn push_section(module: &mut Vec<u8>, id: u8, payload: &[u8]) { module.push(id); push_u32(module, payload.len() as u32); module.extend_from_slice(payload); }
           fn module(instructions: &[u8]) -> Vec<u8> {
-              let mut bytes = vec![0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00];
-              push_section(&mut bytes, 1, &[0x01, 0x60, 0x00, 0x01, 0x7e]);
-              push_section(&mut bytes, 3, &[0x01, 0x00]);
-              push_section(&mut bytes, 7, &[0x01, 0x03, b'r', b'u', b'n', 0x00, 0x00]);
-              let mut body = vec![0x00];
-              body.extend_from_slice(instructions);
-              body.push(0x0b);
-              let mut code = vec![0x01];
-              push_u32(&mut code, body.len() as u32);
-              code.extend(body);
-              push_section(&mut bytes, 10, &code);
-              bytes
+              let mut bytes = vec![0x00,0x61,0x73,0x6d,0x01,0x00,0x00,0x00];
+              push_section(&mut bytes,1,&[0x01,0x60,0x00,0x01,0x7e]); push_section(&mut bytes,3,&[0x01,0x00]);
+              push_section(&mut bytes,7,&[0x01,0x03,b'r',b'u',b'n',0x00,0x00]);
+              let mut body=vec![0x00]; body.extend_from_slice(instructions); body.push(0x0b);
+              let mut code=vec![0x01]; push_u32(&mut code,body.len() as u32); code.extend(body); push_section(&mut bytes,10,&code); bytes
           }
-
-          fn v128_const(code: &mut Vec<u8>, value: [u8; 16]) {
-              code.extend_from_slice(&[0xfd, 0x0c]);
-              code.extend_from_slice(&value);
+          fn v128_const(code:&mut Vec<u8>, value:[u8;16]) { code.extend_from_slice(&[0xfd,0x0c]); code.extend_from_slice(&value); }
+          fn simd(code:&mut Vec<u8>, subopcode:u32) { code.push(0xfd); push_u32(code,subopcode); }
+          fn execute_lane0(a:[u8;16],b:[u8;16],mask:[u8;16])->i64 {
+              let mut code=Vec::new(); v128_const(&mut code,a); v128_const(&mut code,b); v128_const(&mut code,mask); simd(&mut code,268); simd(&mut code,29); code.push(0);
+              let parsed=parse_module(&module(&code)).expect("fixture parses"); let mut instance=Instance::new(parsed).expect("fixture validates");
+              match instance.invoke_export_values("run",&[]).expect("executes").as_slice(){[Value::I64(v)]=>*v,other=>panic!("unexpected result: {other:?}")}
           }
-
-          fn simd(code: &mut Vec<u8>, subopcode: u32) {
-              code.push(0xfd);
-              push_u32(code, subopcode);
-          }
-
-          fn execute_lane0(a: [u8; 16], b: [u8; 16], mask: [u8; 16]) -> i64 {
-              let mut code = Vec::new();
-              v128_const(&mut code, a);
-              v128_const(&mut code, b);
-              v128_const(&mut code, mask);
-              simd(&mut code, 268);
-              simd(&mut code, 29);
-              code.push(0);
-              let parsed = parse_module(&module(&code)).expect("lane-select fixture parses");
-              let mut instance = Instance::new(parsed).expect("lane-select fixture validates");
-              match instance.invoke_export_values("run", &[]).expect("lane-select executes").as_slice() {
-                  [Value::I64(value)] => *value,
-                  other => panic!("unexpected lane-select result: {other:?}"),
-              }
-          }
-
-          #[test]
-          fn relaxed_laneselect_handles_deterministic_and_mixed_masks() {
-              let a = [0xaa; 16];
-              let b = [0x55; 16];
-              assert_eq!(execute_lane0(a, b, [0xff; 16]), -6148914691236517206);
-              assert_eq!(execute_lane0(a, b, [0; 16]), 6148914691236517205);
-              let mut mixed = [0u8; 16];
-              mixed[..8].fill(0xf0);
-              assert_eq!(execute_lane0(a, b, mixed), -6510615555426900571);
-          }
-
-          #[test]
-          fn relaxed_laneselect_validates_three_v128_operands() {
-              let mut code = Vec::new();
-              v128_const(&mut code, [1; 16]);
-              v128_const(&mut code, [2; 16]);
-              code.extend_from_slice(&[0x42, 0x00]);
-              simd(&mut code, 268);
-              simd(&mut code, 29);
-              code.push(0);
-              let parsed = parse_module(&module(&code)).expect("type-confusion fixture parses");
-              assert!(matches!(Instance::new(parsed), Err(RuntimeError::Validation(ValidationError::TypeMismatch { .. }))));
-          }
-
-          #[test]
-          fn next_relaxed_simd_subopcode_remains_fail_closed() {
-              let mut code = Vec::new();
-              v128_const(&mut code, [1; 16]);
-              v128_const(&mut code, [2; 16]);
-              v128_const(&mut code, [0xff; 16]);
-              simd(&mut code, 269);
-              simd(&mut code, 29);
-              code.push(0);
-              let parsed = parse_module(&module(&code)).expect("frontier fixture parses");
-              assert!(matches!(Instance::new(parsed), Err(RuntimeError::Validation(ValidationError::UnsupportedPrefixedOpcode { prefix: 0xfd, subopcode: 269, .. }))));
-          }
+          #[test] fn relaxed_laneselect_handles_masks(){ let a=[0xaa;16]; let b=[0x55;16]; assert_eq!(execute_lane0(a,b,[0xff;16]),-6148914691236517206); assert_eq!(execute_lane0(a,b,[0;16]),6148914691236517205); let mut m=[0u8;16]; m[..8].fill(0xf0); assert_eq!(execute_lane0(a,b,m),-6510615555426900571); }
+          #[test] fn relaxed_laneselect_validates_three_v128_operands(){ let mut code=Vec::new(); v128_const(&mut code,[1;16]); v128_const(&mut code,[2;16]); code.extend_from_slice(&[0x42,0x00]); simd(&mut code,268); simd(&mut code,29); code.push(0); let parsed=parse_module(&module(&code)).expect("parses"); assert!(matches!(Instance::new(parsed),Err(RuntimeError::Validation(ValidationError::TypeMismatch{..})))); }
+          #[test] fn next_relaxed_simd_subopcode_remains_fail_closed(){ let mut code=Vec::new(); v128_const(&mut code,[1;16]); v128_const(&mut code,[2;16]); v128_const(&mut code,[0xff;16]); simd(&mut code,269); simd(&mut code,29); code.push(0); let parsed=parse_module(&module(&code)).expect("parses"); assert!(matches!(Instance::new(parsed),Err(RuntimeError::Validation(ValidationError::UnsupportedPrefixedOpcode{prefix:0xfd,subopcode:269,..})))); }
           '''
           Path('crates/wasm-runtime/tests/simd_relaxed_laneselect_i64x2.rs').write_text(runtime_test)
 
           differential = r'''use wasm_parser::parse_module;
           use wasm_runtime::{Instance as MiniInstance, Value};
           use wasmtime::{Config, Engine, Instance as ReferenceInstance, Module as ReferenceModule, Store};
-
-          const FIXTURE: &str = r#"
-          (module
-            (func (export "all_a") (result i64)
-              v128.const i64x2 -6148914691236517206 -6148914691236517206
-              v128.const i64x2 6148914691236517205 6148914691236517205
-              v128.const i64x2 -1 -1
-              i64x2.relaxed_laneselect
-              i64x2.extract_lane 0)
-            (func (export "all_b") (result i64)
-              v128.const i64x2 -6148914691236517206 -6148914691236517206
-              v128.const i64x2 6148914691236517205 6148914691236517205
-              v128.const i64x2 0 0
-              i64x2.relaxed_laneselect
-              i64x2.extract_lane 0))
-          "#;
-          const EXPORTS: [&str; 2] = ["all_a", "all_b"];
-
-          fn mini_trace(bytes: &[u8]) -> Vec<i64> {
-              let module = parse_module(bytes).expect("mini runtime parses relaxed lane-select fixture");
-              let mut instance = MiniInstance::new(module).expect("mini runtime instantiates relaxed lane-select fixture");
-              EXPORTS.into_iter().map(|export| match instance.invoke_export_values(export, &[]).expect("mini lane-select executes").as_slice() {
-                  [Value::I64(value)] => *value,
-                  other => panic!("unexpected mini result for {export}: {other:?}"),
-              }).collect()
-          }
-
-          fn reference_trace(bytes: &[u8]) -> Vec<i64> {
-              let mut config = Config::new();
-              config.wasm_simd(true);
-              config.wasm_relaxed_simd(true);
-              let engine = Engine::new(&config).expect("Wasmtime engine initializes");
-              let module = ReferenceModule::new(&engine, bytes).expect("Wasmtime compiles relaxed lane-select fixture");
-              let mut store = Store::new(&engine, ());
-              let instance = ReferenceInstance::new(&mut store, &module, &[]).expect("Wasmtime instantiates relaxed lane-select fixture");
-              EXPORTS.into_iter().map(|export| instance.get_typed_func::<(), i64>(&mut store, export).expect("lane-select export is [] -> [i64]").call(&mut store, ()).expect("Wasmtime lane-select executes")).collect()
-          }
-
-          #[test]
-          fn relaxed_i64x2_laneselect_matches_wasmtime_for_deterministic_masks() {
-              let bytes = wat::parse_str(FIXTURE).expect("relaxed lane-select WAT parses");
-              let mini = mini_trace(&bytes);
-              let reference = reference_trace(&bytes);
-              assert_eq!(mini, vec![-6148914691236517206, 6148914691236517205]);
-              assert_eq!(reference, mini);
-          }
+          const FIXTURE:&str=r#"(module
+            (func (export "all_a") (result i64) v128.const i64x2 -6148914691236517206 -6148914691236517206 v128.const i64x2 6148914691236517205 6148914691236517205 v128.const i64x2 -1 -1 i64x2.relaxed_laneselect i64x2.extract_lane 0)
+            (func (export "all_b") (result i64) v128.const i64x2 -6148914691236517206 -6148914691236517206 v128.const i64x2 6148914691236517205 6148914691236517205 v128.const i64x2 0 0 i64x2.relaxed_laneselect i64x2.extract_lane 0))"#;
+          const EXPORTS:[&str;2]=["all_a","all_b"];
+          fn mini_trace(bytes:&[u8])->Vec<i64>{ let module=parse_module(bytes).expect("mini parses"); let mut instance=MiniInstance::new(module).expect("mini instantiates"); EXPORTS.into_iter().map(|e|match instance.invoke_export_values(e,&[]).expect("mini executes").as_slice(){[Value::I64(v)]=>*v,other=>panic!("unexpected {e}: {other:?}")}).collect() }
+          fn reference_trace(bytes:&[u8])->Vec<i64>{ let mut c=Config::new(); c.wasm_simd(true); c.wasm_relaxed_simd(true); let engine=Engine::new(&c).expect("engine"); let module=ReferenceModule::new(&engine,bytes).expect("compiles"); let mut store=Store::new(&engine,()); let instance=ReferenceInstance::new(&mut store,&module,&[]).expect("instantiates"); EXPORTS.into_iter().map(|e|instance.get_typed_func::<(),i64>(&mut store,e).expect("typed").call(&mut store,()).expect("executes")).collect() }
+          #[test] fn relaxed_i64x2_laneselect_matches_wasmtime(){ let bytes=wat::parse_str(FIXTURE).expect("wat"); let mini=mini_trace(&bytes); let reference=reference_trace(&bytes); assert_eq!(mini,vec![-6148914691236517206,6148914691236517205]); assert_eq!(reference,mini); }
           '''
           Path('differential/tests/simd_relaxed_laneselect_i64x2.rs').write_text(differential)
       - name: Format and qualify
         run: |
-          cargo fmt --all -- --check || cargo fmt --all
+          cargo fmt --all
           cargo fmt --all -- --check
           cargo clippy --workspace --all-targets -- -D warnings
           cargo test --workspace
