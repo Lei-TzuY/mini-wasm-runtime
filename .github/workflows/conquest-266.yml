@@ -25,7 +25,7 @@ jobs:
       - name: Docs
         run: cargo doc --workspace --no-deps
       - name: Wasmtime differential
-        run: cargo test -p differential --test simd_relaxed_laneselect_i16x8
+        run: cargo test --manifest-path differential/Cargo.toml --test simd_relaxed_laneselect_i16x8
       - name: Promote clean candidate
         run: |
           rm .github/conquest-266.py .github/workflows/conquest-266.yml
