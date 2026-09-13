@@ -194,19 +194,68 @@ fn relaxed_madd_validator_rejects_missing_third_v128_operand() {
     ));
 }
 
+fn relaxed_nmadd_lane_bits(a: [f64; 2], b: [f64; 2], c: [f64; 2], lane: u32) -> u64 {
+    let mut instructions = Vec::new();
+    push_i32_const(&mut instructions, 0);
+    push_f64x2_const(&mut instructions, a);
+    push_f64x2_const(&mut instructions, b);
+    push_f64x2_const(&mut instructions, c);
+    push_simd(&mut instructions, 264);
+    push_v128_store(&mut instructions);
+    push_i32_const(&mut instructions, 0);
+    push_i64_load(&mut instructions, lane * 8);
+    let parsed = parse_module(&module(&instructions)).expect("fixture parses");
+    let mut instance = Instance::new(parsed).expect("fixture validates");
+    match instance
+        .invoke_export_values("run", &[])
+        .expect("fixture executes")
+        .as_slice()
+    {
+        [Value::I64(value)] => *value as u64,
+        other => panic!("unexpected relaxed nmadd result: {other:?}"),
+    }
+}
+
+#[test]
+fn relaxed_nmadd_executes_unfused_lane_semantics() {
+    assert_eq!(
+        relaxed_nmadd_lane_bits([2.0, -3.0], [3.0, 2.0], [1.0, 8.0], 0),
+        (-5.0f64).to_bits()
+    );
+    assert_eq!(
+        relaxed_nmadd_lane_bits([2.0, -3.0], [3.0, 2.0], [1.0, 8.0], 1),
+        14.0f64.to_bits()
+    );
+}
+
+#[test]
+fn relaxed_nmadd_validator_rejects_missing_third_v128_operand() {
+    let mut instructions = Vec::new();
+    push_f64x2_const(&mut instructions, [1.0; 2]);
+    push_f64x2_const(&mut instructions, [2.0; 2]);
+    push_simd(&mut instructions, 264);
+    let parsed = parse_module(&module(&instructions)).expect("fixture parses");
+    assert!(matches!(
+        Instance::new(parsed),
+        Err(RuntimeError::Validation(
+            ValidationError::OperandStackUnderflow { .. }
+        ))
+    ));
+}
+
 #[test]
 fn adjacent_f64x2_min_frontier_remains_fail_closed() {
     let mut instructions = Vec::new();
     push_f64x2_const(&mut instructions, [1.0, 2.0]);
     push_f64x2_const(&mut instructions, [3.0, 4.0]);
-    push_simd(&mut instructions, 264);
+    push_simd(&mut instructions, 265);
     let parsed = parse_module(&module(&instructions)).expect("fixture parses");
     assert!(matches!(
         Instance::new(parsed),
         Err(RuntimeError::Validation(
             ValidationError::UnsupportedPrefixedOpcode {
                 prefix: 0xfd,
-                subopcode: 264,
+                subopcode: 265,
                 ..
             }
         ))
