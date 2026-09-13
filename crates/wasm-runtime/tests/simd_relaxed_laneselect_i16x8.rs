@@ -37,11 +37,9 @@ fn module(instructions: &[u8]) -> Vec<u8> {
     bytes
 }
 
-fn push_f32x4_const(code: &mut Vec<u8>, lanes: [f32; 4]) {
+fn v128_const(code: &mut Vec<u8>, value: [u8; 16]) {
     code.extend_from_slice(&[0xfd, 0x0c]);
-    for lane in lanes {
-        code.extend_from_slice(&lane.to_bits().to_le_bytes());
-    }
+    code.extend_from_slice(&value);
 }
 
 fn simd(code: &mut Vec<u8>, subopcode: u32) {
@@ -49,47 +47,48 @@ fn simd(code: &mut Vec<u8>, subopcode: u32) {
     push_u32(code, subopcode);
 }
 
-fn run_lane(lanes: [f32; 4], lane: u8) -> i32 {
+fn execute_lane0(a: [u8; 16], b: [u8; 16], mask: [u8; 16]) -> i32 {
     let mut code = Vec::new();
-    push_f32x4_const(&mut code, lanes);
-    simd(&mut code, 258);
-    code.extend_from_slice(&[0xfd, 0x1b, lane]);
-    let parsed = parse_module(&module(&code)).expect("relaxed trunc fixture must parse");
-    let mut instance = Instance::new(parsed).expect("relaxed trunc fixture must validate");
+    v128_const(&mut code, a);
+    v128_const(&mut code, b);
+    v128_const(&mut code, mask);
+    simd(&mut code, 266);
+    simd(&mut code, 25);
+    code.push(0);
+    let parsed = parse_module(&module(&code)).expect("lane-select fixture parses");
+    let mut instance = Instance::new(parsed).expect("lane-select fixture validates");
     match instance
         .invoke_export_values("run", &[])
-        .expect("relaxed trunc must execute")
+        .expect("lane-select executes")
         .as_slice()
     {
         [Value::I32(value)] => *value,
-        other => panic!("unexpected relaxed trunc result: {other:?}"),
+        other => panic!("unexpected lane-select result: {other:?}"),
     }
 }
 
 #[test]
-fn relaxed_trunc_executes_deterministic_in_range_lanes() {
-    let lanes = [1.75, 2.75, 0.0, 12345.5];
-    assert_eq!(run_lane(lanes, 0), 1);
-    assert_eq!(run_lane(lanes, 1), 2);
-    assert_eq!(run_lane(lanes, 2), 0);
-    assert_eq!(run_lane(lanes, 3), 12345);
+fn relaxed_laneselect_handles_deterministic_and_mixed_masks() {
+    let a = [0xaa; 16];
+    let b = [0x55; 16];
+    assert_eq!(execute_lane0(a, b, [0xff; 16]), 0xaaaa);
+    assert_eq!(execute_lane0(a, b, [0; 16]), 0x5555);
+    let mut mixed = [0u8; 16];
+    mixed[0] = 0xf0;
+    mixed[1] = 0xf0;
+    assert_eq!(execute_lane0(a, b, mixed), 0xa5a5);
 }
 
 #[test]
-fn relaxed_trunc_uses_permitted_saturating_choices_for_special_lanes() {
-    let lanes = [f32::NAN, f32::INFINITY, f32::NEG_INFINITY, 42.9];
-    assert_eq!(run_lane(lanes, 0), 0);
-    assert_eq!(run_lane(lanes, 1), -1);
-    assert_eq!(run_lane(lanes, 2), 0);
-    assert_eq!(run_lane(lanes, 3), 42);
-}
-
-#[test]
-fn validator_rejects_relaxed_trunc_type_confusion() {
-    let mut code = vec![0x41, 0x00];
-    simd(&mut code, 258);
-    code.extend_from_slice(&[0xfd, 0x1b, 0x00]);
-    let parsed = parse_module(&module(&code)).expect("type-confusion fixture must parse");
+fn relaxed_laneselect_validates_three_v128_operands() {
+    let mut code = Vec::new();
+    v128_const(&mut code, [1; 16]);
+    v128_const(&mut code, [2; 16]);
+    code.extend_from_slice(&[0x41, 0x00]);
+    simd(&mut code, 266);
+    simd(&mut code, 25);
+    code.push(0);
+    let parsed = parse_module(&module(&code)).expect("type-confusion fixture parses");
     assert!(matches!(
         Instance::new(parsed),
         Err(RuntimeError::Validation(
@@ -101,10 +100,13 @@ fn validator_rejects_relaxed_trunc_type_confusion() {
 #[test]
 fn next_relaxed_simd_subopcode_remains_fail_closed() {
     let mut code = Vec::new();
-    push_f32x4_const(&mut code, [1.0; 4]);
+    v128_const(&mut code, [1; 16]);
+    v128_const(&mut code, [2; 16]);
+    v128_const(&mut code, [0xff; 16]);
     simd(&mut code, 267);
-    code.extend_from_slice(&[0xfd, 0x1b, 0x00]);
-    let parsed = parse_module(&module(&code)).expect("259 frontier fixture must parse");
+    simd(&mut code, 25);
+    code.push(0);
+    let parsed = parse_module(&module(&code)).expect("frontier fixture parses");
     assert!(matches!(
         Instance::new(parsed),
         Err(RuntimeError::Validation(
