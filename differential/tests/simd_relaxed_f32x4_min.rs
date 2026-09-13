@@ -20,7 +20,11 @@ fn relaxed_f32x4_min_matches_wasmtime_for_ordered_lanes() {
     let bytes = wat::parse_str(FIXTURE).expect("relaxed min WAT parses");
     let parsed = parse_module(&bytes).expect("mini parses relaxed min fixture");
     let mut mini = MiniInstance::new(parsed).expect("mini instantiates relaxed min fixture");
-    let mini_value = match mini.invoke_export_values("ordered", &[]).unwrap().as_slice() {
+    let mini_value = match mini
+        .invoke_export_values("ordered", &[])
+        .unwrap()
+        .as_slice()
+    {
         [Value::I32(v)] => *v,
         other => panic!("unexpected mini result: {other:?}"),
     };
