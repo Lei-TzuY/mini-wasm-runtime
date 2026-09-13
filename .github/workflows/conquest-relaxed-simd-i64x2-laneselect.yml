@@ -48,7 +48,7 @@ jobs:
       - name: runtime frontier
         run: cargo test -p wasm-runtime --test simd_relaxed_laneselect_i64x2 next_relaxed_simd_subopcode_remains_fail_closed
       - name: Wasmtime differential
-        run: cargo test -p mini-wasm-differential --test simd_relaxed_laneselect_i64x2
+        run: cargo test --manifest-path differential/Cargo.toml --test simd_relaxed_laneselect_i64x2
       - name: workspace tests
         run: cargo test --workspace
       - name: docs
