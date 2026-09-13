@@ -21,7 +21,20 @@ jobs:
       - name: Format
         run: cargo fmt --all
       - name: Clippy
-        run: cargo clippy --workspace --all-targets --all-features -- -D warnings
+        run: |
+          set +e
+          cargo clippy --workspace --all-targets --all-features -- -D warnings > .conquest/clippy.log 2>&1
+          status=$?
+          cat .conquest/clippy.log
+          if [ "$status" -ne 0 ]; then
+            git config user.name "LeiZ"
+            git config user.email "52287354+Lei-TzuY@users.noreply.github.com"
+            git add .conquest/clippy.log
+            git commit -m "chore: capture qualification blocker"
+            git push origin "HEAD:conquest/relaxed-laneselect-i32x4-267"
+            exit "$status"
+          fi
+          rm .conquest/clippy.log
       - name: Workspace tests
         run: cargo test --workspace
       - name: Docs
