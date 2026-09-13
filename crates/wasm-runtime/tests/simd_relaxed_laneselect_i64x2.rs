@@ -24,8 +24,9 @@ fn push_section(module: &mut Vec<u8>, id: u8, payload: &[u8]) {
 
 fn module(instructions: &[u8]) -> Vec<u8> {
     let mut bytes = vec![0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00];
-    push_section(&mut bytes, 1, &[0x01, 0x60, 0x00, 0x01, 0x7f]);
+    push_section(&mut bytes, 1, &[0x01, 0x60, 0x00, 0x01, 0x7e]);
     push_section(&mut bytes, 3, &[0x01, 0x00]);
+    push_section(&mut bytes, 5, &[0x01, 0x00, 0x01]);
     push_section(&mut bytes, 7, &[0x01, 0x03, b'r', b'u', b'n', 0x00, 0x00]);
     let mut body = vec![0x00];
     body.extend_from_slice(instructions);
@@ -47,14 +48,16 @@ fn simd(code: &mut Vec<u8>, subopcode: u32) {
     push_u32(code, subopcode);
 }
 
-fn execute_lane0(a: [u8; 16], b: [u8; 16], mask: [u8; 16]) -> i32 {
+fn execute_lane0(a: [u8; 16], b: [u8; 16], mask: [u8; 16]) -> i64 {
     let mut code = Vec::new();
+    code.extend_from_slice(&[0x41, 0x00]);
     v128_const(&mut code, a);
     v128_const(&mut code, b);
     v128_const(&mut code, mask);
-    simd(&mut code, 266);
-    simd(&mut code, 25);
-    code.push(0);
+    simd(&mut code, 268);
+    simd(&mut code, 11);
+    code.extend_from_slice(&[4, 0]);
+    code.extend_from_slice(&[0x41, 0x00, 0x29, 3, 0]);
     let parsed = parse_module(&module(&code)).expect("lane-select fixture parses");
     let mut instance = Instance::new(parsed).expect("lane-select fixture validates");
     match instance
@@ -62,7 +65,7 @@ fn execute_lane0(a: [u8; 16], b: [u8; 16], mask: [u8; 16]) -> i32 {
         .expect("lane-select executes")
         .as_slice()
     {
-        [Value::I32(value)] => *value,
+        [Value::I64(value)] => *value,
         other => panic!("unexpected lane-select result: {other:?}"),
     }
 }
@@ -71,23 +74,24 @@ fn execute_lane0(a: [u8; 16], b: [u8; 16], mask: [u8; 16]) -> i32 {
 fn relaxed_laneselect_handles_deterministic_and_mixed_masks() {
     let a = [0xaa; 16];
     let b = [0x55; 16];
-    assert_eq!(execute_lane0(a, b, [0xff; 16]), 0xaaaa);
-    assert_eq!(execute_lane0(a, b, [0; 16]), 0x5555);
+    assert_eq!(execute_lane0(a, b, [0xff; 16]), -6148914691236517206);
+    assert_eq!(execute_lane0(a, b, [0; 16]), 6148914691236517205);
     let mut mixed = [0u8; 16];
-    mixed[0] = 0xf0;
-    mixed[1] = 0xf0;
-    assert_eq!(execute_lane0(a, b, mixed), 0xa5a5);
+    mixed[..8].fill(0xf0);
+    assert_eq!(execute_lane0(a, b, mixed), -6510615555426900571);
 }
 
 #[test]
 fn relaxed_laneselect_validates_three_v128_operands() {
     let mut code = Vec::new();
+    code.extend_from_slice(&[0x41, 0x00]);
     v128_const(&mut code, [1; 16]);
     v128_const(&mut code, [2; 16]);
-    code.extend_from_slice(&[0x41, 0x00]);
-    simd(&mut code, 266);
-    simd(&mut code, 25);
-    code.push(0);
+    code.extend_from_slice(&[0x42, 0x00]);
+    simd(&mut code, 268);
+    simd(&mut code, 11);
+    code.extend_from_slice(&[4, 0]);
+    code.extend_from_slice(&[0x41, 0x00, 0x29, 3, 0]);
     let parsed = parse_module(&module(&code)).expect("type-confusion fixture parses");
     assert!(matches!(
         Instance::new(parsed),
@@ -100,12 +104,14 @@ fn relaxed_laneselect_validates_three_v128_operands() {
 #[test]
 fn next_relaxed_simd_subopcode_remains_fail_closed() {
     let mut code = Vec::new();
+    code.extend_from_slice(&[0x41, 0x00]);
     v128_const(&mut code, [1; 16]);
     v128_const(&mut code, [2; 16]);
     v128_const(&mut code, [0xff; 16]);
     simd(&mut code, 269);
-    simd(&mut code, 25);
-    code.push(0);
+    simd(&mut code, 11);
+    code.extend_from_slice(&[4, 0]);
+    code.extend_from_slice(&[0x41, 0x00, 0x29, 3, 0]);
     let parsed = parse_module(&module(&code)).expect("frontier fixture parses");
     assert!(matches!(
         Instance::new(parsed),
