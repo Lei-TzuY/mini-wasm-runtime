@@ -41,12 +41,13 @@ fn module(code: &[u8]) -> Vec<u8> {
     }
     m
 }
-fn run(a: [u8; 16], b: [u8; 16]) -> [u8; 16] {
-    let mut c = Vec::new();
-    v128(&mut c, a);
-    v128(&mut c, b);
-    simd(&mut c, 274);
-    let parsed = parse_module(&module(&c)).unwrap();
+fn run(a: [u8; 16], b: [u8; 16], c: [u8; 16]) -> [u8; 16] {
+    let mut code = Vec::new();
+    v128(&mut code, a);
+    v128(&mut code, b);
+    v128(&mut code, c);
+    simd(&mut code, 275);
+    let parsed = parse_module(&module(&code)).unwrap();
     validate(&parsed).unwrap();
     let mut inst = Instance::new(parsed).unwrap();
     match inst.invoke_export("run", &[]).unwrap().as_slice() {
@@ -54,43 +55,52 @@ fn run(a: [u8; 16], b: [u8; 16]) -> [u8; 16] {
         x => panic!("{x:?}"),
     }
 }
-#[test]
-fn relaxed_dot_executes_signed_pairwise_products() {
-    let mut a = [0u8; 16];
-    let mut b = [0u8; 16];
-    a[0] = 2;
-    a[1] = (-3i8) as u8;
-    b[0] = 4;
-    b[1] = 5;
-    let r = run(a, b);
-    assert_eq!(i16::from_le_bytes([r[0], r[1]]), -7);
+fn i32x4(values: [i32; 4]) -> [u8; 16] {
+    let mut out = [0u8; 16];
+    for (lane, value) in values.into_iter().enumerate() {
+        out[lane * 4..lane * 4 + 4].copy_from_slice(&value.to_le_bytes());
+    }
+    out
 }
 #[test]
-fn relaxed_dot_chooses_signed_rhs_and_saturating_profile() {
+fn relaxed_dot_add_executes_defined_signed_products_and_accumulator() {
+    let mut a = [0u8; 16];
+    let mut b = [0u8; 16];
+    a[..4].copy_from_slice(&[2, (-3i8) as u8, 4, 5]);
+    b[..4].copy_from_slice(&[4, 5, 6, 7]);
+    let r = run(a, b, i32x4([10, 0, 0, 0]));
+    assert_eq!(i32::from_le_bytes(r[..4].try_into().unwrap()), 62);
+}
+#[test]
+fn relaxed_dot_add_uses_signed_rhs_and_saturating_pair_profile() {
     let a = [i8::MIN as u8; 16];
     let b = [i8::MIN as u8; 16];
-    let r = run(a, b);
-    for lane in 0..8 {
-        let i = lane * 2;
-        assert_eq!(i16::from_le_bytes([r[i], r[i + 1]]), i16::MAX);
+    let r = run(a, b, i32x4([1, 2, 3, 4]));
+    for lane in 0..4 {
+        let start = lane * 4;
+        let got = i32::from_le_bytes(r[start..start + 4].try_into().unwrap());
+        assert_eq!(got, 2 * i32::from(i16::MAX) + (lane as i32 + 1));
     }
 }
 #[test]
-fn relaxed_dot_requires_two_v128_operands() {
-    let mut c = vec![0x41, 0x01];
-    simd(&mut c, 274);
-    let parsed = parse_module(&module(&c)).unwrap();
+fn relaxed_dot_add_requires_three_v128_operands() {
+    let mut code = Vec::new();
+    v128(&mut code, [0; 16]);
+    v128(&mut code, [0; 16]);
+    simd(&mut code, 275);
+    let parsed = parse_module(&module(&code)).unwrap();
     assert!(matches!(
         validate(&parsed),
-        Err(ValidationError::TypeMismatch { .. })
+        Err(ValidationError::OperandStackUnderflow { .. })
     ));
 }
 #[test]
 fn next_relaxed_simd_opcode_remains_fail_closed() {
-    let mut c = Vec::new();
-    v128(&mut c, [0; 16]);
-    v128(&mut c, [0; 16]);
-    simd(&mut c, 276);
-    let parsed = parse_module(&module(&c)).unwrap();
+    let mut code = Vec::new();
+    v128(&mut code, [0; 16]);
+    v128(&mut code, [0; 16]);
+    v128(&mut code, [0; 16]);
+    simd(&mut code, 276);
+    let parsed = parse_module(&module(&code)).unwrap();
     assert!(validate(&parsed).is_err());
 }
