@@ -22,6 +22,10 @@ jobs:
           components: rustfmt, clippy
       - name: Construct vertical slice
         run: python tools/conquest_273.py
+      - name: Format constructed Rust
+        run: |
+          cargo fmt --all
+          cargo fmt --manifest-path differential/Cargo.toml --all
       - run: cargo fmt --all -- --check
       - run: cargo clippy --workspace --all-targets -- -D warnings
       - run: cargo test --workspace
