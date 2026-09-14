@@ -788,6 +788,18 @@ pub(super) fn validate_code(
                         pop_expect(&mut stack, &controls, ValueType::I32, function, offset)?;
                         stack.push(ValueType::V128);
                     }
+                    18 => {
+                        pop_expect(&mut stack, &controls, ValueType::I64, function, offset)?;
+                        stack.push(ValueType::V128);
+                    }
+                    19 => {
+                        pop_expect(&mut stack, &controls, ValueType::F32, function, offset)?;
+                        stack.push(ValueType::V128);
+                    }
+                    20 => {
+                        pop_expect(&mut stack, &controls, ValueType::F64, function, offset)?;
+                        stack.push(ValueType::V128);
+                    }
                     21 | 22 => {
                         let lane = *code
                             .get(pc)
@@ -933,6 +945,53 @@ pub(super) fn validate_code(
                         }
                         pop_expect(&mut stack, &controls, ValueType::V128, function, offset)?;
                         stack.push(ValueType::I32);
+                    }
+                    28 => {
+                        let lane = *code
+                            .get(pc)
+                            .ok_or(ValidationError::MalformedImmediate { function, offset })?;
+                        pc += 1;
+                        if lane >= 4 {
+                            return Err(ValidationError::MalformedImmediate { function, offset });
+                        }
+                        pop_expect(&mut stack, &controls, ValueType::I32, function, offset)?;
+                        pop_expect(&mut stack, &controls, ValueType::V128, function, offset)?;
+                        stack.push(ValueType::V128);
+                    }
+                    29 | 31 | 33 => {
+                        let lane = *code
+                            .get(pc)
+                            .ok_or(ValidationError::MalformedImmediate { function, offset })?;
+                        pc += 1;
+                        let (limit, result) = match subopcode {
+                            29 => (2, ValueType::I64),
+                            31 => (4, ValueType::F32),
+                            33 => (2, ValueType::F64),
+                            _ => unreachable!(),
+                        };
+                        if lane >= limit {
+                            return Err(ValidationError::MalformedImmediate { function, offset });
+                        }
+                        pop_expect(&mut stack, &controls, ValueType::V128, function, offset)?;
+                        stack.push(result);
+                    }
+                    30 | 32 | 34 => {
+                        let lane = *code
+                            .get(pc)
+                            .ok_or(ValidationError::MalformedImmediate { function, offset })?;
+                        pc += 1;
+                        let (limit, scalar) = match subopcode {
+                            30 => (2, ValueType::I64),
+                            32 => (4, ValueType::F32),
+                            34 => (2, ValueType::F64),
+                            _ => unreachable!(),
+                        };
+                        if lane >= limit {
+                            return Err(ValidationError::MalformedImmediate { function, offset });
+                        }
+                        pop_expect(&mut stack, &controls, scalar, function, offset)?;
+                        pop_expect(&mut stack, &controls, ValueType::V128, function, offset)?;
+                        stack.push(ValueType::V128);
                     }
                     _ => {
                         return Err(ValidationError::UnsupportedPrefixedOpcode {
