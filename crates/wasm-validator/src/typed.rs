@@ -703,6 +703,45 @@ pub(super) fn validate_code(
                             stack.push(ValueType::V128);
                         }
                     }
+                    84..=87 => {
+                        super::ensure_memory(module, function, offset)?;
+                        let max_alignment = subopcode - 84;
+                        let (_, memory_index, _) = super::read_memarg(
+                            code,
+                            &mut pc,
+                            module,
+                            function,
+                            offset,
+                            max_alignment,
+                        )?;
+                        let lane = *code
+                            .get(pc)
+                            .ok_or(ValidationError::MalformedImmediate { function, offset })?;
+                        pc += 1;
+                        let lane_limit = match subopcode {
+                            84 => 16,
+                            85 => 8,
+                            86 => 4,
+                            87 => 2,
+                            _ => unreachable!("matched SIMD lane-load opcode"),
+                        };
+                        if lane >= lane_limit {
+                            return Err(ValidationError::MalformedImmediate { function, offset });
+                        }
+                        let address_type = if module
+                            .memory_type(memory_index)
+                            .expect("validated memory index")
+                            .limits
+                            .memory64
+                        {
+                            ValueType::I64
+                        } else {
+                            ValueType::I32
+                        };
+                        pop_expect(&mut stack, &controls, ValueType::V128, function, offset)?;
+                        pop_expect(&mut stack, &controls, address_type, function, offset)?;
+                        stack.push(ValueType::V128);
+                    }
                     12 => {
                         skip_fixed(code, &mut pc, 16, function, offset)?;
                         stack.push(ValueType::V128);
