@@ -19,7 +19,54 @@ jobs:
         with:
           components: rustfmt, clippy
       - name: Construct vertical slice
-        run: python3 tools/conquest_simd_lanes.py
+        run: |
+          python3 tools/conquest_simd_lanes.py
+          python3 - <<'PY'
+          from pathlib import Path
+          path = Path("crates/wasm-runtime/tests/simd_i32x4_core.rs")
+          text = path.read_text()
+          old = '''#[test]
+          fn unsupported_simd_subopcode_remains_fail_closed() {
+              let bytes = module(&[
+                  0x42, 0x00, // i64.const 0
+                  0xfd, 0x12, // i64x2.splat is outside this initial slice
+                  0x41, 0x00, // result if an implementation accidentally skips the opcode
+              ]);
+              let parsed = parse_module(&bytes).expect("unsupported-SIMD fixture must parse");
+              assert!(matches!(
+                  Instance::new(parsed),
+                  Err(RuntimeError::Validation(
+                      ValidationError::UnsupportedPrefixedOpcode {
+                          prefix: 0xfd,
+                          subopcode: 18,
+                          ..
+                      }
+                  ))
+              ));
+          }
+          '''
+          new = '''#[test]
+          fn next_simd_lane_memory_subopcode_remains_fail_closed() {
+              let bytes = module(&[
+                  0xfd, 0x54, // v128.load8_lane is the next unsupported lane-memory capability
+              ]);
+              let parsed = parse_module(&bytes).expect("unsupported-SIMD fixture must parse");
+              assert!(matches!(
+                  Instance::new(parsed),
+                  Err(RuntimeError::Validation(
+                      ValidationError::UnsupportedPrefixedOpcode {
+                          prefix: 0xfd,
+                          subopcode: 84,
+                          ..
+                      }
+                  ))
+              ));
+          }
+          '''
+          if text.count(old) != 1:
+              raise SystemExit("expected stale SIMD frontier exactly once")
+          path.write_text(text.replace(old, new, 1))
+          PY
       - name: Format
         run: |
           cargo fmt --all
