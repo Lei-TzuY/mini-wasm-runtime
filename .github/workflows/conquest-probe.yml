@@ -15,7 +15,9 @@ jobs:
           fetch-depth: 0
       - uses: dtolnay/rust-toolchain@stable
       - name: Patch SIMD 94
-        run: python3 .github/conquest_simd94.py
+        run: |
+          python3 .github/conquest_simd94.py
+          sed -i 's/\\"/"/g' differential/tests/simd_demote_f64x2_zero.rs
       - name: Qualify
         run: |
           cargo fmt --all
