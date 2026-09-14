@@ -1,0 +1,49 @@
+name: Conquest SIMD lane primitives
+
+on:
+  push:
+    branches:
+      - conquest/simd-lane-primitives
+
+permissions:
+  contents: write
+
+jobs:
+  qualify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - name: Construct vertical slice
+        run: python3 tools/conquest_simd_lanes.py
+      - name: Format
+        run: |
+          cargo fmt --all
+          cargo fmt --manifest-path differential/Cargo.toml
+      - name: Verify formatting
+        run: |
+          cargo fmt --all -- --check
+          cargo fmt --manifest-path differential/Cargo.toml -- --check
+      - name: Clippy workspace
+        run: cargo clippy --workspace --all-targets -- -D warnings
+      - name: Workspace tests
+        run: cargo test --workspace
+      - name: Workspace docs
+        run: cargo test --doc --workspace
+      - name: Differential clippy
+        run: cargo clippy --manifest-path differential/Cargo.toml --all-targets -- -D warnings
+      - name: Wasmtime differential
+        run: cargo test --manifest-path differential/Cargo.toml --test simd_remaining_lanes
+      - name: Produce clean candidate
+        run: |
+          rm -f tools/conquest_simd_lanes.py .github/workflows/conquest-simd-lanes.yml
+          git add -A
+          git diff --cached --check
+          git config user.name "Lei-TzuY"
+          git config user.email "52287354+Lei-TzuY@users.noreply.github.com"
+          git commit -m "feat: complete remaining SIMD lane primitives"
+          git push origin HEAD:conquest/simd-lane-primitives
