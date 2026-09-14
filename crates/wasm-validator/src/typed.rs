@@ -780,6 +780,30 @@ pub(super) fn validate_code(
                         pop_expect(&mut stack, &controls, ValueType::V128, function, offset)?;
                         pop_expect(&mut stack, &controls, address_type, function, offset)?;
                     }
+                    92 | 93 => {
+                        super::ensure_memory(module, function, offset)?;
+                        let max_alignment = subopcode - 90;
+                        let (_, memory_index, _) = super::read_memarg(
+                            code,
+                            &mut pc,
+                            module,
+                            function,
+                            offset,
+                            max_alignment,
+                        )?;
+                        let address_type = if module
+                            .memory_type(memory_index)
+                            .expect("validated memory index")
+                            .limits
+                            .memory64
+                        {
+                            ValueType::I64
+                        } else {
+                            ValueType::I32
+                        };
+                        pop_expect(&mut stack, &controls, address_type, function, offset)?;
+                        stack.push(ValueType::V128);
+                    }
                     12 => {
                         skip_fixed(code, &mut pc, 16, function, offset)?;
                         stack.push(ValueType::V128);

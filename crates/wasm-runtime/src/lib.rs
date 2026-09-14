@@ -3655,6 +3655,28 @@ fn execute_simd(
                 _ => unreachable!("matched SIMD lane-store opcode"),
             })?;
         }
+        92 | 93 => {
+            let (_, memory_index, displacement) = read_memarg(code, pc)?;
+            ensure_runtime_memory_index(instance, memory_index)?;
+            let address = pop_runtime_memory_address(instance, stack, memory_index)?;
+            let mut vector = [0u8; 16];
+            match subopcode {
+                92 => {
+                    let value = instance.with_memory_index(memory_index, |memory| {
+                        memory.load_i32(address, displacement)
+                    })?;
+                    vector[..4].copy_from_slice(&value.to_le_bytes());
+                }
+                93 => {
+                    let value = instance.with_memory_index(memory_index, |memory| {
+                        memory.load_i64(address, displacement)
+                    })?;
+                    vector[..8].copy_from_slice(&value.to_le_bytes());
+                }
+                _ => unreachable!("matched SIMD zero-extending load opcode"),
+            }
+            stack.push(Value::V128(Rc::new(vector)));
+        }
         11 => {
             let (_, memory_index, displacement) = read_memarg(code, pc)?;
             ensure_runtime_memory_index(instance, memory_index)?;
@@ -5528,6 +5550,9 @@ fn build_control_map(module: &Module, code: &[u8]) -> Result<ControlMap, Runtime
                                 "validated two-lane SIMD lane is out of bounds while scanning control",
                             ));
                         }
+                    }
+                    92 | 93 => {
+                        let _ = read_memarg(code, &mut pc)?;
                     }
                     _ => {
                         return Err(RuntimeError::UnsupportedPrefixedOpcode {
