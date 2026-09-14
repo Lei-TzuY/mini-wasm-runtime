@@ -87,7 +87,7 @@ fn next_relaxed_simd_frontier_remains_fail_closed() {
     let mut i = Vec::new();
     splat(&mut i, 1);
     splat(&mut i, 1);
-    simd(&mut i, 275);
+    simd(&mut i, 276);
     simd(&mut i, 24);
     i.push(0);
     let p = parse_module(&module(&i)).unwrap();
@@ -96,7 +96,7 @@ fn next_relaxed_simd_frontier_remains_fail_closed() {
         Err(RuntimeError::Validation(
             ValidationError::UnsupportedPrefixedOpcode {
                 prefix: 0xfd,
-                subopcode: 275,
+                subopcode: 276,
                 ..
             }
         ))

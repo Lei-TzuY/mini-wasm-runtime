@@ -3965,6 +3965,33 @@ fn execute_simd(
             }
             stack.push(Value::V128(Rc::new(result)));
         }
+        275 => {
+            // Deterministic Relaxed SIMD profile: interpret both byte vectors as
+            // signed, saturate adjacent byte dot products to i16, pairwise-add
+            // them to i32, then wrap-add the i32x4 accumulator.
+            let addend = numeric::v128_from_stack(stack)?;
+            let rhs = numeric::v128_from_stack(stack)?;
+            let lhs = numeric::v128_from_stack(stack)?;
+            let mut result = [0u8; 16];
+            for lane in 0..4 {
+                let byte = lane * 4;
+                let pair_dot = |offset: usize| -> i16 {
+                    let lhs0 = i32::from(lhs[byte + offset] as i8);
+                    let lhs1 = i32::from(lhs[byte + offset + 1] as i8);
+                    let rhs0 = i32::from(rhs[byte + offset] as i8);
+                    let rhs1 = i32::from(rhs[byte + offset + 1] as i8);
+                    (lhs0 * rhs0 + lhs1 * rhs1).clamp(i32::from(i16::MIN), i32::from(i16::MAX))
+                        as i16
+                };
+                let dot = i32::from(pair_dot(0)) + i32::from(pair_dot(2));
+                let accumulator = i32::from_le_bytes(
+                    addend[byte..byte + 4].try_into().expect("i32x4 lane width"),
+                );
+                let value = dot.wrapping_add(accumulator);
+                result[byte..byte + 4].copy_from_slice(&value.to_le_bytes());
+            }
+            stack.push(Value::V128(Rc::new(result)));
+        }
         256 => {
             // Relaxed swizzle permits implementation-defined results for selectors 16..=127,
             // while selectors >= 128 must produce zero. Choosing zero for every selector >= 16
@@ -5148,7 +5175,7 @@ fn build_control_map(module: &Module, code: &[u8]) -> Result<ControlMap, Runtime
                     | 236
                     | 237
                     | 239
-                    | 240..=274
+                    | 240..=275
                     | 142
                     | 143
                     | 144
