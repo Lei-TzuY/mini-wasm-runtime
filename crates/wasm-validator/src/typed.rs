@@ -804,6 +804,10 @@ pub(super) fn validate_code(
                         pop_expect(&mut stack, &controls, address_type, function, offset)?;
                         stack.push(ValueType::V128);
                     }
+                    94 => {
+                        pop_expect(&mut stack, &controls, ValueType::V128, function, offset)?;
+                        stack.push(ValueType::V128);
+                    }
                     12 => {
                         skip_fixed(code, &mut pc, 16, function, offset)?;
                         stack.push(ValueType::V128);
