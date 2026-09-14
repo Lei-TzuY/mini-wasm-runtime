@@ -2,6 +2,8 @@
 
 The roadmap favors complete vertical slices over a broad but shallow decoder.
 
+- SIMD `v128.load32_zero` and `v128.load64_zero` are executable with typed memory32/memory64 validation, alignment checks, zero-extension regressions, and Wasmtime differential coverage.
+
 ## Phase 1 — callable integer MVP
 
 - [x] module header

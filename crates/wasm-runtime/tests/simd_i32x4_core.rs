@@ -94,7 +94,7 @@ fn validator_rejects_i32x4_splat_type_confusion() {
 #[test]
 fn next_simd_lane_memory_subopcode_remains_fail_closed() {
     let bytes = module(&[
-        0xfd, 0x5c, // v128.load32_zero is the next unsupported lane-memory capability
+        0xfd, 0x5e, // f32x4.demote_f64x2_zero is the next unsupported SIMD capability
     ]);
     let parsed = parse_module(&bytes).expect("unsupported-SIMD fixture must parse");
     assert!(matches!(
@@ -102,7 +102,7 @@ fn next_simd_lane_memory_subopcode_remains_fail_closed() {
         Err(RuntimeError::Validation(
             ValidationError::UnsupportedPrefixedOpcode {
                 prefix: 0xfd,
-                subopcode: 92,
+                subopcode: 94,
                 ..
             }
         ))
