@@ -3613,6 +3613,48 @@ fn execute_simd(
             }
             stack.push(Value::V128(Rc::new(vector)));
         }
+        88..=91 => {
+            let (_, memory_index, displacement) = read_memarg(code, pc)?;
+            ensure_runtime_memory_index(instance, memory_index)?;
+            let lane = *code.get(*pc).ok_or(RuntimeError::ControlInvariant(
+                "validated SIMD lane-store immediate is missing",
+            ))?;
+            *pc += 1;
+            let (width, lane_limit) = match subopcode {
+                88 => (1usize, 16u8),
+                89 => (2usize, 8u8),
+                90 => (4usize, 4u8),
+                91 => (8usize, 2u8),
+                _ => unreachable!("matched SIMD lane-store opcode"),
+            };
+            if lane >= lane_limit {
+                return Err(RuntimeError::ControlInvariant(
+                    "validated SIMD lane-store lane is out of bounds",
+                ));
+            }
+            let vector = numeric::v128_from_stack(stack)?;
+            let address = pop_runtime_memory_address(instance, stack, memory_index)?;
+            let start = usize::from(lane) * width;
+            instance.with_memory_index_mut(memory_index, |memory| match subopcode {
+                88 => memory.store_i8(address, displacement, i32::from(vector[start])),
+                89 => memory.store_i16(
+                    address,
+                    displacement,
+                    i32::from(u16::from_le_bytes([vector[start], vector[start + 1]])),
+                ),
+                90 => memory.store_i32(
+                    address,
+                    displacement,
+                    i32::from_le_bytes(vector[start..start + 4].try_into().expect("lane width")),
+                ),
+                91 => memory.store_i64(
+                    address,
+                    displacement,
+                    i64::from_le_bytes(vector[start..start + 8].try_into().expect("lane width")),
+                ),
+                _ => unreachable!("matched SIMD lane-store opcode"),
+            })?;
+        }
         11 => {
             let (_, memory_index, displacement) = read_memarg(code, pc)?;
             ensure_runtime_memory_index(instance, memory_index)?;
@@ -5323,6 +5365,25 @@ fn build_control_map(module: &Module, code: &[u8]) -> Result<ControlMap, Runtime
                         if lane >= limit {
                             return Err(RuntimeError::ControlInvariant(
                                 "validated SIMD lane-load lane is out of bounds while scanning control",
+                            ));
+                        }
+                    }
+                    88..=91 => {
+                        let _ = read_memarg(code, &mut pc)?;
+                        let lane = *code.get(pc).ok_or(RuntimeError::ControlInvariant(
+                            "validated SIMD lane-store immediate is missing while scanning control",
+                        ))?;
+                        pc += 1;
+                        let limit = match subopcode {
+                            88 => 16,
+                            89 => 8,
+                            90 => 4,
+                            91 => 2,
+                            _ => unreachable!("matched SIMD lane-store opcode"),
+                        };
+                        if lane >= limit {
+                            return Err(RuntimeError::ControlInvariant(
+                                "validated SIMD lane-store lane is out of bounds while scanning control",
                             ));
                         }
                     }
