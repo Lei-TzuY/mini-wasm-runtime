@@ -4781,7 +4781,7 @@ fn execute_simd(
             }
             stack.push(Value::V128(Rc::new(result)));
         }
-        103 => {
+        103 | 104 => {
             let value = numeric::v128_from_stack(stack)?;
             let mut result = [0u8; 16];
             for lane in 0..4 {
@@ -4791,7 +4791,12 @@ fn execute_simd(
                         .try_into()
                         .expect("f32x4 lane width"),
                 ));
-                result[start..start + 4].copy_from_slice(&input.ceil().to_bits().to_le_bytes());
+                let output = match subopcode {
+                    103 => input.ceil(),
+                    104 => input.floor(),
+                    _ => unreachable!("matched f32x4 rounding opcode"),
+                };
+                result[start..start + 4].copy_from_slice(&output.to_bits().to_le_bytes());
             }
             stack.push(Value::V128(Rc::new(result)));
         }
@@ -5497,6 +5502,7 @@ fn build_control_map(module: &Module, code: &[u8]) -> Result<ControlMap, Runtime
                     | 97
                     | 98
                     | 103
+                    | 104
                     | 99
                     | 100
                     | 101

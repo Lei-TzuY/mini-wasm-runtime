@@ -980,6 +980,7 @@ pub(super) fn validate_code(
                     | 97
                     | 98
                     | 103
+                    | 104
                     | 128
                     | 129
                     | 224
