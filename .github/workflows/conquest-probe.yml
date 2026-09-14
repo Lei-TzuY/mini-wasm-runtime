@@ -1,0 +1,10 @@
+name: conquest-probe
+on:
+  push:
+    branches:
+      - conquest/simd-demote-f64x2-zero-94
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo ok
