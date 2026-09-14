@@ -4781,6 +4781,20 @@ fn execute_simd(
             }
             stack.push(Value::V128(Rc::new(result)));
         }
+        103 => {
+            let value = numeric::v128_from_stack(stack)?;
+            let mut result = [0u8; 16];
+            for lane in 0..4 {
+                let start = lane * 4;
+                let input = f32::from_bits(u32::from_le_bytes(
+                    value[start..start + 4]
+                        .try_into()
+                        .expect("f32x4 lane width"),
+                ));
+                result[start..start + 4].copy_from_slice(&input.ceil().to_bits().to_le_bytes());
+            }
+            stack.push(Value::V128(Rc::new(result)));
+        }
         224 | 225 | 227 => {
             let value = numeric::v128_from_stack(stack)?;
             let mut result = [0u8; 16];
@@ -5482,6 +5496,7 @@ fn build_control_map(module: &Module, code: &[u8]) -> Result<ControlMap, Runtime
                     | 96
                     | 97
                     | 98
+                    | 103
                     | 99
                     | 100
                     | 101

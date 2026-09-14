@@ -105,6 +105,27 @@ fn f32x4_abs_neg_and_sqrt_are_lane_exact_for_finite_values() {
     assert_eq!(lane_bits(input, 227, 3), 4.0f32.to_bits());
 }
 #[test]
+fn f32x4_ceil_rounds_each_lane_toward_positive_infinity() {
+    let input = [-1.5, -0.0, 1.25, 2.0];
+    assert_eq!(lane_bits(input, 103, 0), (-1.0f32).to_bits());
+    assert_eq!(lane_bits(input, 103, 1), (-0.0f32).to_bits());
+    assert_eq!(lane_bits(input, 103, 2), 2.0f32.to_bits());
+    assert_eq!(lane_bits(input, 103, 3), 2.0f32.to_bits());
+}
+
+#[test]
+fn validator_rejects_f32x4_ceil_type_confusion() {
+    let instructions = vec![0x41, 0x01, 0xfd, 0x67];
+    let parsed = parse_module(&module(&instructions)).expect("fixture parses");
+    assert!(matches!(
+        Instance::new(parsed),
+        Err(RuntimeError::Validation(
+            ValidationError::TypeMismatch { .. }
+        ))
+    ));
+}
+
+#[test]
 fn validator_rejects_f32x4_unary_type_confusion() {
     let instructions = vec![0x41, 0x01, 0xfd, 0xe0, 0x01];
     let parsed = parse_module(&module(&instructions)).expect("fixture parses");
