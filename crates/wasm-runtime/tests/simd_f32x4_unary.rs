@@ -123,6 +123,27 @@ fn f32x4_floor_rounds_each_lane_toward_negative_infinity() {
 }
 
 #[test]
+fn f32x4_trunc_rounds_each_lane_toward_zero() {
+    let input = [-1.5, -0.0, 1.75, 2.0];
+    assert_eq!(lane_bits(input, 105, 0), (-1.0f32).to_bits());
+    assert_eq!(lane_bits(input, 105, 1), (-0.0f32).to_bits());
+    assert_eq!(lane_bits(input, 105, 2), 1.0f32.to_bits());
+    assert_eq!(lane_bits(input, 105, 3), 2.0f32.to_bits());
+}
+
+#[test]
+fn validator_rejects_f32x4_trunc_type_confusion() {
+    let instructions = vec![0x41, 0x01, 0xfd, 0x69];
+    let parsed = parse_module(&module(&instructions)).expect("fixture parses");
+    assert!(matches!(
+        Instance::new(parsed),
+        Err(RuntimeError::Validation(
+            ValidationError::TypeMismatch { .. }
+        ))
+    ));
+}
+
+#[test]
 fn validator_rejects_f32x4_floor_type_confusion() {
     let instructions = vec![0x41, 0x01, 0xfd, 0x68];
     let parsed = parse_module(&module(&instructions)).expect("fixture parses");
