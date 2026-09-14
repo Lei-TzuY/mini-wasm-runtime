@@ -114,6 +114,27 @@ fn f32x4_ceil_rounds_each_lane_toward_positive_infinity() {
 }
 
 #[test]
+fn f32x4_floor_rounds_each_lane_toward_negative_infinity() {
+    let input = [-1.5, -0.0, 1.25, 2.0];
+    assert_eq!(lane_bits(input, 104, 0), (-2.0f32).to_bits());
+    assert_eq!(lane_bits(input, 104, 1), (-0.0f32).to_bits());
+    assert_eq!(lane_bits(input, 104, 2), 1.0f32.to_bits());
+    assert_eq!(lane_bits(input, 104, 3), 2.0f32.to_bits());
+}
+
+#[test]
+fn validator_rejects_f32x4_floor_type_confusion() {
+    let instructions = vec![0x41, 0x01, 0xfd, 0x68];
+    let parsed = parse_module(&module(&instructions)).expect("fixture parses");
+    assert!(matches!(
+        Instance::new(parsed),
+        Err(RuntimeError::Validation(
+            ValidationError::TypeMismatch { .. }
+        ))
+    ));
+}
+
+#[test]
 fn validator_rejects_f32x4_ceil_type_confusion() {
     let instructions = vec![0x41, 0x01, 0xfd, 0x67];
     let parsed = parse_module(&module(&instructions)).expect("fixture parses");
