@@ -23,114 +23,83 @@ jobs:
         run: |
           python3 - <<'PY'
           from pathlib import Path
+          import re
 
           p = Path('crates/wasm-runtime/src/lib.rs')
           s = p.read_text()
-          old = '''        94 => {
-              let value = numeric::v128_from_stack(stack)?;
-              let mut result = [0u8; 16];
-              for lane in 0..2 {
-                  let input_start = lane * 8;
-                  let input = f64::from_bits(u64::from_le_bytes(
-                      value[input_start..input_start + 8]
-                          .try_into()
-                          .expect("f64x2 lane width"),
-                  ));
-                  let output_start = lane * 4;
-                  result[output_start..output_start + 4]
-                      .copy_from_slice(&(input as f32).to_bits().to_le_bytes());
-              }
-              stack.push(Value::V128(Rc::new(result)));
-          }
-          11 => {'''
-          new = '''        94 => {
-              let value = numeric::v128_from_stack(stack)?;
-              let mut result = [0u8; 16];
-              for lane in 0..2 {
-                  let input_start = lane * 8;
-                  let input = f64::from_bits(u64::from_le_bytes(
-                      value[input_start..input_start + 8]
-                          .try_into()
-                          .expect("f64x2 lane width"),
-                  ));
-                  let output_start = lane * 4;
-                  result[output_start..output_start + 4]
-                      .copy_from_slice(&(input as f32).to_bits().to_le_bytes());
-              }
-              stack.push(Value::V128(Rc::new(result)));
-          }
-          95 => {
-              let value = numeric::v128_from_stack(stack)?;
-              let mut result = [0u8; 16];
-              for lane in 0..2 {
-                  let input_start = lane * 4;
-                  let input = f32::from_bits(u32::from_le_bytes(
-                      value[input_start..input_start + 4]
-                          .try_into()
-                          .expect("f32x4 lane width"),
-                  ));
-                  let output_start = lane * 8;
-                  result[output_start..output_start + 8]
-                      .copy_from_slice(&(input as f64).to_bits().to_le_bytes());
-              }
-              stack.push(Value::V128(Rc::new(result)));
-          }
-          11 => {'''
-          assert old in s
-          s = s.replace(old, new, 1)
-          s = s.replace('''                    | 94\n                    | 96''', '''                    | 94\n                    | 95\n                    | 96''', 1)
+          if '\n        95 => {' not in s:
+              start = s.index('\n        94 => {')
+              end = s.index('\n        11 => {', start)
+              block = """
+        95 => {
+            let value = numeric::v128_from_stack(stack)?;
+            let mut result = [0u8; 16];
+            for lane in 0..2 {
+                let input_start = lane * 4;
+                let input = f32::from_bits(u32::from_le_bytes(
+                    value[input_start..input_start + 4]
+                        .try_into()
+                        .expect("f32x4 lane width"),
+                ));
+                let output_start = lane * 8;
+                result[output_start..output_start + 8]
+                    .copy_from_slice(&(input as f64).to_bits().to_le_bytes());
+            }
+            stack.push(Value::V128(Rc::new(result)));
+        }
+"""
+              s = s[:end] + block + s[end:]
+          if not re.search(r'^\s*\| 95\s*$', s, re.MULTILINE):
+              pattern = re.compile(r'^(?P<indent>\s*)\| 94\s*\n(?P=indent)\| 96\s*$', re.MULTILINE)
+              s, count = pattern.subn(lambda m: f"{m.group('indent')}| 94\n{m.group('indent')}| 95\n{m.group('indent')}| 96", s, count=1)
+              assert count == 1, 'SIMD scanner 94/96 adjacency not found'
           p.write_text(s)
 
           p = Path('crates/wasm-validator/src/typed.rs')
           s = p.read_text()
-          old = '''                    94 => {
-                          pop_expect(&mut stack, &controls, ValueType::V128, function, offset)?;
-                          stack.push(ValueType::V128);
-                      }
-                      12 => {'''
-          new = '''                    94 | 95 => {
-                          pop_expect(&mut stack, &controls, ValueType::V128, function, offset)?;
-                          stack.push(ValueType::V128);
-                      }
-                      12 => {'''
-          assert old in s
-          p.write_text(s.replace(old, new, 1))
+          if '                    94 | 95 => {' not in s:
+              needle = '                    94 => {'
+              assert s.count(needle) == 1, 'typed validator SIMD 94 arm not unique'
+              s = s.replace(needle, '                    94 | 95 => {', 1)
+          p.write_text(s)
 
           p = Path('crates/wasm-runtime/tests/simd_conversions.rs')
           s = p.read_text()
-          marker = '''#[test]
-          fn f32x4_demote_f64x2_zero_converts_low_lanes_and_zeroes_high_lanes() {'''
-          insert = '''#[test]
-          fn f64x2_promote_low_f32x4_converts_low_lanes_only() {
-              let mut instructions = Vec::new();
-              v128_const(&mut instructions, f32x4([1.5, -2.25, 99.0, -100.0]));
-              simd(&mut instructions, 95);
-              assert_eq!(read_f64x2(run_v128(&instructions)), [1.5, -2.25]);
-          }
+          test_name = 'fn f64x2_promote_low_f32x4_converts_low_lanes_only()'
+          if test_name not in s:
+              marker = '#[test]\nfn f32x4_demote_f64x2_zero_converts_low_lanes_and_zeroes_high_lanes() {'
+              assert marker in s, 'demote regression anchor missing'
+              tests = '''#[test]
+fn f64x2_promote_low_f32x4_converts_low_lanes_only() {
+    let mut instructions = Vec::new();
+    v128_const(&mut instructions, f32x4([1.5, -2.25, 99.0, -100.0]));
+    simd(&mut instructions, 95);
+    assert_eq!(read_f64x2(run_v128(&instructions)), [1.5, -2.25]);
+}
 
-          #[test]
-          fn f64x2_promote_low_f32x4_rejects_type_confusion() {
-              let mut bad = Vec::new();
-              push_i32_const(&mut bad, 1);
-              simd(&mut bad, 95);
-              let parsed = parse_module(&module(0x7b, &bad)).expect("fixture parses");
-              assert!(matches!(
-                  Instance::new(parsed),
-                  Err(RuntimeError::Validation(
-                      ValidationError::TypeMismatch { .. }
-                  ))
-              ));
-          }
+#[test]
+fn f64x2_promote_low_f32x4_rejects_type_confusion() {
+    let mut bad = Vec::new();
+    push_i32_const(&mut bad, 1);
+    simd(&mut bad, 95);
+    let parsed = parse_module(&module(0x7b, &bad)).expect("fixture parses");
+    assert!(matches!(
+        Instance::new(parsed),
+        Err(RuntimeError::Validation(ValidationError::TypeMismatch { .. }))
+    ));
+}
 
-          #[test]
-          fn f32x4_demote_f64x2_zero_converts_low_lanes_and_zeroes_high_lanes() {'''
-          assert marker in s
-          p.write_text(s.replace(marker, insert, 1))
+'''
+              s = s.replace(marker, tests + marker, 1)
+          p.write_text(s)
 
           p = Path('crates/wasm-runtime/tests/simd_i32x4_core.rs')
           s = p.read_text()
-          s = s.replace('''        0xfd, 0x5f, // f64x2.promote_low_f32x4 is the next unsupported SIMD capability''', '''        0xfd, 0x67, // f32x4.ceil is the next unsupported SIMD capability''', 1)
-          s = s.replace('''                subopcode: 95,''', '''                subopcode: 103,''', 1)
+          old_comment = '        0xfd, 0x5f, // f64x2.promote_low_f32x4 is the next unsupported SIMD capability'
+          if old_comment in s:
+              s = s.replace(old_comment, '        0xfd, 0x67, // f32x4.ceil is the next unsupported SIMD capability', 1)
+              s = s.replace('                subopcode: 95,', '                subopcode: 103,', 1)
+          assert 'subopcode: 103' in s, 'fail-closed SIMD frontier did not advance to 103'
           p.write_text(s)
           PY
 
@@ -140,8 +109,14 @@ jobs:
           use wasmtime::{Config, Engine, Instance as ReferenceInstance, Module as ReferenceModule, Store};
 
           const FIXTURE: &str = r#"(module
-            (func (export "lane0") (result f64) v128.const f32x4 1.5 -2.25 99 -100 f64x2.promote_low_f32x4 f64x2.extract_lane 0)
-            (func (export "lane1") (result f64) v128.const f32x4 1.5 -2.25 99 -100 f64x2.promote_low_f32x4 f64x2.extract_lane 1))"#;
+            (func (export "lane0") (result f64)
+              v128.const f32x4 1.5 -2.25 99 -100
+              f64x2.promote_low_f32x4
+              f64x2.extract_lane 0)
+            (func (export "lane1") (result f64)
+              v128.const f32x4 1.5 -2.25 99 -100
+              f64x2.promote_low_f32x4
+              f64x2.extract_lane 1))"#;
 
           #[test]
           fn promote_low_f32x4_matches_wasmtime_reference() {
