@@ -203,6 +203,28 @@ fn f64x2_convert_low_uses_only_low_i32x4_lanes() {
 }
 
 #[test]
+fn f64x2_promote_low_f32x4_converts_low_lanes_only() {
+    let mut instructions = Vec::new();
+    v128_const(&mut instructions, f32x4([1.5, -2.25, 99.0, -100.0]));
+    simd(&mut instructions, 95);
+    assert_eq!(read_f64x2(run_v128(&instructions)), [1.5, -2.25]);
+}
+
+#[test]
+fn f64x2_promote_low_f32x4_rejects_type_confusion() {
+    let mut bad = Vec::new();
+    push_i32_const(&mut bad, 1);
+    simd(&mut bad, 95);
+    let parsed = parse_module(&module(0x7b, &bad)).expect("fixture parses");
+    assert!(matches!(
+        Instance::new(parsed),
+        Err(RuntimeError::Validation(
+            ValidationError::TypeMismatch { .. }
+        ))
+    ));
+}
+
+#[test]
 fn f32x4_demote_f64x2_zero_converts_low_lanes_and_zeroes_high_lanes() {
     let mut instructions = Vec::new();
     v128_const(&mut instructions, f64x2([1.5, -2.25]));
