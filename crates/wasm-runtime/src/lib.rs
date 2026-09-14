@@ -3947,6 +3947,24 @@ fn execute_simd(
             }
             stack.push(Value::V128(Rc::new(result)));
         }
+        274 => {
+            // Deterministic Relaxed SIMD profile: interpret both byte vectors as
+            // signed and saturate each adjacent pairwise dot product to i16.
+            let rhs = numeric::v128_from_stack(stack)?;
+            let lhs = numeric::v128_from_stack(stack)?;
+            let mut result = [0u8; 16];
+            for lane in 0..8 {
+                let byte = lane * 2;
+                let lhs0 = i32::from(lhs[byte] as i8);
+                let lhs1 = i32::from(lhs[byte + 1] as i8);
+                let rhs0 = i32::from(rhs[byte] as i8);
+                let rhs1 = i32::from(rhs[byte + 1] as i8);
+                let dot = lhs0 * rhs0 + lhs1 * rhs1;
+                let value = dot.clamp(i32::from(i16::MIN), i32::from(i16::MAX)) as i16;
+                result[byte..byte + 2].copy_from_slice(&value.to_le_bytes());
+            }
+            stack.push(Value::V128(Rc::new(result)));
+        }
         256 => {
             // Relaxed swizzle permits implementation-defined results for selectors 16..=127,
             // while selectors >= 128 must produce zero. Choosing zero for every selector >= 16
@@ -5130,7 +5148,7 @@ fn build_control_map(module: &Module, code: &[u8]) -> Result<ControlMap, Runtime
                     | 236
                     | 237
                     | 239
-                    | 240..=273
+                    | 240..=274
                     | 142
                     | 143
                     | 144
