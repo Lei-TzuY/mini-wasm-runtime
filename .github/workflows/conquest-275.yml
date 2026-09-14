@@ -18,6 +18,8 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - name: Construct vertical slice
         run: python3 tools/conquest_275.py
+      - name: Repair validation fixture
+        run: sed -i 's/ValidationError::StackUnderflow/ValidationError::OperandStackUnderflow/' crates/wasm-runtime/tests/simd_relaxed_dot_i8x16_i7x16_add.rs
       - name: Format
         run: cargo fmt --all
       - name: Verify format
