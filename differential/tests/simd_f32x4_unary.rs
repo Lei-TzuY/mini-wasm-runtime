@@ -6,8 +6,9 @@ const FIXTURE: &str = r#"(module
   (memory 1)
   (func (export "abs") (result i32) i32.const 0 v128.const f32x4 -0.0 -1.5 9 16 f32x4.abs v128.store i32.const 0 i32.load offset=4)
   (func (export "neg") (result i32) i32.const 0 v128.const f32x4 0.0 1.5 -9 -16 f32x4.neg v128.store i32.const 0 i32.load)
-  (func (export "sqrt") (result i32) i32.const 0 v128.const f32x4 1 4 9 16 f32x4.sqrt v128.store i32.const 0 i32.load offset=8))"#;
-const EXPORTS: [&str; 3] = ["abs", "neg", "sqrt"];
+  (func (export "sqrt") (result i32) i32.const 0 v128.const f32x4 1 4 9 16 f32x4.sqrt v128.store i32.const 0 i32.load offset=8)
+  (func (export "ceil") (result i32) i32.const 0 v128.const f32x4 -1.5 -0.0 1.25 2 f32x4.ceil v128.store i32.const 0 i32.load))"#;
+const EXPORTS: [&str; 4] = ["abs", "neg", "sqrt", "ceil"];
 fn mini_trace(bytes: &[u8]) -> Vec<i32> {
     let module = parse_module(bytes).expect("mini parse");
     let mut instance = MiniInstance::new(module).expect("mini instantiate");
@@ -52,4 +53,5 @@ fn f32x4_unary_matches_wasmtime_reference() {
     assert_eq!(mini[0] as u32, 1.5f32.to_bits());
     assert_eq!(mini[1] as u32, (-0.0f32).to_bits());
     assert_eq!(mini[2] as u32, 3.0f32.to_bits());
+    assert_eq!(mini[3] as u32, (-1.0f32).to_bits());
 }
