@@ -3927,6 +3927,26 @@ fn execute_simd(
             }
             stack.push(Value::V128(Rc::new(result)));
         }
+        273 => {
+            // i16x8.relaxed_q15mulr_s is implementation-defined only for
+            // INT16_MIN * INT16_MIN. Choose the deterministic saturating result,
+            // matching i16x8.q15mulr_sat_s for every lane.
+            let rhs = numeric::v128_from_stack(stack)?;
+            let lhs = numeric::v128_from_stack(stack)?;
+            let mut result = [0u8; 16];
+            for lane in 0..8 {
+                let start = lane * 2;
+                let lhs_lane =
+                    i16::from_le_bytes(lhs[start..start + 2].try_into().expect("i16x8 lane width"));
+                let rhs_lane =
+                    i16::from_le_bytes(rhs[start..start + 2].try_into().expect("i16x8 lane width"));
+                let product = i32::from(lhs_lane) * i32::from(rhs_lane);
+                let rounded = (product + 0x4000) >> 15;
+                let output = rounded.clamp(i32::from(i16::MIN), i32::from(i16::MAX)) as i16;
+                result[start..start + 2].copy_from_slice(&output.to_le_bytes());
+            }
+            stack.push(Value::V128(Rc::new(result)));
+        }
         256 => {
             // Relaxed swizzle permits implementation-defined results for selectors 16..=127,
             // while selectors >= 128 must produce zero. Choosing zero for every selector >= 16
@@ -5110,7 +5130,7 @@ fn build_control_map(module: &Module, code: &[u8]) -> Result<ControlMap, Runtime
                     | 236
                     | 237
                     | 239
-                    | 240..=272
+                    | 240..=273
                     | 142
                     | 143
                     | 144
