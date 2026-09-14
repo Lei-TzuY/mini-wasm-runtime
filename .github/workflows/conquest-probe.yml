@@ -18,10 +18,12 @@ jobs:
         run: python3 .github/conquest_simd94.py
       - name: Qualify
         run: |
+          cargo fmt --all
           cargo fmt --all -- --check
           cargo clippy --workspace --all-targets -- -D warnings
           cargo test --workspace
           cargo doc --workspace --no-deps
+          cargo fmt --manifest-path differential/Cargo.toml --all
           cargo fmt --manifest-path differential/Cargo.toml --all -- --check
           cargo clippy --manifest-path differential/Cargo.toml --all-targets -- -D warnings
           cargo test --manifest-path differential/Cargo.toml --test simd_demote_f64x2_zero
