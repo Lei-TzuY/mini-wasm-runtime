@@ -16,12 +16,10 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt, clippy
-      - name: Apply owned funcref implementation
-        run: |
-          python .conquest/apply_owned_funcref_embedding_v2.py
-          python .conquest/fix_owned_funcref_fixture.py
-      - name: Format
-        run: cargo fmt --all
+      - name: Apply roadmap accounting
+        run: python .conquest/patch_owned_funcref_roadmap.py
+      - name: Format check
+        run: cargo fmt --all -- --check
       - name: Owned funcref acceptance
         run: cargo test -p wasm-runtime --test owned_funcref_embedding -- --nocapture
       - name: Existing reference regressions
@@ -36,13 +34,13 @@ jobs:
         run: cargo test --workspace --all-targets
       - name: Docs workspace
         run: cargo doc --workspace --no-deps
-      - name: Commit construction result
+      - name: Commit roadmap accounting
         run: |
           if git diff --quiet; then
             exit 0
           fi
           git config user.name "LeiZ"
           git config user.email "52287354+Lei-TzuY@users.noreply.github.com"
-          git add crates/wasm-runtime/src/lib.rs crates/wasm-runtime/tests/owned_funcref_embedding.rs
-          git commit -m "feat: add owned funcref embedding boundary"
+          git add docs/roadmap.md
+          git commit -m "docs: record owned funcref embedding boundary"
           git push origin HEAD:conquest/owned-funcref-embedding-v2
