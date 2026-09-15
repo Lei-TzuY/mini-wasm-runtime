@@ -1,5 +1,5 @@
 name: Conquest f32x4 nearest qualification
-'on':
+on:
   push:
     branches: [conquest/simd-f32x4-nearest-106]
 permissions:
