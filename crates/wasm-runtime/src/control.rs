@@ -7,8 +7,8 @@
 use wasm_parser::{decode_i32, decode_i64, decode_s33, Module, ValueType};
 
 use super::{
-    read_fixed_u32, read_fixed_u64, read_memarg, read_typed_select_type,
-    read_u32_immediate, RuntimeError,
+    read_fixed_u32, read_fixed_u64, read_memarg, read_typed_select_type, read_u32_immediate,
+    RuntimeError,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
