@@ -33,28 +33,25 @@ jobs:
           s = test.read_text()
           anchor = "#[test]\nfn validator_rejects_f32x4_trunc_type_confusion() {"
           addition = '''#[test]
-          fn f32x4_nearest_rounds_ties_to_even_and_preserves_negative_zero() {
-              let input = [-2.5, -0.0, 1.5, 2.5];
-              assert_eq!(lane_bits(input, 106, 0), (-2.0f32).to_bits());
-              assert_eq!(lane_bits(input, 106, 1), (-0.0f32).to_bits());
-              assert_eq!(lane_bits(input, 106, 2), 2.0f32.to_bits());
-              assert_eq!(lane_bits(input, 106, 3), 2.0f32.to_bits());
-          }
+fn f32x4_nearest_rounds_ties_to_even_and_preserves_negative_zero() {
+    let input = [-2.5, -0.0, 1.5, 2.5];
+    assert_eq!(lane_bits(input, 106, 0), (-2.0f32).to_bits());
+    assert_eq!(lane_bits(input, 106, 1), (-0.0f32).to_bits());
+    assert_eq!(lane_bits(input, 106, 2), 2.0f32.to_bits());
+    assert_eq!(lane_bits(input, 106, 3), 2.0f32.to_bits());
+}
 
-          #[test]
-          fn validator_rejects_f32x4_nearest_type_confusion() {
-              let instructions = vec![0x41, 0x01, 0xfd, 0x6a];
-              let parsed = parse_module(&module(&instructions)).expect("fixture parses");
-              assert!(matches!(
-                  Instance::new(parsed),
-                  Err(RuntimeError::Validation(
-                      ValidationError::TypeMismatch { .. }
-                  ))
-              ));
-          }
+#[test]
+fn validator_rejects_f32x4_nearest_type_confusion() {
+    let instructions = vec![0x41, 0x01, 0xfd, 0x6a];
+    let parsed = parse_module(&module(&instructions)).expect("fixture parses");
+    assert!(matches!(
+        Instance::new(parsed),
+        Err(RuntimeError::Validation(ValidationError::TypeMismatch { .. }))
+    ));
+}
 
-          '''
-          addition = '\n'.join(line[10:] if line.startswith('          ') else line for line in addition.splitlines()) + '\n'
+'''
           if anchor not in s:
               raise SystemExit("nearest test anchor missing")
           test.write_text(s.replace(anchor, addition + anchor, 1))
