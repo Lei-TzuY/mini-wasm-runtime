@@ -1,0 +1,89 @@
+name: Conquest f32x4 nearest qualification
+on:
+  push:
+    branches: [conquest/simd-f32x4-nearest-106]
+permissions:
+  contents: write
+jobs:
+  qualify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Implement slice
+        shell: python
+        run: |
+          from pathlib import Path
+
+          def replace(path, old, new):
+              p = Path(path)
+              s = p.read_text()
+              if old not in s:
+                  raise SystemExit(f"anchor missing in {path}: {old[:80]!r}")
+              p.write_text(s.replace(old, new, 1))
+
+          replace("crates/wasm-runtime/src/lib.rs", "        103..=105 => {", "        103..=106 => {")
+          replace("crates/wasm-runtime/src/lib.rs", "                    105 => input.trunc(),\n                    _ => unreachable!(\"matched f32x4 rounding opcode\"),", "                    105 => input.trunc(),\n                    106 => input.round_ties_even(),\n                    _ => unreachable!(\"matched f32x4 rounding opcode\"),")
+          replace("crates/wasm-runtime/src/lib.rs", "                    | 105\n                    | 99", "                    | 105\n                    | 106\n                    | 99")
+
+          replace("crates/wasm-validator/src/typed.rs", "                    | 105\n                    | 128", "                    | 105\n                    | 106\n                    | 128")
+
+          test = Path("crates/wasm-runtime/tests/simd_f32x4_unary.rs")
+          s = test.read_text()
+          anchor = "#[test]\nfn validator_rejects_f32x4_trunc_type_confusion() {"
+          addition = '''#[test]
+fn f32x4_nearest_rounds_ties_to_even_and_preserves_negative_zero() {
+    let input = [-2.5, -0.0, 1.5, 2.5];
+    assert_eq!(lane_bits(input, 106, 0), (-2.0f32).to_bits());
+    assert_eq!(lane_bits(input, 106, 1), (-0.0f32).to_bits());
+    assert_eq!(lane_bits(input, 106, 2), 2.0f32.to_bits());
+    assert_eq!(lane_bits(input, 106, 3), 2.0f32.to_bits());
+}
+
+#[test]
+fn validator_rejects_f32x4_nearest_type_confusion() {
+    let instructions = vec![0x41, 0x01, 0xfd, 0x6a];
+    let parsed = parse_module(&module(&instructions)).expect("fixture parses");
+    assert!(matches!(
+        Instance::new(parsed),
+        Err(RuntimeError::Validation(
+            ValidationError::TypeMismatch { .. }
+        ))
+    ));
+}
+
+'''
+          if anchor not in s:
+              raise SystemExit("nearest test anchor missing")
+          test.write_text(s.replace(anchor, addition + anchor, 1))
+
+          diff = Path("differential/tests/simd_f32x4_unary.rs")
+          s = diff.read_text()
+          s = s.replace('  (func (export "trunc") (result i32) i32.const 0 v128.const f32x4 -1.5 -0.0 1.75 2 f32x4.trunc v128.store i32.const 0 i32.load))"#;', '  (func (export "trunc") (result i32) i32.const 0 v128.const f32x4 -1.5 -0.0 1.75 2 f32x4.trunc v128.store i32.const 0 i32.load)\n  (func (export "nearest") (result i32) i32.const 0 v128.const f32x4 -2.5 -0.0 1.5 2.5 f32x4.nearest v128.store i32.const 0 i32.load))"#;')
+          s = s.replace('const EXPORTS: [&str; 6] = ["abs", "neg", "sqrt", "ceil", "floor", "trunc"];', 'const EXPORTS: [&str; 7] = ["abs", "neg", "sqrt", "ceil", "floor", "trunc", "nearest"];')
+          s = s.replace('    assert_eq!(mini[5] as u32, (-1.0f32).to_bits());', '    assert_eq!(mini[5] as u32, (-1.0f32).to_bits());\n    assert_eq!(mini[6] as u32, (-2.0f32).to_bits());')
+          diff.write_text(s)
+
+          roadmap = Path("docs/roadmap.md")
+          s = roadmap.read_text()
+          old = "- SIMD `f32x4` unary numeric semantics are executable for `abs`, `neg`, and `sqrt`, with bit-exact sign manipulation for `abs`/`neg`, lane-wise square root, exact `v128 -> v128` validation, structured-control scanning, regressions, and Wasmtime differential coverage."
+          new = old + "\n- SIMD `f32x4` rounding semantics are executable for `ceil`, `floor`, `trunc`, and `nearest`, including ties-to-even and signed-zero behavior, exact `v128 -> v128` validation, structured-control scanning, regressions, and Wasmtime differential coverage; subopcode 110 remains fail-closed."
+          if old not in s:
+              raise SystemExit("roadmap anchor missing")
+          roadmap.write_text(s.replace(old, new, 1))
+      - name: Qualify
+        run: |
+          cargo fmt --all -- --check
+          cargo clippy --workspace --all-targets -- -D warnings
+          cargo test --workspace
+          cargo doc --workspace --no-deps
+          cargo test -p differential --test simd_f32x4_unary
+      - name: Commit qualified slice
+        run: |
+          git config user.name "LeiZ"
+          git config user.email "52287354+Lei-TzuY@users.noreply.github.com"
+          git add crates/wasm-runtime/src/lib.rs crates/wasm-runtime/tests/simd_f32x4_unary.rs crates/wasm-validator/src/typed.rs differential/tests/simd_f32x4_unary.rs docs/roadmap.md
+          git commit -m "feat: add SIMD f32x4 nearest"
+          git push origin HEAD:conquest/simd-f32x4-nearest-106
