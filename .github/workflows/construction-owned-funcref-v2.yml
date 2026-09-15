@@ -1,0 +1,22 @@
+name: construction-owned-funcref-v2
+
+on:
+  push:
+    branches:
+      - conquest/owned-funcref-embedding-v2
+
+permissions:
+  contents: write
+
+jobs:
+  acceptance:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - name: Format check
+        run: cargo fmt --all -- --check
+      - name: Owned funcref acceptance
+        run: cargo test -p wasm-runtime --test owned_funcref_embedding -- --nocapture
