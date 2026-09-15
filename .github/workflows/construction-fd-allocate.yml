@@ -9,17 +9,18 @@ permissions:
   contents: write
 
 jobs:
-  construct:
+  verify:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt, clippy
-      - name: Apply production patch
-        run: python3 .conquest/apply_fd_allocate.py
-      - name: Format
+      - name: Format root workspace
         run: cargo fmt --all
+      - name: Format differential workspace
+        if: ${{ hashFiles('differential/tests/wasi_fd_allocate.rs') != '' }}
+        run: cargo fmt --manifest-path differential/Cargo.toml
       - name: Diff hygiene
         run: git diff --check
       - name: Focused fd_allocate regressions
@@ -36,13 +37,25 @@ jobs:
         run: cargo test --workspace --all-targets
       - name: Workspace docs
         run: cargo doc --workspace --no-deps
-      - name: Commit construction result
+      - name: Clippy differential workspace
+        if: ${{ hashFiles('differential/tests/wasi_fd_allocate.rs') != '' }}
+        run: cargo clippy --manifest-path differential/Cargo.toml --all-targets -- -D warnings
+      - name: Focused fd_allocate reference evidence
+        if: ${{ hashFiles('differential/tests/wasi_fd_allocate.rs') != '' }}
+        run: cargo test --manifest-path differential/Cargo.toml --test wasi_fd_allocate -- --nocapture
+      - name: Full differential workspace
+        if: ${{ hashFiles('differential/tests/wasi_fd_allocate.rs') != '' }}
+        run: cargo test --manifest-path differential/Cargo.toml -- --nocapture
+      - name: Commit canonical formatting
         run: |
+          if git diff --quiet; then
+            exit 0
+          fi
           git config user.name "LeiZ"
           git config user.email "52287354+Lei-TzuY@users.noreply.github.com"
-          git add crates/wasm-wasi/src/root.rs crates/wasm-wasi/src/filesystem.rs crates/wasm-wasi/tests/fd_fdstat_get.rs crates/wasm-wasi/tests/fd_allocate.rs
+          git add crates/wasm-wasi/tests/fd_allocate.rs differential/tests/wasi_fd_allocate.rs 2>/dev/null || true
           if git diff --cached --quiet; then
             exit 0
           fi
-          git commit -m "feat: add bounded WASI fd_allocate semantics"
+          git commit -m "test: canonicalize fd_allocate evidence"
           git push origin HEAD:conquest/wasi-fd-allocate
