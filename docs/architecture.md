@@ -106,6 +106,12 @@ Unreachable code follows WebAssembly-style stack polymorphism while still checki
 
 Each `Instance` owns the validated module, a private instance identity, precomputed control maps, optional owned `LinearMemory`, an optional `TableHandle`, a combined vector of global handles, resolved `HostRegistry`, and `RuntimeLimits`.
 
+Structured-control discovery is isolated in `crates/wasm-runtime/src/control.rs`.
+That module scans validated bytecode once, decodes instruction immediates only far
+enough to locate block/loop/if boundaries, and produces the control metadata
+consumed by execution. The interpreter dispatch remains in `lib.rs`; this is a
+module-boundary refactor, not a second decoder or a change to opcode semantics.
+
 ### Numeric value model
 
 `Value` is a four-variant runtime enum:
