@@ -196,7 +196,8 @@ fn run_reference(engine: &Engine, bytes: &[u8]) -> AllocationTrace {
     let host_file = root.path().join("data.bin");
     fs::write(&host_file, INITIAL_BYTES).expect("seed Wasmtime fd_allocate file");
 
-    let module = ReferenceModule::new(engine, bytes).expect("compile fd_allocate module in Wasmtime");
+    let module =
+        ReferenceModule::new(engine, bytes).expect("compile fd_allocate module in Wasmtime");
     let mut builder = WasiCtxBuilder::new();
     builder
         .preopened_dir(root.path(), "/sandbox", DirPerms::all(), FilePerms::all())
@@ -245,14 +246,26 @@ fn bounded_fd_allocate_capability_is_explicitly_contrasted_with_wasmtime_37() {
     assert_eq!(mini.cursor, 2);
     assert_eq!(mini.final_bytes, MINI_FINAL_BYTES);
 
-    assert_eq!(reference.errnos[0], ERRNO_SUCCESS, "reference path_open failed");
-    assert_eq!(reference.errnos[1], ERRNO_SUCCESS, "reference fd_seek failed");
+    assert_eq!(
+        reference.errnos[0], ERRNO_SUCCESS,
+        "reference path_open failed"
+    );
+    assert_eq!(
+        reference.errnos[1], ERRNO_SUCCESS,
+        "reference fd_seek failed"
+    );
     assert_eq!(
         reference.errnos[2], ERRNO_NOTSUP,
         "pinned Wasmtime 37 is expected to report fd_allocate as unsupported"
     );
-    assert_eq!(reference.errnos[3], ERRNO_SUCCESS, "reference filestat failed");
-    assert_eq!(reference.errnos[4], ERRNO_SUCCESS, "reference fd_tell failed");
+    assert_eq!(
+        reference.errnos[3], ERRNO_SUCCESS,
+        "reference filestat failed"
+    );
+    assert_eq!(
+        reference.errnos[4], ERRNO_SUCCESS,
+        "reference fd_tell failed"
+    );
     assert_eq!(reference.size, 3);
     assert_eq!(reference.cursor, 2);
     assert_eq!(reference.final_bytes, INITIAL_BYTES);
