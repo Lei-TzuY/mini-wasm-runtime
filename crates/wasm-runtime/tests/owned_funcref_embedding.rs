@@ -26,6 +26,8 @@ fn owned_funcref_module() -> Vec<u8> {
         exports.push(index);
     }
     section(&mut module, 7, &exports);
+    // A declarative legacy element segment declares function 0 as a valid ref.func target.
+    section(&mut module, 9, &[1, 3, 0, 1, 0]);
 
     let target = [0, 0x0b];
     let make = [0, 0xd2, 0, 0x0b];
