@@ -1,0 +1,48 @@
+name: construction-fd-allocate
+
+on:
+  push:
+    branches:
+      - conquest/wasi-fd-allocate
+
+permissions:
+  contents: write
+
+jobs:
+  construct:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - name: Apply production patch
+        run: python3 .conquest/apply_fd_allocate.py
+      - name: Format
+        run: cargo fmt --all
+      - name: Diff hygiene
+        run: git diff --check
+      - name: Focused fd_allocate regressions
+        run: cargo test -p wasm-wasi --test fd_allocate -- --nocapture
+      - name: Existing descriptor filesystem regressions
+        run: |
+          cargo test -p wasm-wasi --test fd_fdstat_get -- --nocapture
+          cargo test -p wasm-wasi --test fd_filestat_set_size -- --nocapture
+          cargo test -p wasm-wasi --test writable_files -- --nocapture
+          cargo test -p wasm-wasi --test fd_pread -- --nocapture
+      - name: Workspace Clippy
+        run: cargo clippy --workspace --all-targets -- -D warnings
+      - name: Workspace tests
+        run: cargo test --workspace --all-targets
+      - name: Workspace docs
+        run: cargo doc --workspace --no-deps
+      - name: Commit construction result
+        run: |
+          git config user.name "LeiZ"
+          git config user.email "52287354+Lei-TzuY@users.noreply.github.com"
+          git add crates/wasm-wasi/src/root.rs crates/wasm-wasi/src/filesystem.rs crates/wasm-wasi/tests/fd_fdstat_get.rs crates/wasm-wasi/tests/fd_allocate.rs
+          if git diff --cached --quiet; then
+            exit 0
+          fi
+          git commit -m "feat: add bounded WASI fd_allocate semantics"
+          git push origin HEAD:conquest/wasi-fd-allocate
