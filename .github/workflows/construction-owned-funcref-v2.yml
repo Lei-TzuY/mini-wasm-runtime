@@ -17,7 +17,9 @@ jobs:
         with:
           components: rustfmt, clippy
       - name: Apply owned funcref implementation
-        run: python .conquest/apply_owned_funcref_embedding_v2.py
+        run: |
+          python .conquest/apply_owned_funcref_embedding_v2.py
+          python .conquest/fix_owned_funcref_fixture.py
       - name: Format
         run: cargo fmt --all
       - name: Owned funcref acceptance
