@@ -8,11 +8,11 @@ use crate::{
     ERRNO_NAMETOOLONG, ERRNO_NOENT, ERRNO_NOSPC, ERRNO_NOTCAPABLE, ERRNO_NOTDIR, ERRNO_NOTEMPTY,
     ERRNO_NOTSUP, ERRNO_OVERFLOW, ERRNO_SUCCESS, FILETYPE_DIRECTORY, FILETYPE_REGULAR_FILE,
     FILETYPE_SYMBOLIC_LINK, LOOKUPFLAGS_SYMLINK_FOLLOW, OFLAGS_CREAT, OFLAGS_DIRECTORY,
-    RIGHTS_FD_FILESTAT_GET, RIGHTS_FD_FILESTAT_SET_SIZE, RIGHTS_FD_FILESTAT_SET_TIMES,
-    RIGHTS_FD_READ, RIGHTS_FD_READDIR, RIGHTS_FD_SEEK, RIGHTS_FD_TELL, RIGHTS_FD_WRITE,
-    RIGHTS_PATH_CREATE_DIRECTORY, RIGHTS_PATH_CREATE_FILE, RIGHTS_PATH_FILESTAT_GET,
-    RIGHTS_PATH_FILESTAT_SET_TIMES, RIGHTS_PATH_LINK_SOURCE, RIGHTS_PATH_LINK_TARGET,
-    RIGHTS_PATH_OPEN, RIGHTS_PATH_READLINK, RIGHTS_PATH_REMOVE_DIRECTORY,
+    RIGHTS_FD_ALLOCATE, RIGHTS_FD_FILESTAT_GET, RIGHTS_FD_FILESTAT_SET_SIZE,
+    RIGHTS_FD_FILESTAT_SET_TIMES, RIGHTS_FD_READ, RIGHTS_FD_READDIR, RIGHTS_FD_SEEK,
+    RIGHTS_FD_TELL, RIGHTS_FD_WRITE, RIGHTS_PATH_CREATE_DIRECTORY, RIGHTS_PATH_CREATE_FILE,
+    RIGHTS_PATH_FILESTAT_GET, RIGHTS_PATH_FILESTAT_SET_TIMES, RIGHTS_PATH_LINK_SOURCE,
+    RIGHTS_PATH_LINK_TARGET, RIGHTS_PATH_OPEN, RIGHTS_PATH_READLINK, RIGHTS_PATH_REMOVE_DIRECTORY,
     RIGHTS_PATH_RENAME_SOURCE, RIGHTS_PATH_RENAME_TARGET, RIGHTS_PATH_SYMLINK,
     RIGHTS_PATH_UNLINK_FILE,
 };
@@ -33,6 +33,7 @@ const FD_CLOSE_NAME: &str = "fd_close";
 const FD_SEEK_NAME: &str = "fd_seek";
 const FD_TELL_NAME: &str = "fd_tell";
 const FD_PWRITE_NAME: &str = "fd_pwrite";
+const FD_ALLOCATE_NAME: &str = "fd_allocate";
 const FD_FILESTAT_SET_SIZE_NAME: &str = "fd_filestat_set_size";
 const FD_FILESTAT_SET_TIMES_NAME: &str = "fd_filestat_set_times";
 const FSTFLAGS_ATIM: u32 = 1 << 0;
@@ -573,6 +574,33 @@ impl Filesystem {
             return Err(DescriptorWriteError::FileTooLarge);
         }
         file.bytes.borrow_mut().resize(size, 0);
+        Ok(())
+    }
+
+    pub(crate) fn allocate(
+        &self,
+        fd: u32,
+        offset: u64,
+        len: u64,
+    ) -> Result<(), DescriptorWriteError> {
+        let state = self.state.borrow();
+        let Some(file) = state.open_files.get(&fd) else {
+            return Err(DescriptorWriteError::BadFd);
+        };
+        if file.rights_base & RIGHTS_FD_ALLOCATE == 0 {
+            return Err(DescriptorWriteError::NotCapable);
+        }
+        let end = offset
+            .checked_add(len)
+            .ok_or(DescriptorWriteError::FileTooLarge)?;
+        if end > MAX_FILE_BYTES as u64 {
+            return Err(DescriptorWriteError::FileTooLarge);
+        }
+        let end = usize::try_from(end).map_err(|_| DescriptorWriteError::FileTooLarge)?;
+        let mut bytes = file.bytes.borrow_mut();
+        if bytes.len() < end {
+            bytes.resize(end, 0);
+        }
         Ok(())
     }
 
@@ -1189,8 +1217,8 @@ impl Filesystem {
                 let requested_base = *rights_base as u64;
                 let requested_inheriting = *rights_inheriting as u64;
                 let allowed_file_base = RIGHTS_FD_READ | RIGHTS_FD_WRITE | RIGHTS_FD_SEEK
-                    | RIGHTS_FD_TELL | RIGHTS_FD_FILESTAT_GET | RIGHTS_FD_FILESTAT_SET_SIZE
-                    | RIGHTS_FD_FILESTAT_SET_TIMES;
+                    | RIGHTS_FD_TELL | RIGHTS_FD_ALLOCATE | RIGHTS_FD_FILESTAT_GET
+                    | RIGHTS_FD_FILESTAT_SET_SIZE | RIGHTS_FD_FILESTAT_SET_TIMES;
                     let allowed_directory_base = RIGHTS_FD_READDIR
                         | RIGHTS_PATH_OPEN
                         | RIGHTS_PATH_FILESTAT_GET
@@ -1711,6 +1739,30 @@ impl Filesystem {
             },
         )?;
 
+        let allocate_filesystem = self.clone();
+        registry.register_values(
+            WASI_MODULE,
+            FD_ALLOCATE_NAME,
+            vec![ValueType::I32, ValueType::I64, ValueType::I64],
+            vec![ValueType::I32],
+            HostCapabilities::NONE,
+            move |_context, args| {
+                let [Value::I32(fd), Value::I64(offset), Value::I64(len)] = args else {
+                    return Err(HostError::message(
+                        "validated wasi fd_allocate signature received invalid arguments",
+                    ));
+                };
+                let fd = *fd as u32;
+                if allocate_filesystem.is_known_non_file(fd) {
+                    return Ok(vec![Value::I32(ERRNO_NOTCAPABLE)]);
+                }
+                match allocate_filesystem.allocate(fd, *offset as u64, *len as u64) {
+                    Ok(()) => Ok(vec![Value::I32(ERRNO_SUCCESS)]),
+                    Err(error) => Ok(vec![Value::I32(write_errno(error))]),
+                }
+            },
+        )?;
+
         let resize_filesystem = self.clone();
         registry.register_values(
             WASI_MODULE,
@@ -1987,8 +2039,10 @@ impl Filesystem {
             });
             (inode, bytes, link_count, times, true, true)
         };
-        let mutation_rights =
-            RIGHTS_FD_WRITE | RIGHTS_FD_FILESTAT_SET_SIZE | RIGHTS_FD_FILESTAT_SET_TIMES;
+        let mutation_rights = RIGHTS_FD_WRITE
+            | RIGHTS_FD_ALLOCATE
+            | RIGHTS_FD_FILESTAT_SET_SIZE
+            | RIGHTS_FD_FILESTAT_SET_TIMES;
         if rights_base & mutation_rights != 0
             && (!writable || !state.writable_preopens.contains(&preopen_fd))
         {
