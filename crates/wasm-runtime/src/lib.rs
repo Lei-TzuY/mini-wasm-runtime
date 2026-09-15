@@ -7,9 +7,8 @@ use std::{
     rc::{Rc, Weak},
 };
 use wasm_parser::{
-    decode_i32, decode_i64, decode_u32, decode_u64, Constant, DataMode, ElementMode,
-    ExportKind, FuncType, ImportDesc, ImportKind, Module, ParseError, ValueType,
-    NULL_FUNCREF_INDEX,
+    decode_i32, decode_i64, decode_u32, decode_u64, Constant, DataMode, ElementMode, ExportKind,
+    FuncType, ImportDesc, ImportKind, Module, ParseError, ValueType, NULL_FUNCREF_INDEX,
 };
 
 mod control;
