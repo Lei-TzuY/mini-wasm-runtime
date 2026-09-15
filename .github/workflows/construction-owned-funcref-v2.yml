@@ -27,8 +27,9 @@ jobs:
       - name: Existing reference regressions
         run: |
           cargo test -p wasm-runtime --test reference_typed_defined_functions -- --nocapture
-          cargo test -p wasm-runtime --test table_reference_ops -- --nocapture
-          cargo test -p wasm-runtime --test imported_table_state -- --nocapture
+          cargo test -p wasm-runtime --test table_get_set -- --nocapture
+          cargo test -p wasm-runtime --test phase5c_imported_tables -- --nocapture
+          cargo test -p wasm-runtime --test multi_table_core -- --nocapture
       - name: Clippy workspace
         run: cargo clippy --workspace --all-targets -- -D warnings
       - name: Test workspace
