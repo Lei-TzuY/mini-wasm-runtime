@@ -39,6 +39,8 @@ pub const ERRNO_NOTSUP: i32 = 58;
 pub const ERRNO_OVERFLOW: i32 = 61;
 pub const FILETYPE_SYMBOLIC_LINK: u8 = 7;
 pub const RIGHTS_FD_SEEK: u64 = 1 << 2;
+pub const RIGHTS_FD_FDSTAT_SET_FLAGS: u64 = 1 << 3;
+pub const FDFLAGS_APPEND: u16 = 1 << 0;
 pub const RIGHTS_FD_TELL: u64 = 1 << 5;
 pub const RIGHTS_FD_ALLOCATE: u64 = 1 << 8;
 pub const RIGHTS_FD_READDIR: u64 = 1 << 14;
@@ -217,6 +219,7 @@ impl WasiPreview1 {
         let rights_inheriting = if writable {
             RIGHTS_FD_READ
                 | RIGHTS_FD_WRITE
+                | RIGHTS_FD_FDSTAT_SET_FLAGS
                 | RIGHTS_FD_SEEK
                 | RIGHTS_FD_TELL
                 | RIGHTS_FD_FILESTAT_GET

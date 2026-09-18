@@ -630,14 +630,19 @@ impl WasiPreview1 {
                     ));
                 };
 
-                let (filetype, rights_base, rights_inheriting) = match *fd {
-                    0 => (FILETYPE_CHARACTER_DEVICE, RIGHTS_FD_READ, 0),
-                    1 | 2 => (FILETYPE_CHARACTER_DEVICE, RIGHTS_FD_WRITE, 0),
+                let (filetype, flags, rights_base, rights_inheriting) = match *fd {
+                    0 => (FILETYPE_CHARACTER_DEVICE, 0, RIGHTS_FD_READ, 0),
+                    1 | 2 => (FILETYPE_CHARACTER_DEVICE, 0, RIGHTS_FD_WRITE, 0),
                     other => {
                         if let Some(entry) =
                             extra_fd_stats.iter().find(|entry| entry.fd == other as u32)
                         {
-                            (entry.filetype, entry.rights_base, entry.rights_inheriting)
+                            (
+                                entry.filetype,
+                                0,
+                                entry.rights_base,
+                                entry.rights_inheriting,
+                            )
                         } else if let Some(stat) = fdstat_filesystem.fdstat(other as u32) {
                             stat
                         } else {
@@ -648,6 +653,7 @@ impl WasiPreview1 {
 
                 let mut bytes = [0u8; FDSTAT_SIZE];
                 bytes[0] = filetype;
+                bytes[2..4].copy_from_slice(&flags.to_le_bytes());
                 bytes[8..16].copy_from_slice(&rights_base.to_le_bytes());
                 bytes[16..24].copy_from_slice(&rights_inheriting.to_le_bytes());
 
