@@ -6,15 +6,15 @@ use wasm_runtime::{HostCapabilities, HostError, HostRegistry, HostRegistryError,
 use crate::{
     ERRNO_BADF, ERRNO_EXIST, ERRNO_FAULT, ERRNO_FBIG, ERRNO_INVAL, ERRNO_IO, ERRNO_MFILE,
     ERRNO_NAMETOOLONG, ERRNO_NOENT, ERRNO_NOSPC, ERRNO_NOTCAPABLE, ERRNO_NOTDIR, ERRNO_NOTEMPTY,
-    ERRNO_NOTSUP, ERRNO_OVERFLOW, ERRNO_SUCCESS, FILETYPE_DIRECTORY, FILETYPE_REGULAR_FILE,
-    FILETYPE_SYMBOLIC_LINK, LOOKUPFLAGS_SYMLINK_FOLLOW, OFLAGS_CREAT, OFLAGS_DIRECTORY,
-    RIGHTS_FD_ALLOCATE, RIGHTS_FD_FILESTAT_GET, RIGHTS_FD_FILESTAT_SET_SIZE,
-    RIGHTS_FD_FILESTAT_SET_TIMES, RIGHTS_FD_READ, RIGHTS_FD_READDIR, RIGHTS_FD_SEEK,
-    RIGHTS_FD_TELL, RIGHTS_FD_WRITE, RIGHTS_PATH_CREATE_DIRECTORY, RIGHTS_PATH_CREATE_FILE,
-    RIGHTS_PATH_FILESTAT_GET, RIGHTS_PATH_FILESTAT_SET_TIMES, RIGHTS_PATH_LINK_SOURCE,
-    RIGHTS_PATH_LINK_TARGET, RIGHTS_PATH_OPEN, RIGHTS_PATH_READLINK, RIGHTS_PATH_REMOVE_DIRECTORY,
-    RIGHTS_PATH_RENAME_SOURCE, RIGHTS_PATH_RENAME_TARGET, RIGHTS_PATH_SYMLINK,
-    RIGHTS_PATH_UNLINK_FILE,
+    ERRNO_NOTSUP, ERRNO_OVERFLOW, ERRNO_SUCCESS, FDFLAGS_APPEND, FILETYPE_DIRECTORY,
+    FILETYPE_REGULAR_FILE, FILETYPE_SYMBOLIC_LINK, LOOKUPFLAGS_SYMLINK_FOLLOW, OFLAGS_CREAT,
+    OFLAGS_DIRECTORY, RIGHTS_FD_ALLOCATE, RIGHTS_FD_FDSTAT_SET_FLAGS, RIGHTS_FD_FILESTAT_GET,
+    RIGHTS_FD_FILESTAT_SET_SIZE, RIGHTS_FD_FILESTAT_SET_TIMES, RIGHTS_FD_READ, RIGHTS_FD_READDIR,
+    RIGHTS_FD_SEEK, RIGHTS_FD_TELL, RIGHTS_FD_WRITE, RIGHTS_PATH_CREATE_DIRECTORY,
+    RIGHTS_PATH_CREATE_FILE, RIGHTS_PATH_FILESTAT_GET, RIGHTS_PATH_FILESTAT_SET_TIMES,
+    RIGHTS_PATH_LINK_SOURCE, RIGHTS_PATH_LINK_TARGET, RIGHTS_PATH_OPEN, RIGHTS_PATH_READLINK,
+    RIGHTS_PATH_REMOVE_DIRECTORY, RIGHTS_PATH_RENAME_SOURCE, RIGHTS_PATH_RENAME_TARGET,
+    RIGHTS_PATH_SYMLINK, RIGHTS_PATH_UNLINK_FILE,
 };
 
 const WASI_MODULE: &str = "wasi_snapshot_preview1";
@@ -29,6 +29,7 @@ const PATH_READLINK_NAME: &str = "path_readlink";
 const PATH_SYMLINK_NAME: &str = "path_symlink";
 const PATH_UNLINK_FILE_NAME: &str = "path_unlink_file";
 const FD_READDIR_NAME: &str = "fd_readdir";
+const FD_FDSTAT_SET_FLAGS_NAME: &str = "fd_fdstat_set_flags";
 const FD_CLOSE_NAME: &str = "fd_close";
 const FD_SEEK_NAME: &str = "fd_seek";
 const FD_TELL_NAME: &str = "fd_tell";
@@ -130,6 +131,7 @@ struct OpenFile {
     times: Rc<RefCell<FileTimes>>,
     offset: u64,
     rights_base: u64,
+    flags: u16,
 }
 
 #[derive(Debug, Clone)]
@@ -195,6 +197,13 @@ pub(crate) enum DescriptorWriteError {
     BadFd,
     NotCapable,
     FileTooLarge,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum DescriptorFlagsError {
+    BadFd,
+    NotCapable,
+    InvalidFlags,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -483,8 +492,12 @@ impl Filesystem {
             return Err(DescriptorWriteError::NotCapable);
         }
         let len = u64::try_from(len).map_err(|_| DescriptorWriteError::FileTooLarge)?;
-        let end = file
-            .offset
+        let start = if file.flags & FDFLAGS_APPEND != 0 {
+            file.bytes.borrow().len() as u64
+        } else {
+            file.offset
+        };
+        let end = start
             .checked_add(len)
             .ok_or(DescriptorWriteError::FileTooLarge)?;
         if end > MAX_FILE_BYTES as u64 {
@@ -506,36 +519,54 @@ impl Filesystem {
         if file.rights_base & RIGHTS_FD_WRITE == 0 {
             return Err(DescriptorWriteError::NotCapable);
         }
-        let start = usize::try_from(file.offset).map_err(|_| DescriptorWriteError::FileTooLarge)?;
+        let mut file_bytes = file.bytes.borrow_mut();
+        let start = if file.flags & FDFLAGS_APPEND != 0 {
+            file_bytes.len()
+        } else {
+            usize::try_from(file.offset).map_err(|_| DescriptorWriteError::FileTooLarge)?
+        };
         let end = start
             .checked_add(bytes.len())
             .ok_or(DescriptorWriteError::FileTooLarge)?;
         if end > MAX_FILE_BYTES {
             return Err(DescriptorWriteError::FileTooLarge);
         }
-        {
-            let mut file_bytes = file.bytes.borrow_mut();
-            if file_bytes.len() < start {
-                file_bytes.resize(start, 0);
-            }
-            if file_bytes.len() < end {
-                file_bytes.resize(end, 0);
-            }
-            file_bytes[start..end].copy_from_slice(bytes);
+        if file_bytes.len() < start {
+            file_bytes.resize(start, 0);
         }
+        if file_bytes.len() < end {
+            file_bytes.resize(end, 0);
+        }
+        file_bytes[start..end].copy_from_slice(bytes);
+        drop(file_bytes);
         file.offset = end as u64;
         Ok(())
     }
 
-    pub(crate) fn fdstat(&self, fd: u32) -> Option<(u8, u64, u64)> {
+    pub(crate) fn fdstat(&self, fd: u32) -> Option<(u8, u16, u64, u64)> {
         let state = self.state.borrow();
         if let Some(file) = state.open_files.get(&fd) {
-            return Some((FILETYPE_REGULAR_FILE, file.rights_base, 0));
+            return Some((FILETYPE_REGULAR_FILE, file.flags, file.rights_base, 0));
         }
         state
             .open_directories
             .get(&fd)
-            .map(|directory| (FILETYPE_DIRECTORY, directory.rights_base, 0))
+            .map(|directory| (FILETYPE_DIRECTORY, 0, directory.rights_base, 0))
+    }
+
+    fn set_flags(&self, fd: u32, flags: u16) -> Result<(), DescriptorFlagsError> {
+        let mut state = self.state.borrow_mut();
+        let Some(file) = state.open_files.get_mut(&fd) else {
+            return Err(DescriptorFlagsError::BadFd);
+        };
+        if file.rights_base & RIGHTS_FD_FDSTAT_SET_FLAGS == 0 {
+            return Err(DescriptorFlagsError::NotCapable);
+        }
+        if flags & !FDFLAGS_APPEND != 0 {
+            return Err(DescriptorFlagsError::InvalidFlags);
+        }
+        file.flags = flags;
+        Ok(())
     }
 
     pub(crate) fn filestat(&self, fd: u32) -> Result<DescriptorFilestat, DescriptorFilestatError> {
@@ -1205,9 +1236,13 @@ impl Filesystem {
                     return Ok(vec![Value::I32(ERRNO_BADF)]);
                 }
                 let open_flags = *open_flags as u32;
+                let fd_flags = *fd_flags as u32;
                 let supported_flags = OFLAGS_CREAT | OFLAGS_DIRECTORY;
-                if *dir_flags != 0 || *fd_flags != 0 || open_flags & !supported_flags != 0 {
+                if *dir_flags != 0 || open_flags & !supported_flags != 0 {
                     return Ok(vec![Value::I32(ERRNO_NOTCAPABLE)]);
+                }
+                if fd_flags > u16::MAX as u32 || (fd_flags as u16) & !FDFLAGS_APPEND != 0 {
+                    return Ok(vec![Value::I32(ERRNO_INVAL)]);
                 }
                 let create = open_flags & OFLAGS_CREAT != 0;
                 let directory = open_flags & OFLAGS_DIRECTORY != 0;
@@ -1217,7 +1252,8 @@ impl Filesystem {
                 let requested_base = *rights_base as u64;
                 let requested_inheriting = *rights_inheriting as u64;
                 let allowed_file_base = RIGHTS_FD_READ | RIGHTS_FD_WRITE | RIGHTS_FD_SEEK
-                    | RIGHTS_FD_TELL | RIGHTS_FD_ALLOCATE | RIGHTS_FD_FILESTAT_GET
+                    | RIGHTS_FD_TELL | RIGHTS_FD_ALLOCATE | RIGHTS_FD_FDSTAT_SET_FLAGS
+                    | RIGHTS_FD_FILESTAT_GET
                     | RIGHTS_FD_FILESTAT_SET_SIZE | RIGHTS_FD_FILESTAT_SET_TIMES;
                     let allowed_directory_base = RIGHTS_FD_READDIR
                         | RIGHTS_PATH_OPEN
@@ -1253,9 +1289,12 @@ impl Filesystem {
                     return Ok(vec![Value::I32(ERRNO_FAULT)]);
                 }
                 let opened = if directory {
+                    if fd_flags != 0 {
+                        return Ok(vec![Value::I32(ERRNO_INVAL)]);
+                    }
                     open_filesystem.open_directory(dir_fd, &path, requested_base)
                 } else {
-                    open_filesystem.open(dir_fd, &path, requested_base, create)
+                    open_filesystem.open(dir_fd, &path, requested_base, create, fd_flags as u16)
                 };
                 let opened = match opened {
                     Ok(opened) => opened,
@@ -1271,6 +1310,36 @@ impl Filesystem {
                     return Ok(vec![Value::I32(ERRNO_FAULT)]);
                 }
                 Ok(vec![Value::I32(ERRNO_SUCCESS)])
+            },
+        )?;
+
+        let set_flags_filesystem = self.clone();
+        registry.register_values(
+            WASI_MODULE,
+            FD_FDSTAT_SET_FLAGS_NAME,
+            vec![ValueType::I32, ValueType::I32],
+            vec![ValueType::I32],
+            HostCapabilities::NONE,
+            move |_context, args| {
+                let [Value::I32(fd), Value::I32(flags)] = args else {
+                    return Err(HostError::message(
+                        "validated wasi fd_fdstat_set_flags signature received invalid arguments",
+                    ));
+                };
+                let fd = *fd as u32;
+                if set_flags_filesystem.is_known_non_file(fd) {
+                    return Ok(vec![Value::I32(ERRNO_NOTCAPABLE)]);
+                }
+                let flags = *flags as u32;
+                if flags > u16::MAX as u32 {
+                    return Ok(vec![Value::I32(ERRNO_INVAL)]);
+                }
+                match set_flags_filesystem.set_flags(fd, flags as u16) {
+                    Ok(()) => Ok(vec![Value::I32(ERRNO_SUCCESS)]),
+                    Err(DescriptorFlagsError::BadFd) => Ok(vec![Value::I32(ERRNO_BADF)]),
+                    Err(DescriptorFlagsError::NotCapable) => Ok(vec![Value::I32(ERRNO_NOTCAPABLE)]),
+                    Err(DescriptorFlagsError::InvalidFlags) => Ok(vec![Value::I32(ERRNO_INVAL)]),
+                }
             },
         )?;
 
@@ -1965,6 +2034,7 @@ impl Filesystem {
         path: &[u8],
         rights_base: u64,
         create: bool,
+        flags: u16,
     ) -> Result<OpenedFile, OpenError> {
         let (preopen_fd, full_path, parent_rights) = self
             .resolve_directory_path(dir_fd, path, RIGHTS_PATH_OPEN)
@@ -2041,6 +2111,7 @@ impl Filesystem {
         };
         let mutation_rights = RIGHTS_FD_WRITE
             | RIGHTS_FD_ALLOCATE
+            | RIGHTS_FD_FDSTAT_SET_FLAGS
             | RIGHTS_FD_FILESTAT_SET_SIZE
             | RIGHTS_FD_FILESTAT_SET_TIMES;
         if rights_base & mutation_rights != 0
@@ -2060,6 +2131,7 @@ impl Filesystem {
                 times,
                 offset: 0,
                 rights_base,
+                flags,
             },
         );
         Ok(OpenedFile {

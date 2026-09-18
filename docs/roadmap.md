@@ -166,6 +166,8 @@ The runtime has moved beyond a generic future-WASI placeholder into an executabl
 
 - [x] bounded `fd_write` for stdout/stderr with iovec gathering and atomic host-output commit
 - [x] bounded `fd_fdstat_get` metadata for standard descriptors
+- [x] bounded descriptor-flag mutation via `fd_fdstat_set_flags` with `RIGHTS_FD_FDSTAT_SET_FLAGS`, APPEND-only flag support, `fd_fdstat_get` flag exposure, APPEND-at-`path_open`, EOF-directed sequential `fd_write`, clear-to-cursor restoration, and cursor-independent positioned `fd_pwrite`
+- [x] deterministic APPEND descriptor lifecycle differential/interop evidence against pinned Wasmtime-WASI 37.0.3 using an isolated writable preopen, comparing errno results, live fdstat flags, EOF append behavior, flag clearing, and final file bytes
 - [x] deterministic process arguments via `args_sizes_get` / `args_get`
 - [x] deterministic process environment via `environ_sizes_get` / `environ_get`
 - [x] deterministic stdin plus bounded `fd_read` scatter writes, sequential consumption, EOF, and read rights
