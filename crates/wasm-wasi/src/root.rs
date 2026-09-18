@@ -40,6 +40,7 @@ pub const ERRNO_OVERFLOW: i32 = 61;
 pub const FILETYPE_SYMBOLIC_LINK: u8 = 7;
 pub const RIGHTS_FD_SEEK: u64 = 1 << 2;
 pub const RIGHTS_FD_TELL: u64 = 1 << 5;
+pub const RIGHTS_FD_ALLOCATE: u64 = 1 << 8;
 pub const RIGHTS_FD_READDIR: u64 = 1 << 14;
 pub const RIGHTS_PATH_CREATE_DIRECTORY: u64 = 1 << 9;
 pub const RIGHTS_PATH_CREATE_FILE: u64 = 1 << 10;
@@ -219,6 +220,7 @@ impl WasiPreview1 {
                 | RIGHTS_FD_SEEK
                 | RIGHTS_FD_TELL
                 | RIGHTS_FD_FILESTAT_GET
+                | RIGHTS_FD_ALLOCATE
                 | RIGHTS_FD_FILESTAT_SET_SIZE
                 | RIGHTS_FD_FILESTAT_SET_TIMES
         } else {
