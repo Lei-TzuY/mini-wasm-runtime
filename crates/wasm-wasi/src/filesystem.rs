@@ -8,13 +8,14 @@ use crate::{
     ERRNO_NAMETOOLONG, ERRNO_NOENT, ERRNO_NOSPC, ERRNO_NOTCAPABLE, ERRNO_NOTDIR, ERRNO_NOTEMPTY,
     ERRNO_NOTSUP, ERRNO_OVERFLOW, ERRNO_SUCCESS, FDFLAGS_APPEND, FILETYPE_DIRECTORY,
     FILETYPE_REGULAR_FILE, FILETYPE_SYMBOLIC_LINK, LOOKUPFLAGS_SYMLINK_FOLLOW, OFLAGS_CREAT,
-    OFLAGS_DIRECTORY, RIGHTS_FD_ALLOCATE, RIGHTS_FD_FDSTAT_SET_FLAGS, RIGHTS_FD_FILESTAT_GET,
-    RIGHTS_FD_FILESTAT_SET_SIZE, RIGHTS_FD_FILESTAT_SET_TIMES, RIGHTS_FD_READ, RIGHTS_FD_READDIR,
-    RIGHTS_FD_SEEK, RIGHTS_FD_TELL, RIGHTS_FD_WRITE, RIGHTS_PATH_CREATE_DIRECTORY,
-    RIGHTS_PATH_CREATE_FILE, RIGHTS_PATH_FILESTAT_GET, RIGHTS_PATH_FILESTAT_SET_TIMES,
-    RIGHTS_PATH_LINK_SOURCE, RIGHTS_PATH_LINK_TARGET, RIGHTS_PATH_OPEN, RIGHTS_PATH_READLINK,
-    RIGHTS_PATH_REMOVE_DIRECTORY, RIGHTS_PATH_RENAME_SOURCE, RIGHTS_PATH_RENAME_TARGET,
-    RIGHTS_PATH_SYMLINK, RIGHTS_PATH_UNLINK_FILE,
+    OFLAGS_DIRECTORY, OFLAGS_EXCL, OFLAGS_TRUNC, RIGHTS_FD_ALLOCATE, RIGHTS_FD_FDSTAT_SET_FLAGS,
+    RIGHTS_FD_FILESTAT_GET, RIGHTS_FD_FILESTAT_SET_SIZE, RIGHTS_FD_FILESTAT_SET_TIMES,
+    RIGHTS_FD_READ, RIGHTS_FD_READDIR, RIGHTS_FD_SEEK, RIGHTS_FD_TELL, RIGHTS_FD_WRITE,
+    RIGHTS_PATH_CREATE_DIRECTORY, RIGHTS_PATH_CREATE_FILE, RIGHTS_PATH_FILESTAT_GET,
+    RIGHTS_PATH_FILESTAT_SET_TIMES, RIGHTS_PATH_LINK_SOURCE, RIGHTS_PATH_LINK_TARGET,
+    RIGHTS_PATH_OPEN, RIGHTS_PATH_READLINK, RIGHTS_PATH_REMOVE_DIRECTORY,
+    RIGHTS_PATH_RENAME_SOURCE, RIGHTS_PATH_RENAME_TARGET, RIGHTS_PATH_SYMLINK,
+    RIGHTS_PATH_UNLINK_FILE,
 };
 
 const WASI_MODULE: &str = "wasi_snapshot_preview1";
@@ -228,6 +229,7 @@ pub(crate) struct DescriptorFilestat {
 enum OpenError {
     NotFound,
     NotCapable,
+    Exists,
     NotDirectory,
     NameTooLong,
     TooManyOpenFiles,
@@ -318,6 +320,14 @@ struct ReaddirEntry {
 struct OpenedFile {
     fd: u32,
     created: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct OpenOptions {
+    create: bool,
+    exclusive: bool,
+    truncate: bool,
+    descriptor_flags: u16,
 }
 
 impl Filesystem {
@@ -1237,7 +1247,8 @@ impl Filesystem {
                 }
                 let open_flags = *open_flags as u32;
                 let fd_flags = *fd_flags as u32;
-                let supported_flags = OFLAGS_CREAT | OFLAGS_DIRECTORY;
+                let supported_flags =
+                    OFLAGS_CREAT | OFLAGS_DIRECTORY | OFLAGS_EXCL | OFLAGS_TRUNC;
                 if *dir_flags != 0 || open_flags & !supported_flags != 0 {
                     return Ok(vec![Value::I32(ERRNO_NOTCAPABLE)]);
                 }
@@ -1246,7 +1257,9 @@ impl Filesystem {
                 }
                 let create = open_flags & OFLAGS_CREAT != 0;
                 let directory = open_flags & OFLAGS_DIRECTORY != 0;
-                if create && directory {
+                let exclusive = open_flags & OFLAGS_EXCL != 0;
+                let truncate = open_flags & OFLAGS_TRUNC != 0;
+                if directory && (create || exclusive || truncate) {
                     return Ok(vec![Value::I32(ERRNO_NOTCAPABLE)]);
                 }
                 let requested_base = *rights_base as u64;
@@ -1269,6 +1282,9 @@ impl Filesystem {
                         | RIGHTS_PATH_UNLINK_FILE;
                 let allowed_base = if directory { allowed_directory_base } else { allowed_file_base };
                 if requested_base & !allowed_base != 0 || requested_inheriting != 0 {
+                    return Ok(vec![Value::I32(ERRNO_NOTCAPABLE)]);
+                }
+                if truncate && requested_base & RIGHTS_FD_WRITE == 0 {
                     return Ok(vec![Value::I32(ERRNO_NOTCAPABLE)]);
                 }
                 let path_len = *path_len as u32 as usize;
@@ -1294,12 +1310,23 @@ impl Filesystem {
                     }
                     open_filesystem.open_directory(dir_fd, &path, requested_base)
                 } else {
-                    open_filesystem.open(dir_fd, &path, requested_base, create, fd_flags as u16)
+                    open_filesystem.open(
+                        dir_fd,
+                        &path,
+                        requested_base,
+                        OpenOptions {
+                            create,
+                            exclusive,
+                            truncate,
+                            descriptor_flags: fd_flags as u16,
+                        },
+                    )
                 };
                 let opened = match opened {
                     Ok(opened) => opened,
                     Err(OpenError::NotFound) => return Ok(vec![Value::I32(ERRNO_NOENT)]),
                     Err(OpenError::NotCapable) => return Ok(vec![Value::I32(ERRNO_NOTCAPABLE)]),
+                    Err(OpenError::Exists) => return Ok(vec![Value::I32(ERRNO_EXIST)]),
                     Err(OpenError::NotDirectory) => return Ok(vec![Value::I32(ERRNO_NOTDIR)]),
                     Err(OpenError::NameTooLong) => return Ok(vec![Value::I32(ERRNO_NAMETOOLONG)]),
                     Err(OpenError::TooManyOpenFiles) => return Ok(vec![Value::I32(ERRNO_MFILE)]),
@@ -2033,9 +2060,14 @@ impl Filesystem {
         dir_fd: u32,
         path: &[u8],
         rights_base: u64,
-        create: bool,
-        flags: u16,
+        options: OpenOptions,
     ) -> Result<OpenedFile, OpenError> {
+        let OpenOptions {
+            create,
+            exclusive,
+            truncate,
+            descriptor_flags,
+        } = options;
         let (preopen_fd, full_path, parent_rights) = self
             .resolve_directory_path(dir_fd, path, RIGHTS_PATH_OPEN)
             .map_err(open_resolve_error)?;
@@ -2074,6 +2106,9 @@ impl Filesystem {
             });
         let (inode, bytes, link_count, times, writable, created) = if let Some(existing) = existing
         {
+            if exclusive {
+                return Err(OpenError::Exists);
+            }
             (
                 existing.0, existing.1, existing.2, existing.3, existing.4, false,
             )
@@ -2122,6 +2157,18 @@ impl Filesystem {
             }
             return Err(OpenError::NotCapable);
         }
+        if truncate {
+            if !writable
+                || !state.writable_preopens.contains(&preopen_fd)
+                || rights_base & RIGHTS_FD_WRITE == 0
+            {
+                if created {
+                    state.mounted_files.pop();
+                }
+                return Err(OpenError::NotCapable);
+            }
+            bytes.borrow_mut().clear();
+        }
         state.open_files.insert(
             candidate,
             OpenFile {
@@ -2131,7 +2178,7 @@ impl Filesystem {
                 times,
                 offset: 0,
                 rights_base,
-                flags,
+                flags: descriptor_flags,
             },
         );
         Ok(OpenedFile {
