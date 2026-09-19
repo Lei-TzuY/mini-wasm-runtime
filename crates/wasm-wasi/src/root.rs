@@ -60,6 +60,8 @@ pub const RIGHTS_PATH_UNLINK_FILE: u64 = 1 << 26;
 pub const LOOKUPFLAGS_SYMLINK_FOLLOW: u32 = 1 << 0;
 pub const OFLAGS_CREAT: u32 = 1 << 0;
 pub const OFLAGS_DIRECTORY: u32 = 1 << 1;
+pub const OFLAGS_EXCL: u32 = 1 << 2;
+pub const OFLAGS_TRUNC: u32 = 1 << 3;
 
 const PROC_EXIT_MODULE: &str = "wasi_snapshot_preview1";
 const PROC_EXIT_NAME: &str = "proc_exit";
