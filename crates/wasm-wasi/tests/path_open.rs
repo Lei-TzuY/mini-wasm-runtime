@@ -397,7 +397,6 @@ fn mounted_file_configuration_requires_existing_preopen_and_safe_relative_path()
     ));
 }
 
-
 #[test]
 fn closing_preopen_invalidates_root_but_preserves_open_child_descriptor() {
     let memory = MemoryHandle::new(1, Some(1)).unwrap();
@@ -414,10 +413,7 @@ fn closing_preopen_invalidates_root_but_preserves_open_child_descriptor() {
     let child_fd = u32::from_le_bytes(memory.read(100, 4).unwrap().try_into().unwrap());
     assert_eq!(child_fd, 4);
 
-    assert_eq!(
-        errno(&mut vm, "close", &[Value::I32(3)]),
-        ERRNO_SUCCESS
-    );
+    assert_eq!(errno(&mut vm, "close", &[Value::I32(3)]), ERRNO_SUCCESS);
 
     assert_eq!(
         errno(
@@ -445,7 +441,6 @@ fn closing_preopen_invalidates_root_but_preserves_open_child_descriptor() {
         ERRNO_SUCCESS
     );
 }
-
 
 #[test]
 fn closing_preopen_releases_descriptor_slot_for_dynamic_reuse() {
