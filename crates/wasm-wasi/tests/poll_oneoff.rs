@@ -249,7 +249,6 @@ fn zero_subscriptions_and_oob_buffers_are_rejected_without_writes() {
     );
 }
 
-
 #[test]
 fn immediate_stdio_fd_readiness_emits_preview1_events() {
     let memory = MemoryHandle::new(1, Some(1)).unwrap();
@@ -283,9 +282,7 @@ fn immediate_stdio_fd_readiness_emits_preview1_events() {
     assert_eq!(event_nbytes(&read_event), 1);
     assert_eq!(event_flags(&read_event), 0);
 
-    let write_event = memory
-        .read(output + EVENT_SIZE as u32, EVENT_SIZE)
-        .unwrap();
+    let write_event = memory.read(output + EVENT_SIZE as u32, EVENT_SIZE).unwrap();
     assert_eq!(event_userdata(&write_event), 0xaaaa_bbbb_cccc_dddd);
     assert_eq!(&write_event[8..10], &0u16.to_le_bytes());
     assert_eq!(write_event[10], EVENTTYPE_FD_WRITE);
@@ -300,10 +297,7 @@ fn invalid_fd_readiness_fails_closed_without_partial_output() {
     let output = 256u32;
     let nevents = 400u32;
     memory
-        .write(
-            input,
-            &fd_subscription(7, EVENTTYPE_FD_READ, 99),
-        )
+        .write(input, &fd_subscription(7, EVENTTYPE_FD_READ, 99))
         .unwrap();
     memory.write(output, &[0xcc; EVENT_SIZE]).unwrap();
     memory
@@ -314,7 +308,10 @@ fn invalid_fd_readiness_fails_closed_without_partial_output() {
     let mut vm = instantiate(&poll_module(input, output, 1, nevents), &memory, &wasi);
 
     assert_eq!(errno(&mut vm), wasm_wasi::ERRNO_BADF);
-    assert_eq!(memory.read(output, EVENT_SIZE).unwrap(), vec![0xcc; EVENT_SIZE]);
+    assert_eq!(
+        memory.read(output, EVENT_SIZE).unwrap(),
+        vec![0xcc; EVENT_SIZE]
+    );
     assert_eq!(
         u32::from_le_bytes(memory.read(nevents, 4).unwrap().try_into().unwrap()),
         0xfeed_face
@@ -334,7 +331,10 @@ fn unsupported_fd_direction_fails_closed() {
         let wasi = WasiPreview1::new();
         let mut vm = instantiate(&poll_module(64, 256, 1, 400), &memory, &wasi);
         assert_eq!(errno(&mut vm), wasm_wasi::ERRNO_BADF);
-        assert_eq!(memory.read(256, EVENT_SIZE).unwrap(), vec![0xdd; EVENT_SIZE]);
+        assert_eq!(
+            memory.read(256, EVENT_SIZE).unwrap(),
+            vec![0xdd; EVENT_SIZE]
+        );
         assert_eq!(
             u32::from_le_bytes(memory.read(400, 4).unwrap().try_into().unwrap()),
             0x1234_5678
