@@ -181,9 +181,9 @@ Host mutations to table slots are immediately visible to `call_indirect`. Indire
 
 ### Linear memory
 
-The owned linear-memory implementation uses 64-KiB pages, widened effective-address checks, little-endian i32/narrow loads and stores, fallible growth, and whole-range data initialization.
+The linear-memory implementation uses 64-KiB pages, widened effective-address checks, typed memory32/memory64 addressing, fallible growth, and whole-range data initialization. Instances retain the full WebAssembly memory index space across imported and defined memories.
 
-Memory imports participate in validation and the memory index space, but instantiation still rejects them. A copy of host bytes would not preserve imported-memory identity, growth visibility, or mutation aliasing.
+Embedders can inspect or mutate any instantiated owned/imported memory by index through `Instance::memory_count`, `memory_size_pages_at`, `read_memory_at`, and `write_memory_at`. These indexed methods use `u64` byte addresses so the embedding boundary composes with memory64 while preserving the legacy borrowed `memory()` view of owned memory 0. Imported memories keep shared `MemoryHandle` identity, so host/guest mutations remain aliased.
 
 ### Host binding and capability boundary
 
@@ -192,7 +192,7 @@ Memory imports participate in validation and the memory index space, but instant
 1. typed host functions using i32/i64/f32/f64 parameter/result vectors;
 2. numeric `GlobalHandle` bindings, immutable or mutable;
 3. `TableHandle` bindings for the current single-table `funcref` subset;
-4. shared `MemoryHandle` bindings for the current single-memory subset.
+4. shared `MemoryHandle` bindings across the instantiated memory index space.
 
 `HostRegistry::register` preserves the original `Option<Value>` zero-or-one-result callback API. `HostRegistry::register_values` accepts callbacks returning `Vec<Value>` and is the multi-result host ABI. Internally both paths normalize to ordered result vectors before runtime validation.
 
@@ -208,11 +208,10 @@ After supported imports are resolved and state/segments are initialized, an opti
 
 ## Current non-goals
 
-- memory imports until shared backing exists
 - multiple live instances sharing one `TableHandle`
 - cross-instance function-reference dispatch
-- thread-safe/shared-memory global or table handles
-- multiple tables or memories
+- thread-safe/shared-memory global, table, or linear-memory handles
+- multiple tables
 - passive/declarative element modes
 - passive or explicit-memory-index data modes
 - i64/f32/f64 memory load/store families
