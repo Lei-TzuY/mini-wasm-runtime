@@ -468,10 +468,7 @@ fn closing_preopen_releases_descriptor_slot_for_dynamic_reuse() {
         5
     );
 
-    assert_eq!(
-        errno(&mut vm, "close", &[Value::I32(3)]),
-        ERRNO_SUCCESS
-    );
+    assert_eq!(errno(&mut vm, "close", &[Value::I32(3)]), ERRNO_SUCCESS);
 
     memory.write(100, &0xdeadbeefu32.to_le_bytes()).unwrap();
     assert_eq!(
