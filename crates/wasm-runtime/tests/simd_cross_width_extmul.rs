@@ -161,4 +161,3 @@ fn validator_rejects_extmul_type_confusion() {
         ))
     ));
 }
-
