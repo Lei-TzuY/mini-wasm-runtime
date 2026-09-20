@@ -483,10 +483,7 @@ impl Filesystem {
         Ok(())
     }
 
-    pub(crate) fn poll_read_ready(
-        &self,
-        fd: u32,
-    ) -> Result<(u64, bool), DescriptorReadError> {
+    pub(crate) fn poll_read_ready(&self, fd: u32) -> Result<(u64, bool), DescriptorReadError> {
         let state = self.state.borrow();
         let Some(file) = state.open_files.get(&fd) else {
             return Err(DescriptorReadError::BadFd);
