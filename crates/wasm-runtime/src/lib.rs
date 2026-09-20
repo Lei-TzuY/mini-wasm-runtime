@@ -4524,7 +4524,7 @@ fn execute_simd(
             }
             stack.push(Value::V128(Rc::new(result)));
         }
-        111 | 112 | 114 | 115 | 118 | 119 | 120 | 121 | 123 => {
+        110 | 111 | 112 | 113 | 114 | 115 | 118 | 119 | 120 | 121 | 123 => {
             let rhs = numeric::v128_from_stack(stack)?;
             let lhs = numeric::v128_from_stack(stack)?;
             let mut result = [0u8; 16];
@@ -4534,8 +4534,10 @@ fn execute_simd(
                 .zip(rhs.iter().copied())
             {
                 *output = match subopcode {
+                    110 => lhs_lane.wrapping_add(rhs_lane),
                     111 => (lhs_lane as i8).saturating_add(rhs_lane as i8) as u8,
                     112 => lhs_lane.saturating_add(rhs_lane),
+                    113 => lhs_lane.wrapping_sub(rhs_lane),
                     114 => (lhs_lane as i8).saturating_sub(rhs_lane as i8) as u8,
                     115 => lhs_lane.saturating_sub(rhs_lane),
                     118 => (lhs_lane as i8).min(rhs_lane as i8) as u8,
@@ -4543,7 +4545,7 @@ fn execute_simd(
                     120 => (lhs_lane as i8).max(rhs_lane as i8) as u8,
                     121 => lhs_lane.max(rhs_lane),
                     123 => (u16::from(lhs_lane) + u16::from(rhs_lane)).div_ceil(2) as u8,
-                    _ => unreachable!("matched i8x16 saturating/min-max opcode"),
+                    _ => unreachable!("matched i8x16 arithmetic opcode"),
                 };
             }
             stack.push(Value::V128(Rc::new(result)));
