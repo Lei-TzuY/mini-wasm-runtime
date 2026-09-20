@@ -180,4 +180,3 @@ fn validator_rejects_i64x2_unary_and_reduction_type_confusion() {
         ));
     }
 }
-
