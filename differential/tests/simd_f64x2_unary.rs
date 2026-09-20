@@ -17,12 +17,13 @@ fn f64x2_unary_matches_wasmtime_reference() {
     let parsed = wasm_parser::parse_module(&bytes).expect("parse");
     let mut mini = Instance::new(parsed).expect("mini");
     let exports = ["abs", "neg", "sqrt", "ceil", "floor", "trunc", "nearest"];
-    let mini_values = exports.map(|name| {
-        match mini.invoke_export_values(name, &[]).unwrap().as_slice() {
-            [Value::I64(v)] => *v,
-            _ => panic!(),
-        }
-    });
+    let mini_values =
+        exports.map(
+            |name| match mini.invoke_export_values(name, &[]).unwrap().as_slice() {
+                [Value::I64(v)] => *v,
+                _ => panic!(),
+            },
+        );
 
     let engine = Engine::default();
     let module = WasmtimeModule::new(&engine, &bytes).unwrap();
