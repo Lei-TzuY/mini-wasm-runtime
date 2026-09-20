@@ -241,6 +241,31 @@ impl WasiPreview1 {
         self
     }
 
+    pub(crate) fn poll_fd_read_ready(&self, fd: u32) -> Result<(u64, bool), i32> {
+        if fd == 0 {
+            return Ok((1, false));
+        }
+        match self.filesystem.poll_read_ready(fd) {
+            Ok(readiness) => Ok(readiness),
+            Err(DescriptorReadError::BadFd) => Err(ERRNO_BADF),
+            Err(DescriptorReadError::NotCapable) => Err(ERRNO_NOTCAPABLE),
+        }
+    }
+
+    pub(crate) fn poll_fd_write_ready(&self, fd: u32) -> Result<(u64, bool), i32> {
+        if matches!(fd, 1 | 2) {
+            return Ok((1, false));
+        }
+        match self.filesystem.poll_write_ready(fd) {
+            Ok(nbytes) => Ok((nbytes, false)),
+            Err(DescriptorWriteError::BadFd) => Err(ERRNO_BADF),
+            Err(DescriptorWriteError::NotCapable) => Err(ERRNO_NOTCAPABLE),
+            Err(DescriptorWriteError::FileTooLarge) => unreachable!(
+                "poll_write_ready checks descriptor existence and rights without reserving bytes"
+            ),
+        }
+    }
+
     pub fn register(&self, registry: &mut HostRegistry) -> Result<(), HostRegistryError> {
         let stdout = self.stdout.clone();
         let stderr = self.stderr.clone();
