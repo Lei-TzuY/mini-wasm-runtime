@@ -181,7 +181,7 @@ Host mutations to table slots are immediately visible to `call_indirect`. Indire
 
 ### Linear memory
 
-The owned linear-memory implementation uses 64-KiB pages, widened effective-address checks, little-endian i32/narrow loads and stores, fallible growth, and whole-range data initialization.
+The owned linear-memory implementation uses 64-KiB pages, widened effective-address checks, little-endian i32/narrow loads and stores, fallible growth, and whole-range data initialization. Embedders can inspect or mutate any instantiated owned/imported memory by index through `Instance::memory_count`, `memory_size_pages_at`, `read_memory_at`, and `write_memory_at`; these APIs use `u64` byte addresses so the embedding boundary composes with memory64 while preserving the legacy borrowed `memory()` view of owned memory 0.
 
 Memory imports participate in validation and the memory index space, but instantiation still rejects them. A copy of host bytes would not preserve imported-memory identity, growth visibility, or mutation aliasing.
 
