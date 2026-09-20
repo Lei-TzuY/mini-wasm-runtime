@@ -1841,6 +1841,39 @@ impl Instance {
         }
     }
 
+    pub fn memory_count(&self) -> usize {
+        self.memories.len()
+    }
+
+    pub fn memory_size_pages_at(&self, memory_index: u32) -> Result<u32, RuntimeError> {
+        self.with_memory_index(memory_index, |memory| Ok(memory.size_pages()))
+    }
+
+    pub fn read_memory_at(
+        &self,
+        memory_index: u32,
+        address: u64,
+        length: usize,
+    ) -> Result<Vec<u8>, RuntimeError> {
+        self.with_memory_index(memory_index, |memory| {
+            let range = memory.checked_bulk_range(address, length as u64)?;
+            Ok(memory.bytes[range].to_vec())
+        })
+    }
+
+    pub fn write_memory_at(
+        &mut self,
+        memory_index: u32,
+        address: u64,
+        bytes: &[u8],
+    ) -> Result<(), RuntimeError> {
+        self.with_memory_index_mut(memory_index, |memory| {
+            let range = memory.checked_bulk_range(address, bytes.len() as u64)?;
+            memory.bytes[range].copy_from_slice(bytes);
+            Ok(())
+        })
+    }
+
     pub fn global(&self, index: u32) -> Option<Value> {
         self.globals.get(index as usize).map(GlobalHandle::get)
     }
