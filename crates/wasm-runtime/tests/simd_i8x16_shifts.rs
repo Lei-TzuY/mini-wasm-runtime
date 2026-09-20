@@ -87,4 +87,3 @@ fn validator_rejects_i8x16_shift_type_confusion() {
         ))
     ));
 }
-
