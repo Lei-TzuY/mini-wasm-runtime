@@ -184,4 +184,3 @@ fn validator_rejects_i8x16_alu_type_confusion() {
         ))
     ));
 }
-
