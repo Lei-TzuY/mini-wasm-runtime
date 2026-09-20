@@ -73,7 +73,8 @@ fn i32x4_remaining_alu_matches_wasmtime_reference() {
     let mut config = Config::new();
     config.wasm_simd(true);
     let engine = Engine::new(&config).expect("SIMD engine");
-    let module = ReferenceModule::new(&engine, &bytes).expect("Wasmtime compiles i32x4 ALU fixture");
+    let module =
+        ReferenceModule::new(&engine, &bytes).expect("Wasmtime compiles i32x4 ALU fixture");
     let mut store = Store::new(&engine, ());
     let reference =
         ReferenceInstance::new(&mut store, &module, &[]).expect("Wasmtime instantiates");
