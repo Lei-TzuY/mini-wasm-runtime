@@ -196,7 +196,7 @@ Memory imports participate in validation and the memory index space, but instant
 
 `HostRegistry::register` preserves the original `Option<Value>` zero-or-one-result callback API. `HostRegistry::register_values` accepts callbacks returning `Vec<Value>` and is the multi-result host ABI. Internally both paths normalize to ordered result vectors before runtime validation.
 
-Host functions receive a `HostContext`, not the `Instance`. Memory access requires explicit `NONE`, `MEMORY_READ`, or `MEMORY_READ_WRITE` capabilities. Runtime arguments are type-checked before callbacks run.
+Host functions receive a `HostContext`, not the `Instance`. Memory access requires explicit `NONE`, `MEMORY_READ`, or `MEMORY_READ_WRITE` capabilities. The legacy memory helpers target memory index 0, while indexed `memory_size_pages_at` / `read_memory_at` / `write_memory_at` expose the same capability-scoped access across the instance's full multi-memory index space. Runtime arguments are type-checked before callbacks run.
 
 The standalone CLI registers no implicit bindings or capabilities.
 
