@@ -337,9 +337,12 @@ pub(super) fn build_control_map(module: &Module, code: &[u8]) -> Result<ControlM
                     | 153
                     | 155
                     | 156..=159
+                    | 160
+                    | 161
                     | 174
                     | 177
                     | 181
+                    | 182..=186
                     | 188..=191 => {}
                     21..=23 => {
                         let lane = *code.get(pc).ok_or(RuntimeError::ControlInvariant(
