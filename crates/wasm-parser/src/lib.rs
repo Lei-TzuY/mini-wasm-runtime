@@ -271,7 +271,14 @@ pub struct FunctionBody {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DataMode {
-    Active { memory_index: u32, offset: i32 },
+    /// Active offsets are normalized to their unsigned address bits.
+    ///
+    /// memory32 i32.const offsets are zero-extended from u32; memory64
+    /// i64.const offsets preserve the full 64-bit address.
+    Active {
+        memory_index: u32,
+        offset: u64,
+    },
     Passive,
 }
 
@@ -874,15 +881,21 @@ fn parse_data_section(cursor: &mut Cursor<'_>, module: &mut Module) -> Result<()
     for _ in 0..count {
         let flags = cursor.read_u32()?;
         let mode = match flags {
-            0 => DataMode::Active {
-                memory_index: 0,
-                offset: read_i32_const_expr(cursor)?,
-            },
+            0 => {
+                let memory_index = 0;
+                DataMode::Active {
+                    memory_index,
+                    offset: read_data_offset_const_expr(cursor, module, memory_index)?,
+                }
+            }
             1 => DataMode::Passive,
-            2 => DataMode::Active {
-                memory_index: cursor.read_u32()?,
-                offset: read_i32_const_expr(cursor)?,
-            },
+            2 => {
+                let memory_index = cursor.read_u32()?;
+                DataMode::Active {
+                    memory_index,
+                    offset: read_data_offset_const_expr(cursor, module, memory_index)?,
+                }
+            }
             other => return Err(ParseError::UnsupportedDataSegmentMode(other)),
         };
         let len = cursor.read_u32()? as usize;
@@ -970,6 +983,54 @@ fn read_i32_const_expr(cursor: &mut Cursor<'_>) -> Result<i32, ParseError> {
             expected: ValueType::I32,
             actual: other.value_type(),
         }),
+    }
+}
+
+fn memory_type_by_index(module: &Module, memory_index: u32) -> Option<MemoryType> {
+    let mut remaining = memory_index;
+    for import in &module.imports {
+        if let ImportDesc::Memory(memory_type) = import.desc {
+            if remaining == 0 {
+                return Some(memory_type);
+            }
+            remaining -= 1;
+        }
+    }
+    module.memories.get(remaining as usize).copied()
+}
+
+fn read_data_offset_const_expr(
+    cursor: &mut Cursor<'_>,
+    module: &Module,
+    memory_index: u32,
+) -> Result<u64, ParseError> {
+    let constant = read_const_expr(cursor)?;
+    match memory_type_by_index(module, memory_index) {
+        Some(memory_type) if memory_type.limits.memory64 => match constant {
+            Constant::I64(value) => Ok(value as u64),
+            other => Err(ParseError::ConstExprTypeMismatch {
+                expected: ValueType::I64,
+                actual: other.value_type(),
+            }),
+        },
+        Some(_) => match constant {
+            Constant::I32(value) => Ok(u64::from(value as u32)),
+            other => Err(ParseError::ConstExprTypeMismatch {
+                expected: ValueType::I32,
+                actual: other.value_type(),
+            }),
+        },
+        None => match constant {
+            // Keep an invalid memory index structurally parseable so the
+            // validator can report the index-space error. Integer offsets are
+            // the only address-shaped constants accepted here.
+            Constant::I32(value) => Ok(u64::from(value as u32)),
+            Constant::I64(value) => Ok(value as u64),
+            other => Err(ParseError::ConstExprTypeMismatch {
+                expected: ValueType::I32,
+                actual: other.value_type(),
+            }),
+        },
     }
 }
 

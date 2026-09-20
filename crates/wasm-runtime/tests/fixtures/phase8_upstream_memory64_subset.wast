@@ -1,0 +1,92 @@
+;; Curated supported subset from WebAssembly/spec
+;; commit fc209c5ed8afc4dfeb9252024d217da3376c7a6f
+;; source test/core/memory64/memory64.wast
+
+(module
+  (memory i64 1)
+  (data (i64.const 0) "ABC\a7D")
+  (data (i64.const 20) "WASM")
+
+  (func (export "data") (result i32)
+    (i32.and
+      (i32.and
+        (i32.and
+          (i32.eq (i32.load8_u (i64.const 0)) (i32.const 65))
+          (i32.eq (i32.load8_u (i64.const 3)) (i32.const 167))
+        )
+        (i32.and
+          (i32.eq (i32.load8_u (i64.const 6)) (i32.const 0))
+          (i32.eq (i32.load8_u (i64.const 19)) (i32.const 0))
+        )
+      )
+      (i32.and
+        (i32.and
+          (i32.eq (i32.load8_u (i64.const 20)) (i32.const 87))
+          (i32.eq (i32.load8_u (i64.const 23)) (i32.const 77))
+        )
+        (i32.and
+          (i32.eq (i32.load8_u (i64.const 24)) (i32.const 0))
+          (i32.eq (i32.load8_u (i64.const 1023)) (i32.const 0))
+        )
+      )
+    )
+  )
+
+  (func (export "cast") (result f64)
+    (i64.store (i64.const 8) (i64.const -12345))
+    (if
+      (f64.eq
+        (f64.load (i64.const 8))
+        (f64.reinterpret_i64 (i64.const -12345))
+      )
+      (then (return (f64.const 0)))
+    )
+    (i64.store align=1 (i64.const 9) (i64.const 0))
+    (i32.store16 align=1 (i64.const 15) (i32.const 16453))
+    (f64.load align=1 (i64.const 9))
+  )
+
+  (func (export "i32_load8_s") (param $i i32) (result i32)
+    (i32.store8 (i64.const 8) (local.get $i))
+    (i32.load8_s (i64.const 8))
+  )
+  (func (export "i32_load8_u") (param $i i32) (result i32)
+    (i32.store8 (i64.const 8) (local.get $i))
+    (i32.load8_u (i64.const 8))
+  )
+  (func (export "i32_load16_s") (param $i i32) (result i32)
+    (i32.store16 (i64.const 8) (local.get $i))
+    (i32.load16_s (i64.const 8))
+  )
+  (func (export "i32_load16_u") (param $i i32) (result i32)
+    (i32.store16 (i64.const 8) (local.get $i))
+    (i32.load16_u (i64.const 8))
+  )
+  (func (export "i64_load8_s") (param $i i64) (result i64)
+    (i64.store8 (i64.const 8) (local.get $i))
+    (i64.load8_s (i64.const 8))
+  )
+  (func (export "i64_load16_u") (param $i i64) (result i64)
+    (i64.store16 (i64.const 8) (local.get $i))
+    (i64.load16_u (i64.const 8))
+  )
+  (func (export "i64_load32_s") (param $i i64) (result i64)
+    (i64.store32 (i64.const 8) (local.get $i))
+    (i64.load32_s (i64.const 8))
+  )
+  (func (export "i64_load32_u") (param $i i64) (result i64)
+    (i64.store32 (i64.const 8) (local.get $i))
+    (i64.load32_u (i64.const 8))
+  )
+)
+
+(assert_return (invoke "data") (i32.const 1))
+(assert_return (invoke "cast") (f64.const 42.0))
+(assert_return (invoke "i32_load8_s" (i32.const -1)) (i32.const -1))
+(assert_return (invoke "i32_load8_u" (i32.const -1)) (i32.const 255))
+(assert_return (invoke "i32_load16_s" (i32.const -1)) (i32.const -1))
+(assert_return (invoke "i32_load16_u" (i32.const -1)) (i32.const 65535))
+(assert_return (invoke "i64_load8_s" (i64.const -1)) (i64.const -1))
+(assert_return (invoke "i64_load16_u" (i64.const -1)) (i64.const 65535))
+(assert_return (invoke "i64_load32_s" (i64.const -1)) (i64.const -1))
+(assert_return (invoke "i64_load32_u" (i64.const -1)) (i64.const 4294967295))
