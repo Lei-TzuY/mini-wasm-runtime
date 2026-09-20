@@ -1,6 +1,7 @@
 use wasm_parser::ValueType;
 use wasm_runtime::{HostCapabilities, HostError, HostRegistry, HostRegistryError, Value};
 
+use crate::base::WasiPreview1 as BaseWasiPreview1;
 use crate::clock::ClockSet;
 use crate::{ERRNO_FAULT, ERRNO_INVAL, ERRNO_NOTSUP, ERRNO_SUCCESS};
 
@@ -14,6 +15,7 @@ const MAX_SUBSCRIPTIONS: usize = 64;
 const EVENTTYPE_CLOCK: u8 = 0;
 const EVENTTYPE_FD_READ: u8 = 1;
 const EVENTTYPE_FD_WRITE: u8 = 2;
+const EVENTRWFLAGS_FD_READWRITE_HANGUP: u16 = 1;
 const SUBCLOCKFLAGS_ABSTIME: u16 = 1;
 
 fn read_u16(bytes: &[u8], offset: usize) -> u16 {
@@ -42,11 +44,8 @@ fn read_u64(bytes: &[u8], offset: usize) -> u64 {
 
 fn ready_clock_event(clocks: ClockSet, subscription: &[u8]) -> Result<[u8; EVENT_SIZE], i32> {
     let userdata = read_u64(subscription, 0);
-    let event_type = subscription[8];
-    match event_type {
-        EVENTTYPE_CLOCK => {}
-        EVENTTYPE_FD_READ | EVENTTYPE_FD_WRITE => return Err(ERRNO_NOTSUP),
-        _ => return Err(ERRNO_INVAL),
+    if subscription[8] != EVENTTYPE_CLOCK {
+        return Err(ERRNO_INVAL);
     }
 
     let clock_id = read_u32(subscription, 16);
@@ -79,9 +78,31 @@ fn ready_clock_event(clocks: ClockSet, subscription: &[u8]) -> Result<[u8; EVENT
     Ok(event)
 }
 
+fn ready_fd_event(base: &BaseWasiPreview1, subscription: &[u8]) -> Result<[u8; EVENT_SIZE], i32> {
+    let userdata = read_u64(subscription, 0);
+    let event_type = subscription[8];
+    let fd = read_u32(subscription, 16);
+    let (nbytes, hangup) = match event_type {
+        EVENTTYPE_FD_READ => base.poll_fd_read_ready(fd)?,
+        EVENTTYPE_FD_WRITE => base.poll_fd_write_ready(fd)?,
+        _ => return Err(ERRNO_INVAL),
+    };
+
+    let mut event = [0u8; EVENT_SIZE];
+    event[0..8].copy_from_slice(&userdata.to_le_bytes());
+    event[8..10].copy_from_slice(&(ERRNO_SUCCESS as u16).to_le_bytes());
+    event[10] = event_type;
+    event[16..24].copy_from_slice(&nbytes.to_le_bytes());
+    if hangup {
+        event[24..26].copy_from_slice(&EVENTRWFLAGS_FD_READWRITE_HANGUP.to_le_bytes());
+    }
+    Ok(event)
+}
+
 pub(crate) fn register(
     registry: &mut HostRegistry,
     clocks: ClockSet,
+    base: BaseWasiPreview1,
 ) -> Result<(), HostRegistryError> {
     registry.register_values(
         WASI_MODULE,
@@ -135,7 +156,12 @@ pub(crate) fn register(
 
             let mut events = Vec::with_capacity(output_len);
             for subscription in subscriptions.chunks_exact(SUBSCRIPTION_SIZE) {
-                let event = match ready_clock_event(clocks, subscription) {
+                let event = match subscription[8] {
+                    EVENTTYPE_CLOCK => ready_clock_event(clocks, subscription),
+                    EVENTTYPE_FD_READ | EVENTTYPE_FD_WRITE => ready_fd_event(&base, subscription),
+                    _ => Err(ERRNO_INVAL),
+                };
+                let event = match event {
                     Ok(event) => event,
                     Err(errno) => return Ok(vec![Value::I32(errno)]),
                 };

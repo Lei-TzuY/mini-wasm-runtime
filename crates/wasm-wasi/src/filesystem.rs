@@ -483,6 +483,23 @@ impl Filesystem {
         Ok(())
     }
 
+    pub(crate) fn poll_read_ready(&self, fd: u32) -> Result<(u64, bool), DescriptorReadError> {
+        let state = self.state.borrow();
+        let Some(file) = state.open_files.get(&fd) else {
+            return Err(DescriptorReadError::BadFd);
+        };
+        if file.rights_base & RIGHTS_FD_READ == 0 {
+            return Err(DescriptorReadError::NotCapable);
+        }
+        let at_eof = file.offset >= file.bytes.borrow().len() as u64;
+        Ok((1, at_eof))
+    }
+
+    pub(crate) fn poll_write_ready(&self, fd: u32) -> Result<u64, DescriptorWriteError> {
+        self.ensure_writable(fd)?;
+        Ok(1)
+    }
+
     pub(crate) fn ensure_writable(&self, fd: u32) -> Result<(), DescriptorWriteError> {
         let state = self.state.borrow();
         let Some(file) = state.open_files.get(&fd) else {

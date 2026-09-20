@@ -354,7 +354,7 @@ impl WasiPreview1 {
         )?;
 
         self.clocks.register(registry)?;
-        poll::register(registry, self.clocks)?;
+        poll::register(registry, self.clocks, self.base.clone())?;
 
         let exit_code = self.exit_code.clone();
         registry.register_values(
