@@ -75,10 +75,16 @@ fn subscription(userdata: u64, timeout: u64, flags: u16) -> [u8; SUBSCRIPTION_SI
 
 fn seed() -> Vec<u8> {
     let mut bytes = vec![0u8; 65_536];
-    bytes[INPUT..INPUT + SUBSCRIPTION_SIZE]
-        .copy_from_slice(&subscription(0x1122_3344_5566_7788, 0, 0));
-    bytes[INPUT + SUBSCRIPTION_SIZE..INPUT + SUBSCRIPTION_SIZE * 2]
-        .copy_from_slice(&subscription(0x8877_6655_4433_2211, 400, 1));
+    bytes[INPUT..INPUT + SUBSCRIPTION_SIZE].copy_from_slice(&subscription(
+        0x1122_3344_5566_7788,
+        0,
+        0,
+    ));
+    bytes[INPUT + SUBSCRIPTION_SIZE..INPUT + SUBSCRIPTION_SIZE * 2].copy_from_slice(&subscription(
+        0x8877_6655_4433_2211,
+        400,
+        1,
+    ));
     bytes[OUTPUT..OUTPUT + EVENT_SIZE * 2].fill(0xaa);
     bytes[NEVENTS..NEVENTS + 4].copy_from_slice(&0xdead_beefu32.to_le_bytes());
     bytes
