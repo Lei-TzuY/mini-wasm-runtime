@@ -386,3 +386,52 @@ fn mounted_file_configuration_requires_existing_preopen_and_safe_relative_path()
         Err(WasiFilesystemError::DuplicateFile)
     ));
 }
+
+
+#[test]
+fn closing_preopen_invalidates_root_but_preserves_open_child_descriptor() {
+    let memory = MemoryHandle::new(1, Some(1)).unwrap();
+    memory.write(64, b"docs/hello.txt").unwrap();
+    memory.write(128, &256u32.to_le_bytes()).unwrap();
+    memory.write(132, &3u32.to_le_bytes()).unwrap();
+    let wasi = configured_wasi();
+    let mut vm = instantiate(&memory, &wasi);
+
+    assert_eq!(
+        errno(&mut vm, "open", &open_args(64, 14, RIGHTS_FD_READ, 100)),
+        ERRNO_SUCCESS
+    );
+    let child_fd = u32::from_le_bytes(memory.read(100, 4).unwrap().try_into().unwrap());
+    assert_eq!(child_fd, 4);
+
+    assert_eq!(
+        errno(&mut vm, "close", &[Value::I32(3)]),
+        ERRNO_SUCCESS
+    );
+
+    assert_eq!(
+        errno(
+            &mut vm,
+            "stat",
+            &[Value::I32(child_fd as i32), Value::I32(192)]
+        ),
+        ERRNO_SUCCESS
+    );
+    assert_eq!(errno(&mut vm, "read", &read_args(child_fd)), ERRNO_SUCCESS);
+    assert_eq!(memory.read(256, 3).unwrap(), b"abc");
+
+    memory.write(100, &0xdeadbeefu32.to_le_bytes()).unwrap();
+    assert_eq!(
+        errno(&mut vm, "open", &open_args(64, 14, RIGHTS_FD_READ, 100)),
+        ERRNO_BADF
+    );
+    assert_eq!(
+        u32::from_le_bytes(memory.read(100, 4).unwrap().try_into().unwrap()),
+        0xdeadbeef
+    );
+
+    assert_eq!(
+        errno(&mut vm, "close", &[Value::I32(child_fd as i32)]),
+        ERRNO_SUCCESS
+    );
+}
