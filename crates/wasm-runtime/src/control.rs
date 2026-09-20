@@ -335,9 +335,11 @@ pub(super) fn build_control_map(module: &Module, code: &[u8]) -> Result<ControlM
                     | 152
                     | 153
                     | 155
+                    | 156..=159
                     | 174
                     | 177
-                    | 181 => {}
+                    | 181
+                    | 188..=191 => {}
                     21..=23 => {
                         let lane = *code.get(pc).ok_or(RuntimeError::ControlInvariant(
                             "validated i8x16 lane immediate is missing while scanning control",
