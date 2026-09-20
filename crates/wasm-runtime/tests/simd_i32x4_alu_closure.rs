@@ -188,4 +188,3 @@ fn validator_rejects_i32x4_alu_type_confusion() {
         ))
     ));
 }
-
