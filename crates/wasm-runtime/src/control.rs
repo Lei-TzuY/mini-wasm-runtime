@@ -189,7 +189,7 @@ pub(super) fn build_control_map(module: &Module, code: &[u8]) -> Result<ControlM
             0xfd => {
                 let subopcode = read_u32_immediate(code, &mut pc)?;
                 match subopcode {
-                    0 | 11 => {
+                    0..=11 => {
                         let _ = read_memarg(code, &mut pc)?;
                     }
                     84..=87 => {
