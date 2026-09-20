@@ -1841,7 +1841,6 @@ impl Instance {
             else {
                 continue;
             };
-            let offset = u64::from(offset as u32);
             let end = offset.checked_add(segment.bytes.len() as u64).ok_or(
                 RuntimeError::DataSegmentOutOfBounds {
                     segment: segment_index,
@@ -1867,7 +1866,6 @@ impl Instance {
             else {
                 continue;
             };
-            let offset = u64::from(offset as u32);
             self.with_memory_index_mut(memory_index, |memory| {
                 let start = usize::try_from(offset).map_err(|_| {
                     RuntimeError::ControlInvariant("preflighted data offset no longer fits usize")
@@ -5670,7 +5668,7 @@ mod tests {
         let mut module = parse_module(&bytes).expect("parse test module");
         module.data[0].mode = DataMode::Active {
             memory_index: 0,
-            offset: (WASM_PAGE_SIZE - 2) as i32,
+            offset: (WASM_PAGE_SIZE - 2) as u64,
         };
         let error = Instance::new(module).expect_err("segment must fit initial memory");
         assert!(matches!(error, RuntimeError::DataSegmentOutOfBounds { .. }));
