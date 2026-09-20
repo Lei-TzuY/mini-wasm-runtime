@@ -1,6 +1,8 @@
 use wasm_parser::{parse_module, ValueType};
 use wasm_runtime::{HostCapabilities, HostRegistry, Instance as MiniInstance, Value};
-use wasmtime::{Caller, Config, Engine, Extern, Func, Instance as ReferenceInstance, Module, Store};
+use wasmtime::{
+    Caller, Config, Engine, Extern, Func, Instance as ReferenceInstance, Module, Store,
+};
 
 fn fixture_wat() -> &'static str {
     r#"(module
@@ -42,7 +44,8 @@ fn mini_instance(bytes: &[u8]) -> MiniInstance {
 }
 
 fn reference_instance(engine: &Engine, bytes: &[u8]) -> (Store<()>, ReferenceInstance) {
-    let module = Module::new(engine, bytes).expect("multi-memory host fixture compiles in Wasmtime");
+    let module =
+        Module::new(engine, bytes).expect("multi-memory host fixture compiles in Wasmtime");
     let mut store = Store::new(engine, ());
     let touch = Func::wrap(&mut store, |mut caller: Caller<'_, ()>| -> i32 {
         let memory0 = match caller.get_export("m0") {
@@ -82,7 +85,10 @@ fn indexed_host_memory_access_matches_wasmtime_multi_memory() {
     let mini_result = mini
         .invoke_export_values("run", &[])
         .expect("mini indexed host-memory call succeeds");
-    assert_eq!(mini_result, vec![Value::I32(i32::from(b'B')), Value::I32(i32::from(b'Z'))]);
+    assert_eq!(
+        mini_result,
+        vec![Value::I32(i32::from(b'B')), Value::I32(i32::from(b'Z'))]
+    );
     assert_eq!(mini.memory().expect("mini memory 0").bytes()[0], b'A');
 
     let mut config = Config::new();
@@ -106,7 +112,8 @@ fn indexed_host_memory_access_matches_wasmtime_multi_memory() {
     let mut first = [0_u8; 1];
     let mut second = [0_u8; 1];
     m0.read(&store, 0, &mut first).expect("read final memory 0");
-    m1.read(&store, 0, &mut second).expect("read final memory 1");
+    m1.read(&store, 0, &mut second)
+        .expect("read final memory 1");
     assert_eq!(first, [b'A']);
     assert_eq!(second, [b'Z']);
 }
