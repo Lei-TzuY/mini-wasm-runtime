@@ -121,9 +121,15 @@ fn errno(vm: &mut Instance, export: &str, args: &[Value]) -> i32 {
     *errno
 }
 
-fn open_args(path_ptr: i32, path_len: i32, rights: u64, opened_fd_ptr: i32) -> Vec<Value> {
+fn open_args_for(
+    dir_fd: i32,
+    path_ptr: i32,
+    path_len: i32,
+    rights: u64,
+    opened_fd_ptr: i32,
+) -> Vec<Value> {
     vec![
-        Value::I32(3),
+        Value::I32(dir_fd),
         Value::I32(0),
         Value::I32(path_ptr),
         Value::I32(path_len),
@@ -133,6 +139,10 @@ fn open_args(path_ptr: i32, path_len: i32, rights: u64, opened_fd_ptr: i32) -> V
         Value::I32(0),
         Value::I32(opened_fd_ptr),
     ]
+}
+
+fn open_args(path_ptr: i32, path_len: i32, rights: u64, opened_fd_ptr: i32) -> Vec<Value> {
+    open_args_for(3, path_ptr, path_len, rights, opened_fd_ptr)
 }
 
 fn read_args(fd: u32) -> [Value; 4] {
@@ -433,5 +443,52 @@ fn closing_preopen_invalidates_root_but_preserves_open_child_descriptor() {
     assert_eq!(
         errno(&mut vm, "close", &[Value::I32(child_fd as i32)]),
         ERRNO_SUCCESS
+    );
+}
+
+
+#[test]
+fn closing_preopen_releases_descriptor_slot_for_dynamic_reuse() {
+    let memory = MemoryHandle::new(1, Some(1)).unwrap();
+    memory.write(64, b"docs/hello.txt").unwrap();
+    let wasi = WasiPreview1::new()
+        .with_preopen("/first")
+        .unwrap()
+        .with_preopen("/sandbox")
+        .unwrap()
+        .with_read_only_file("/sandbox", "docs/hello.txt", b"abcdef")
+        .unwrap();
+    let mut vm = instantiate(&memory, &wasi);
+
+    assert_eq!(
+        errno(
+            &mut vm,
+            "open",
+            &open_args_for(4, 64, 14, RIGHTS_FD_READ, 100)
+        ),
+        ERRNO_SUCCESS
+    );
+    assert_eq!(
+        u32::from_le_bytes(memory.read(100, 4).unwrap().try_into().unwrap()),
+        5
+    );
+
+    assert_eq!(
+        errno(&mut vm, "close", &[Value::I32(3)]),
+        ERRNO_SUCCESS
+    );
+
+    memory.write(100, &0xdeadbeefu32.to_le_bytes()).unwrap();
+    assert_eq!(
+        errno(
+            &mut vm,
+            "open",
+            &open_args_for(4, 64, 14, RIGHTS_FD_READ, 100)
+        ),
+        ERRNO_SUCCESS
+    );
+    assert_eq!(
+        u32::from_le_bytes(memory.read(100, 4).unwrap().try_into().unwrap()),
+        3
     );
 }
