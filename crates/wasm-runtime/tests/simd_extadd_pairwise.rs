@@ -149,4 +149,3 @@ fn validator_rejects_pairwise_type_confusion() {
         ))
     ));
 }
-
