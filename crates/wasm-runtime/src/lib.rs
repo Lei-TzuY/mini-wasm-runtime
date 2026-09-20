@@ -3479,6 +3479,30 @@ fn branch_to(
     Ok(())
 }
 
+fn round_ties_even_f32(value: f32) -> f32 {
+    if !value.is_finite() || value == 0.0 {
+        return value;
+    }
+    let truncated = value.trunc();
+    if (value - truncated).abs() == 0.5 && truncated % 2.0 == 0.0 {
+        truncated
+    } else {
+        value.round()
+    }
+}
+
+fn round_ties_even_f64(value: f64) -> f64 {
+    if !value.is_finite() || value == 0.0 {
+        return value;
+    }
+    let truncated = value.trunc();
+    if (value - truncated).abs() == 0.5 && truncated % 2.0 == 0.0 {
+        truncated
+    } else {
+        value.round()
+    }
+}
+
 #[inline(never)]
 fn execute_simd(
     instance: &mut Instance,
@@ -4716,7 +4740,7 @@ fn execute_simd(
             }
             stack.push(Value::V128(Rc::new(result)));
         }
-        103..=105 => {
+        103..=106 => {
             let value = numeric::v128_from_stack(stack)?;
             let mut result = [0u8; 16];
             for lane in 0..4 {
@@ -4730,9 +4754,31 @@ fn execute_simd(
                     103 => input.ceil(),
                     104 => input.floor(),
                     105 => input.trunc(),
+                    106 => round_ties_even_f32(input),
                     _ => unreachable!("matched f32x4 rounding opcode"),
                 };
                 result[start..start + 4].copy_from_slice(&output.to_bits().to_le_bytes());
+            }
+            stack.push(Value::V128(Rc::new(result)));
+        }
+        116 | 117 | 122 | 148 => {
+            let value = numeric::v128_from_stack(stack)?;
+            let mut result = [0u8; 16];
+            for lane in 0..2 {
+                let start = lane * 8;
+                let input = f64::from_bits(u64::from_le_bytes(
+                    value[start..start + 8]
+                        .try_into()
+                        .expect("f64x2 lane width"),
+                ));
+                let output = match subopcode {
+                    116 => input.ceil(),
+                    117 => input.floor(),
+                    122 => input.trunc(),
+                    148 => round_ties_even_f64(input),
+                    _ => unreachable!("matched f64x2 rounding opcode"),
+                };
+                result[start..start + 8].copy_from_slice(&output.to_bits().to_le_bytes());
             }
             stack.push(Value::V128(Rc::new(result)));
         }

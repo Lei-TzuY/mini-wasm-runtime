@@ -111,6 +111,43 @@ fn f64x2_abs_and_neg_preserve_nan_payload_bits_except_sign() {
 }
 
 #[test]
+fn f64x2_rounding_family_is_lane_exact_for_finite_values() {
+    let input = [-1.5, 1.5];
+    assert_eq!(lane_bits(input, 116, 0), (-1.0f64).to_bits());
+    assert_eq!(lane_bits(input, 116, 1), 2.0f64.to_bits());
+    assert_eq!(lane_bits(input, 117, 0), (-2.0f64).to_bits());
+    assert_eq!(lane_bits(input, 117, 1), 1.0f64.to_bits());
+    assert_eq!(lane_bits(input, 122, 0), (-1.0f64).to_bits());
+    assert_eq!(lane_bits(input, 122, 1), 1.0f64.to_bits());
+}
+
+#[test]
+fn f64x2_nearest_rounds_ties_to_even_and_preserves_signed_zero() {
+    assert_eq!(lane_bits([0.5, 1.5], 148, 0), 0.0f64.to_bits());
+    assert_eq!(lane_bits([0.5, 1.5], 148, 1), 2.0f64.to_bits());
+    assert_eq!(lane_bits([-0.5, -2.5], 148, 0), (-0.0f64).to_bits());
+    assert_eq!(lane_bits([-0.5, -2.5], 148, 1), (-2.0f64).to_bits());
+}
+
+#[test]
+fn validator_rejects_f64x2_rounding_type_confusion() {
+    for subopcode in [116, 117, 122, 148] {
+        let mut instructions = vec![0x41, 0x01];
+        push_simd(&mut instructions, subopcode);
+        let parsed = parse_module(&module(&instructions)).expect("fixture parses");
+        assert!(
+            matches!(
+                Instance::new(parsed),
+                Err(RuntimeError::Validation(
+                    ValidationError::TypeMismatch { .. }
+                ))
+            ),
+            "subopcode {subopcode} must require a v128 operand"
+        );
+    }
+}
+
+#[test]
 fn validator_rejects_f64x2_unary_type_confusion() {
     let instructions = vec![0x41, 0x01, 0xfd, 0xec, 0x01];
     let parsed = parse_module(&module(&instructions)).expect("fixture parses");
