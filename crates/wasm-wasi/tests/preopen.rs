@@ -217,3 +217,100 @@ fn preopen_configuration_is_bounded_before_registration() {
         Err(WasiPreopenError::TooManyPreopens { limit: 128 })
     ));
 }
+
+
+fn preopen_close_liveness_module() -> Vec<u8> {
+    let mut module = b"\0asm\x01\0\0\0".to_vec();
+
+    let mut types = vec![4];
+    function_type(&mut types, &[0x7f]);
+    function_type(&mut types, &[0x7f, 0x7f]);
+    function_type(&mut types, &[0x7f, 0x7f, 0x7f]);
+    function_type(&mut types, &[]);
+    section(&mut module, 1, &types);
+
+    let mut imports = vec![4];
+    for (import_name, type_index) in [
+        ("fd_close", 0u32),
+        ("fd_prestat_get", 1),
+        ("fd_prestat_dir_name", 2),
+    ] {
+        name(&mut imports, "wasi_snapshot_preview1");
+        name(&mut imports, import_name);
+        imports.push(0);
+        u32leb(&mut imports, type_index);
+    }
+    name(&mut imports, "env");
+    name(&mut imports, "memory");
+    imports.extend([2, 0, 1]);
+    section(&mut module, 2, &imports);
+
+    section(&mut module, 3, &[3, 3, 3, 3]);
+
+    let mut exports = vec![3];
+    for (export_name, function_index) in [("close", 3u32), ("get", 4), ("name", 5)] {
+        name(&mut exports, export_name);
+        exports.push(0);
+        u32leb(&mut exports, function_index);
+    }
+    section(&mut module, 7, &exports);
+
+    fn wrapper(import_index: u32, args: &[u32]) -> Vec<u8> {
+        let mut body = vec![0];
+        for arg in args {
+            i32_const(&mut body, *arg);
+        }
+        body.push(0x10);
+        u32leb(&mut body, import_index);
+        body.push(0x0b);
+        body
+    }
+
+    let bodies = [
+        wrapper(0, &[3]),
+        wrapper(1, &[3, 32]),
+        wrapper(2, &[3, 64, 8]),
+    ];
+    let mut code = vec![3];
+    for body in bodies {
+        u32leb(&mut code, body.len() as u32);
+        code.extend(body);
+    }
+    section(&mut module, 10, &code);
+    module
+}
+
+#[test]
+fn closing_preopen_invalidates_prestat_metadata() {
+    let memory = MemoryHandle::new(1, Some(1)).unwrap();
+    memory.write(32, &[0xaa; 8]).unwrap();
+    memory.write(64, &[0xbb; 8]).unwrap();
+    let wasi = WasiPreview1::new().with_preopen("/sandbox").unwrap();
+
+    let mut hosts = HostRegistry::new();
+    hosts
+        .register_memory("env", "memory", memory.clone())
+        .unwrap();
+    wasi.register(&mut hosts).unwrap();
+    let module = parse_module(&preopen_close_liveness_module()).unwrap();
+    let mut vm = Instance::with_hosts(module, hosts).unwrap();
+
+    let mut errno = |export: &str| match vm.invoke_export(export, &[]).unwrap() {
+        Some(Value::I32(errno)) => errno,
+        other => panic!("unexpected {export} result: {other:?}"),
+    };
+
+    assert_eq!(errno("get"), ERRNO_SUCCESS);
+    assert_eq!(errno("name"), ERRNO_SUCCESS);
+    assert_eq!(memory.read(64, 8).unwrap(), b"/sandbox");
+
+    assert_eq!(errno("close"), ERRNO_SUCCESS);
+
+    memory.write(32, &[0xcc; 8]).unwrap();
+    memory.write(64, &[0xdd; 8]).unwrap();
+    assert_eq!(errno("get"), ERRNO_BADF);
+    assert_eq!(errno("name"), ERRNO_BADF);
+    assert_eq!(memory.read(32, 8).unwrap(), vec![0xcc; 8]);
+    assert_eq!(memory.read(64, 8).unwrap(), vec![0xdd; 8]);
+    assert_eq!(errno("close"), ERRNO_BADF);
+}
