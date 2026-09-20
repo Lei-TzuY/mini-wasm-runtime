@@ -4718,6 +4718,26 @@ fn execute_simd(
             }
             stack.push(Value::V128(Rc::new(result)));
         }
+        156..=159 => {
+            let rhs = numeric::v128_from_stack(stack)?;
+            let lhs = numeric::v128_from_stack(stack)?;
+            let source_start = if matches!(subopcode, 156 | 158) { 0 } else { 8 };
+            let signed = matches!(subopcode, 156 | 157);
+            let mut result = [0u8; 16];
+            for output_lane in 0..8 {
+                let source_lane = source_start + output_lane;
+                let lhs_raw = lhs[source_lane];
+                let rhs_raw = rhs[source_lane];
+                let product = if signed {
+                    (i16::from(lhs_raw as i8) * i16::from(rhs_raw as i8)) as u16
+                } else {
+                    u16::from(lhs_raw) * u16::from(rhs_raw)
+                };
+                let output_start = output_lane * 2;
+                result[output_start..output_start + 2].copy_from_slice(&product.to_le_bytes());
+            }
+            stack.push(Value::V128(Rc::new(result)));
+        }
         171..=173 => {
             let shift = (numeric::i32_from_stack(stack)? as u32) & 31;
             let value = numeric::v128_from_stack(stack)?;
@@ -5200,6 +5220,29 @@ fn execute_simd(
                     _ => unreachable!("matched i32x4 wrapping arithmetic opcode"),
                 };
                 result[start..start + 4].copy_from_slice(&value.to_le_bytes());
+            }
+            stack.push(Value::V128(Rc::new(result)));
+        }
+        188..=191 => {
+            let rhs = numeric::v128_from_stack(stack)?;
+            let lhs = numeric::v128_from_stack(stack)?;
+            let source_start = if matches!(subopcode, 188 | 190) { 0 } else { 4 };
+            let signed = matches!(subopcode, 188 | 189);
+            let mut result = [0u8; 16];
+            for output_lane in 0..4 {
+                let source_lane = source_start + output_lane;
+                let start = source_lane * 2;
+                let lhs_raw =
+                    u16::from_le_bytes(lhs[start..start + 2].try_into().expect("i16x8 lane width"));
+                let rhs_raw =
+                    u16::from_le_bytes(rhs[start..start + 2].try_into().expect("i16x8 lane width"));
+                let product = if signed {
+                    (i32::from(lhs_raw as i16) * i32::from(rhs_raw as i16)) as u32
+                } else {
+                    u32::from(lhs_raw) * u32::from(rhs_raw)
+                };
+                let output_start = output_lane * 4;
+                result[output_start..output_start + 4].copy_from_slice(&product.to_le_bytes());
             }
             stack.push(Value::V128(Rc::new(result)));
         }
