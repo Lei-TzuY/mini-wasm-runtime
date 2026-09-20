@@ -5,6 +5,9 @@ use wasm_wasi::{WasiClockId, WasiPreview1, ERRNO_FAULT, ERRNO_INVAL, ERRNO_NOTSU
 const SUBSCRIPTION_SIZE: usize = 48;
 const EVENT_SIZE: usize = 32;
 const EVENTTYPE_CLOCK: u8 = 0;
+const EVENTTYPE_FD_READ: u8 = 1;
+const EVENTTYPE_FD_WRITE: u8 = 2;
+const EVENTRWFLAGS_FD_READWRITE_HANGUP: u16 = 1;
 const SUBCLOCKFLAGS_ABSTIME: u16 = 1;
 
 fn u32leb(out: &mut Vec<u8>, mut value: u32) {
@@ -97,6 +100,22 @@ fn subscription(
     bytes[32..40].copy_from_slice(&precision.to_le_bytes());
     bytes[40..42].copy_from_slice(&flags.to_le_bytes());
     bytes
+}
+
+fn fd_subscription(userdata: u64, event_type: u8, fd: u32) -> [u8; SUBSCRIPTION_SIZE] {
+    let mut bytes = [0u8; SUBSCRIPTION_SIZE];
+    bytes[0..8].copy_from_slice(&userdata.to_le_bytes());
+    bytes[8] = event_type;
+    bytes[16..20].copy_from_slice(&fd.to_le_bytes());
+    bytes
+}
+
+fn event_nbytes(bytes: &[u8]) -> u64 {
+    u64::from_le_bytes(bytes[16..24].try_into().unwrap())
+}
+
+fn event_flags(bytes: &[u8]) -> u16 {
+    u16::from_le_bytes(bytes[24..26].try_into().unwrap())
 }
 
 fn instantiate(bytes: &[u8], memory: &MemoryHandle, wasi: &WasiPreview1) -> Instance {
@@ -228,4 +247,97 @@ fn zero_subscriptions_and_oob_buffers_are_rejected_without_writes() {
         u32::from_le_bytes(memory.read(400, 4).unwrap().try_into().unwrap()),
         0x1234_5678
     );
+}
+
+
+#[test]
+fn immediate_stdio_fd_readiness_emits_preview1_events() {
+    let memory = MemoryHandle::new(1, Some(1)).unwrap();
+    let input = 64u32;
+    let output = 256u32;
+    let nevents = 400u32;
+    let read = fd_subscription(0x1111_2222_3333_4444, EVENTTYPE_FD_READ, 0);
+    let write = fd_subscription(0xaaaa_bbbb_cccc_dddd, EVENTTYPE_FD_WRITE, 1);
+    memory.write(input, &read).unwrap();
+    memory
+        .write(input + SUBSCRIPTION_SIZE as u32, &write)
+        .unwrap();
+    memory.write(output, &[0xaa; EVENT_SIZE * 2]).unwrap();
+    memory
+        .write(nevents, &0xdead_beefu32.to_le_bytes())
+        .unwrap();
+
+    let wasi = WasiPreview1::new().with_stdin(b"x");
+    let mut vm = instantiate(&poll_module(input, output, 2, nevents), &memory, &wasi);
+
+    assert_eq!(errno(&mut vm), ERRNO_SUCCESS);
+    assert_eq!(
+        u32::from_le_bytes(memory.read(nevents, 4).unwrap().try_into().unwrap()),
+        2
+    );
+
+    let read_event = memory.read(output, EVENT_SIZE).unwrap();
+    assert_eq!(event_userdata(&read_event), 0x1111_2222_3333_4444);
+    assert_eq!(&read_event[8..10], &0u16.to_le_bytes());
+    assert_eq!(read_event[10], EVENTTYPE_FD_READ);
+    assert_eq!(event_nbytes(&read_event), 1);
+    assert_eq!(event_flags(&read_event), 0);
+
+    let write_event = memory
+        .read(output + EVENT_SIZE as u32, EVENT_SIZE)
+        .unwrap();
+    assert_eq!(event_userdata(&write_event), 0xaaaa_bbbb_cccc_dddd);
+    assert_eq!(&write_event[8..10], &0u16.to_le_bytes());
+    assert_eq!(write_event[10], EVENTTYPE_FD_WRITE);
+    assert_eq!(event_nbytes(&write_event), 1);
+    assert_eq!(event_flags(&write_event), 0);
+}
+
+#[test]
+fn invalid_fd_readiness_fails_closed_without_partial_output() {
+    let memory = MemoryHandle::new(1, Some(1)).unwrap();
+    let input = 64u32;
+    let output = 256u32;
+    let nevents = 400u32;
+    memory
+        .write(
+            input,
+            &fd_subscription(7, EVENTTYPE_FD_READ, 99),
+        )
+        .unwrap();
+    memory.write(output, &[0xcc; EVENT_SIZE]).unwrap();
+    memory
+        .write(nevents, &0xfeed_faceu32.to_le_bytes())
+        .unwrap();
+
+    let wasi = WasiPreview1::new();
+    let mut vm = instantiate(&poll_module(input, output, 1, nevents), &memory, &wasi);
+
+    assert_eq!(errno(&mut vm), wasm_wasi::ERRNO_BADF);
+    assert_eq!(memory.read(output, EVENT_SIZE).unwrap(), vec![0xcc; EVENT_SIZE]);
+    assert_eq!(
+        u32::from_le_bytes(memory.read(nevents, 4).unwrap().try_into().unwrap()),
+        0xfeed_face
+    );
+}
+
+#[test]
+fn unsupported_fd_direction_fails_closed() {
+    for (event_type, fd) in [(EVENTTYPE_FD_READ, 1), (EVENTTYPE_FD_WRITE, 0)] {
+        let memory = MemoryHandle::new(1, Some(1)).unwrap();
+        memory
+            .write(64, &fd_subscription(9, event_type, fd))
+            .unwrap();
+        memory.write(256, &[0xdd; EVENT_SIZE]).unwrap();
+        memory.write(400, &0x1234_5678u32.to_le_bytes()).unwrap();
+
+        let wasi = WasiPreview1::new();
+        let mut vm = instantiate(&poll_module(64, 256, 1, 400), &memory, &wasi);
+        assert_eq!(errno(&mut vm), wasm_wasi::ERRNO_BADF);
+        assert_eq!(memory.read(256, EVENT_SIZE).unwrap(), vec![0xdd; EVENT_SIZE]);
+        assert_eq!(
+            u32::from_le_bytes(memory.read(400, 4).unwrap().try_into().unwrap()),
+            0x1234_5678
+        );
+    }
 }
