@@ -132,6 +132,33 @@ fn f32x4_trunc_rounds_each_lane_toward_zero() {
 }
 
 #[test]
+fn f32x4_nearest_rounds_ties_to_even_and_preserves_signed_zero() {
+    let input = [0.5, 1.5, 2.5, -0.5];
+    assert_eq!(lane_bits(input, 106, 0), 0.0f32.to_bits());
+    assert_eq!(lane_bits(input, 106, 1), 2.0f32.to_bits());
+    assert_eq!(lane_bits(input, 106, 2), 2.0f32.to_bits());
+    assert_eq!(lane_bits(input, 106, 3), (-0.0f32).to_bits());
+
+    let negative_ties = [-1.5, -2.5, 3.5, -0.0];
+    assert_eq!(lane_bits(negative_ties, 106, 0), (-2.0f32).to_bits());
+    assert_eq!(lane_bits(negative_ties, 106, 1), (-2.0f32).to_bits());
+    assert_eq!(lane_bits(negative_ties, 106, 2), 4.0f32.to_bits());
+    assert_eq!(lane_bits(negative_ties, 106, 3), (-0.0f32).to_bits());
+}
+
+#[test]
+fn validator_rejects_f32x4_nearest_type_confusion() {
+    let instructions = vec![0x41, 0x01, 0xfd, 0x6a];
+    let parsed = parse_module(&module(&instructions)).expect("fixture parses");
+    assert!(matches!(
+        Instance::new(parsed),
+        Err(RuntimeError::Validation(
+            ValidationError::TypeMismatch { .. }
+        ))
+    ));
+}
+
+#[test]
 fn validator_rejects_f32x4_trunc_type_confusion() {
     let instructions = vec![0x41, 0x01, 0xfd, 0x69];
     let parsed = parse_module(&module(&instructions)).expect("fixture parses");
