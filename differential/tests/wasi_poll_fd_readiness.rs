@@ -156,14 +156,9 @@ fn event(memory: &[u8], start: usize) -> EventTrace {
 
 fn seed_subscription(memory: &MemoryHandle, fd: u32, event_type: u8, userdata: u64) {
     memory
-        .write(
-            INPUT as u32,
-            &subscription(userdata, event_type, fd),
-        )
+        .write(INPUT as u32, &subscription(userdata, event_type, fd))
         .unwrap();
-    memory
-        .write(OUTPUT as u32, &[0xaa; EVENT_SIZE])
-        .unwrap();
+    memory.write(OUTPUT as u32, &[0xaa; EVENT_SIZE]).unwrap();
     memory
         .write(NEVENTS as u32, &0xdead_beefu32.to_le_bytes())
         .unwrap();
