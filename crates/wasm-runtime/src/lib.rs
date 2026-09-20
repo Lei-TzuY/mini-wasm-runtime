@@ -4822,6 +4822,48 @@ fn execute_simd(
             }
             stack.push(Value::V128(Rc::new(result)));
         }
+        192 | 193 => {
+            let value = numeric::v128_from_stack(stack)?;
+            let mut result = [0u8; 16];
+            for lane in 0..2 {
+                let start = lane * 8;
+                let input = i64::from_le_bytes(
+                    value[start..start + 8]
+                        .try_into()
+                        .expect("i64x2 lane width"),
+                );
+                let output = match subopcode {
+                    192 => input.wrapping_abs(),
+                    193 => input.wrapping_neg(),
+                    _ => unreachable!("matched i64x2 unary opcode"),
+                };
+                result[start..start + 8].copy_from_slice(&output.to_le_bytes());
+            }
+            stack.push(Value::V128(Rc::new(result)));
+        }
+        195 => {
+            let value = numeric::v128_from_stack(stack)?;
+            let all_true = value
+                .chunks_exact(8)
+                .all(|lane| i64::from_le_bytes(lane.try_into().expect("i64x2 lane width")) != 0);
+            stack.push(Value::I32(i32::from(all_true)));
+        }
+        196 => {
+            let value = numeric::v128_from_stack(stack)?;
+            let mut mask = 0i32;
+            for lane in 0..2 {
+                let start = lane * 8;
+                let lane_value = i64::from_le_bytes(
+                    value[start..start + 8]
+                        .try_into()
+                        .expect("i64x2 lane width"),
+                );
+                if lane_value < 0 {
+                    mask |= 1 << lane;
+                }
+            }
+            stack.push(Value::I32(mask));
+        }
         203..=205 => {
             let shift = (numeric::i32_from_stack(stack)? as u32) & 63;
             let value = numeric::v128_from_stack(stack)?;
