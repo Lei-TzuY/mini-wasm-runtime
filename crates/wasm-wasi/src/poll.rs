@@ -17,21 +17,30 @@ const EVENTTYPE_FD_WRITE: u8 = 2;
 const SUBCLOCKFLAGS_ABSTIME: u16 = 1;
 
 fn read_u16(bytes: &[u8], offset: usize) -> u16 {
-    u16::from_le_bytes(bytes[offset..offset + 2].try_into().expect("u16 field width"))
+    u16::from_le_bytes(
+        bytes[offset..offset + 2]
+            .try_into()
+            .expect("u16 field width"),
+    )
 }
 
 fn read_u32(bytes: &[u8], offset: usize) -> u32 {
-    u32::from_le_bytes(bytes[offset..offset + 4].try_into().expect("u32 field width"))
+    u32::from_le_bytes(
+        bytes[offset..offset + 4]
+            .try_into()
+            .expect("u32 field width"),
+    )
 }
 
 fn read_u64(bytes: &[u8], offset: usize) -> u64 {
-    u64::from_le_bytes(bytes[offset..offset + 8].try_into().expect("u64 field width"))
+    u64::from_le_bytes(
+        bytes[offset..offset + 8]
+            .try_into()
+            .expect("u64 field width"),
+    )
 }
 
-fn ready_clock_event(
-    clocks: ClockSet,
-    subscription: &[u8],
-) -> Result<[u8; EVENT_SIZE], i32> {
+fn ready_clock_event(clocks: ClockSet, subscription: &[u8]) -> Result<[u8; EVENT_SIZE], i32> {
     let userdata = read_u64(subscription, 0);
     let event_type = subscription[8];
     match event_type {
