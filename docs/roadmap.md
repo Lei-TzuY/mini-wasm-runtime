@@ -174,6 +174,7 @@ The runtime has moved beyond a generic future-WASI placeholder into an executabl
 - [x] process termination semantics (`proc_exit`) with immediate non-local guest termination and a typed non-error WASI invocation outcome
 - [x] deterministic injected entropy/time capabilities (`random_get`, `clock_res_get`, and `clock_time_get`) without ambient host nondeterminism
 - [x] bounded preopen directory discovery via `fd_prestat_get` / `fd_prestat_dir_name` with deterministic allocation, immutable guest namespace names, and fixed configuration bounds
+- [x] coherent preopen descriptor lifetime via `fd_close`, with guest-visible prestat/path capability invalidation, survival of already-open child descriptors, closed-slot reuse, and no stale preopen metadata after descriptor reuse
 - [x] bounded injected read-only path descriptors via `path_open` -> `fd_read` -> `fd_close` with `PATH_OPEN` / `FD_READ` rights attenuation, traversal-safe relative paths, bounded dynamic descriptor allocation/reuse, and no ambient host filesystem access
 - [x] read-only descriptor positioning via `fd_seek` / `fd_tell` with one shared `u64` cursor, Preview1 `SET` / `CUR` / `END` semantics, `FD_SEEK` / `FD_TELL` rights attenuation, seek-beyond-EOF preservation, and fail-closed invalid/overflow/OOB handling
 - [x] cursor-preserving positioned regular-file reads via `fd_pread` with `FD_READ` + `FD_SEEK` attenuation, explicit `u64` offsets, bounded scatter writes, EOF/partial-read behavior, shared read limits, and fail-closed guest-memory preflight
@@ -202,6 +203,7 @@ The runtime has moved beyond a generic future-WASI placeholder into an executabl
 - [x] deterministic symbolic-link lifecycle differential/interop evidence against pinned Wasmtime-WASI 37.0.3 using an isolated writable preopen, comparing symlink creation/readlink target bytes, symbolic-link `fd_readdir` type exposure, opened-directory-relative behavior, unlink/path disappearance, and explicit non-following pathname semantics
 - [x] deterministic non-following pathname-metadata differential/interop evidence against pinned Wasmtime-WASI 37.0.3 using an isolated writable preopen, comparing portable regular-file type/size/link-count state, relational hard-link inode identity, directory and symbolic-link metadata, and opened-directory-relative child metadata without depending on host-specific inode/device/timestamp values
 - [x] deterministic WASI clock/entropy differential/interop evidence against pinned Wasmtime-WASI 37.0.3 using injected secure entropy plus fixed realtime/monotonic providers, comparing exact errno results, sequential random bytes, clock resolutions, and timestamps without ambient host nondeterminism
+- [x] deterministic preopen descriptor-close differential/interop evidence against pinned Wasmtime-WASI 37.0.3, comparing preopen descriptor order/name metadata, successful preopen close, post-close `BADF` for prestat/path use, preserved child-descriptor usability, repeated-close rejection, and fail-closed output sentinels
 - [ ] broaden WASI differential/interop coverage to additional filesystem semantics where host resources can be isolated deterministically
 
 

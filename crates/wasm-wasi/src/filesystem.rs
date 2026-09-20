@@ -3,6 +3,7 @@ use std::{cell::RefCell, collections::BTreeMap, fmt, rc::Rc};
 use wasm_parser::ValueType;
 use wasm_runtime::{HostCapabilities, HostError, HostRegistry, HostRegistryError, Value};
 
+use crate::preopen::PreopenSet;
 use crate::{
     ERRNO_BADF, ERRNO_EXIST, ERRNO_FAULT, ERRNO_FBIG, ERRNO_INVAL, ERRNO_IO, ERRNO_MFILE,
     ERRNO_NAMETOOLONG, ERRNO_NOENT, ERRNO_NOSPC, ERRNO_NOTCAPABLE, ERRNO_NOTDIR, ERRNO_NOTEMPTY,
@@ -881,6 +882,7 @@ impl Filesystem {
         &self,
         registry: &mut HostRegistry,
         realtime_now: Option<u64>,
+        preopens: PreopenSet,
     ) -> Result<(), HostRegistryError> {
         let create_directory_filesystem = self.clone();
         registry.register_values(
@@ -1928,6 +1930,7 @@ impl Filesystem {
         )?;
 
         let close_filesystem = self.clone();
+        let close_preopens = preopens.clone();
         registry.register_values(
             WASI_MODULE,
             FD_CLOSE_NAME,
@@ -1941,7 +1944,10 @@ impl Filesystem {
                     ));
                 };
 
-                if close_filesystem.close(*fd as u32) {
+                let fd = *fd as u32;
+                let filesystem_closed = close_filesystem.close(fd);
+                let preopen_closed = close_preopens.close(fd);
+                if filesystem_closed || preopen_closed {
                     Ok(vec![Value::I32(ERRNO_SUCCESS)])
                 } else {
                     Ok(vec![Value::I32(ERRNO_BADF)])
@@ -2483,7 +2489,26 @@ impl Filesystem {
 
     fn close(&self, fd: u32) -> bool {
         let mut state = self.state.borrow_mut();
-        state.open_files.remove(&fd).is_some() || state.open_directories.remove(&fd).is_some()
+        let mut closed = state.open_files.remove(&fd).is_some();
+        closed |= state.open_directories.remove(&fd).is_some();
+
+        if let Some(index) = state
+            .reserved_preopens
+            .iter()
+            .position(|candidate| *candidate == fd)
+        {
+            state.reserved_preopens.remove(index);
+            closed = true;
+        }
+        if let Some(index) = state
+            .writable_preopens
+            .iter()
+            .position(|candidate| *candidate == fd)
+        {
+            state.writable_preopens.remove(index);
+        }
+
+        closed
     }
 
     fn prepare_pwrite(&self, fd: u32, offset: u64, len: usize) -> Result<(), DescriptorWriteError> {

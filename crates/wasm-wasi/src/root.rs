@@ -309,7 +309,7 @@ impl WasiPreview1 {
         self.base.register(registry)?;
         self.preopens.register(registry)?;
         self.filesystem
-            .register(registry, self.clocks.realtime_time())?;
+            .register(registry, self.clocks.realtime_time(), self.preopens.clone())?;
 
         let entropy = self.entropy.clone();
         let max_random_bytes = self.max_random_bytes;

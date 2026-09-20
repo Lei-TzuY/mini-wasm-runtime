@@ -121,9 +121,15 @@ fn errno(vm: &mut Instance, export: &str, args: &[Value]) -> i32 {
     *errno
 }
 
-fn open_args(path_ptr: i32, path_len: i32, rights: u64, opened_fd_ptr: i32) -> Vec<Value> {
+fn open_args_for(
+    dir_fd: i32,
+    path_ptr: i32,
+    path_len: i32,
+    rights: u64,
+    opened_fd_ptr: i32,
+) -> Vec<Value> {
     vec![
-        Value::I32(3),
+        Value::I32(dir_fd),
         Value::I32(0),
         Value::I32(path_ptr),
         Value::I32(path_len),
@@ -133,6 +139,10 @@ fn open_args(path_ptr: i32, path_len: i32, rights: u64, opened_fd_ptr: i32) -> V
         Value::I32(0),
         Value::I32(opened_fd_ptr),
     ]
+}
+
+fn open_args(path_ptr: i32, path_len: i32, rights: u64, opened_fd_ptr: i32) -> Vec<Value> {
+    open_args_for(3, path_ptr, path_len, rights, opened_fd_ptr)
 }
 
 fn read_args(fd: u32) -> [Value; 4] {
@@ -385,4 +395,92 @@ fn mounted_file_configuration_requires_existing_preopen_and_safe_relative_path()
         duplicate.with_read_only_file("/sandbox", "file.txt", b"two"),
         Err(WasiFilesystemError::DuplicateFile)
     ));
+}
+
+#[test]
+fn closing_preopen_invalidates_root_but_preserves_open_child_descriptor() {
+    let memory = MemoryHandle::new(1, Some(1)).unwrap();
+    memory.write(64, b"docs/hello.txt").unwrap();
+    memory.write(128, &256u32.to_le_bytes()).unwrap();
+    memory.write(132, &3u32.to_le_bytes()).unwrap();
+    let wasi = configured_wasi();
+    let mut vm = instantiate(&memory, &wasi);
+
+    assert_eq!(
+        errno(&mut vm, "open", &open_args(64, 14, RIGHTS_FD_READ, 100)),
+        ERRNO_SUCCESS
+    );
+    let child_fd = u32::from_le_bytes(memory.read(100, 4).unwrap().try_into().unwrap());
+    assert_eq!(child_fd, 4);
+
+    assert_eq!(errno(&mut vm, "close", &[Value::I32(3)]), ERRNO_SUCCESS);
+
+    assert_eq!(
+        errno(
+            &mut vm,
+            "stat",
+            &[Value::I32(child_fd as i32), Value::I32(192)]
+        ),
+        ERRNO_SUCCESS
+    );
+    assert_eq!(errno(&mut vm, "read", &read_args(child_fd)), ERRNO_SUCCESS);
+    assert_eq!(memory.read(256, 3).unwrap(), b"abc");
+
+    memory.write(100, &0xdeadbeefu32.to_le_bytes()).unwrap();
+    assert_eq!(
+        errno(&mut vm, "open", &open_args(64, 14, RIGHTS_FD_READ, 100)),
+        ERRNO_BADF
+    );
+    assert_eq!(
+        u32::from_le_bytes(memory.read(100, 4).unwrap().try_into().unwrap()),
+        0xdeadbeef
+    );
+
+    assert_eq!(
+        errno(&mut vm, "close", &[Value::I32(child_fd as i32)]),
+        ERRNO_SUCCESS
+    );
+}
+
+#[test]
+fn closing_preopen_releases_descriptor_slot_for_dynamic_reuse() {
+    let memory = MemoryHandle::new(1, Some(1)).unwrap();
+    memory.write(64, b"docs/hello.txt").unwrap();
+    let wasi = WasiPreview1::new()
+        .with_preopen("/first")
+        .unwrap()
+        .with_preopen("/sandbox")
+        .unwrap()
+        .with_read_only_file("/sandbox", "docs/hello.txt", b"abcdef")
+        .unwrap();
+    let mut vm = instantiate(&memory, &wasi);
+
+    assert_eq!(
+        errno(
+            &mut vm,
+            "open",
+            &open_args_for(4, 64, 14, RIGHTS_FD_READ, 100)
+        ),
+        ERRNO_SUCCESS
+    );
+    assert_eq!(
+        u32::from_le_bytes(memory.read(100, 4).unwrap().try_into().unwrap()),
+        5
+    );
+
+    assert_eq!(errno(&mut vm, "close", &[Value::I32(3)]), ERRNO_SUCCESS);
+
+    memory.write(100, &0xdeadbeefu32.to_le_bytes()).unwrap();
+    assert_eq!(
+        errno(
+            &mut vm,
+            "open",
+            &open_args_for(4, 64, 14, RIGHTS_FD_READ, 100)
+        ),
+        ERRNO_SUCCESS
+    );
+    assert_eq!(
+        u32::from_le_bytes(memory.read(100, 4).unwrap().try_into().unwrap()),
+        3
+    );
 }
