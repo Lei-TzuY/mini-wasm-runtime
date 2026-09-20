@@ -78,10 +78,7 @@ fn ready_clock_event(clocks: ClockSet, subscription: &[u8]) -> Result<[u8; EVENT
     Ok(event)
 }
 
-fn ready_fd_event(
-    base: &BaseWasiPreview1,
-    subscription: &[u8],
-) -> Result<[u8; EVENT_SIZE], i32> {
+fn ready_fd_event(base: &BaseWasiPreview1, subscription: &[u8]) -> Result<[u8; EVENT_SIZE], i32> {
     let userdata = read_u64(subscription, 0);
     let event_type = subscription[8];
     let fd = read_u32(subscription, 16);
