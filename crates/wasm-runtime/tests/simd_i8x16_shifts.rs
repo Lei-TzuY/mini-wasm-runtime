@@ -87,12 +87,3 @@ fn validator_rejects_i8x16_shift_type_confusion() {
         ))
     ));
 }
-
-#[test]
-fn adjacent_i8x16_arithmetic_remains_fail_closed() {
-    let bytes = module(&[
-        0x41, 0x01, 0xfd, 0x0f, 0x41, 0x02, 0xfd, 0x0f, 0xfd, 0x6e, 0xfd, 0x16, 0x00,
-    ]);
-    let parsed = parse_module(&bytes).expect("adjacent arithmetic fixture must parse");
-    assert!(Instance::new(parsed).is_err());
-}

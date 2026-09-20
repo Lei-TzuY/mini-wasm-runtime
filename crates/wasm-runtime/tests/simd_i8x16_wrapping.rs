@@ -62,83 +62,76 @@ fn push_i8x16(code: &mut Vec<u8>, lanes: [i8; 16]) {
     code.extend(lanes.map(|lane| lane as u8));
 }
 
-fn push_i16x8(code: &mut Vec<u8>, lanes: [i16; 8]) {
-    simd(code, 12);
-    for lane in lanes {
-        code.extend_from_slice(&lane.to_le_bytes());
-    }
-}
-
 fn run_i32(code: &[u8]) -> i32 {
-    let parsed = parse_module(&module(code)).expect("pairwise fixture parses");
-    let mut instance = Instance::new(parsed).expect("pairwise fixture validates");
+    let parsed = parse_module(&module(code)).expect("i8x16 wrapping fixture parses");
+    let mut instance = Instance::new(parsed).expect("i8x16 wrapping fixture validates");
     match instance
         .invoke_export_values("run", &[])
-        .expect("pairwise fixture executes")
+        .expect("i8x16 wrapping fixture executes")
         .as_slice()
     {
         [Value::I32(value)] => *value,
-        other => panic!("unexpected pairwise result: {other:?}"),
+        other => panic!("unexpected i8x16 wrapping result: {other:?}"),
     }
 }
 
-fn i16_pairwise_lane(input: [i8; 16], subopcode: u32, lane: u8, signed: bool) -> i32 {
+fn lane(lhs: [i8; 16], rhs: [i8; 16], subopcode: u32, lane: u8, signed: bool) -> i32 {
     let mut code = Vec::new();
-    push_i8x16(&mut code, input);
+    push_i8x16(&mut code, lhs);
+    push_i8x16(&mut code, rhs);
     simd(&mut code, subopcode);
-    simd(&mut code, if signed { 24 } else { 25 });
-    code.push(lane);
-    run_i32(&code)
-}
-
-fn i32_pairwise_lane(input: [i16; 8], subopcode: u32, lane: u8) -> i32 {
-    let mut code = Vec::new();
-    push_i16x8(&mut code, input);
-    simd(&mut code, subopcode);
-    simd(&mut code, 27);
+    simd(&mut code, if signed { 21 } else { 22 });
     code.push(lane);
     run_i32(&code)
 }
 
 #[test]
-fn i16x8_pairwise_add_extends_adjacent_i8_lanes() {
-    let input = [
-        -128, -128, 127, 127, -5, -6, 10, 20, -1, 1, 100, -100, 50, 60, -70, 80,
+fn i8x16_add_wraps_each_byte_lane() {
+    let lhs = [127, -128, -1, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12];
+    let rhs = [
+        1, -1, 1, -1, 127, 126, 125, 124, 123, 122, 121, 120, 119, 118, 117, 116,
     ];
 
-    assert_eq!(i16_pairwise_lane(input, 124, 0, true), -256);
-    assert_eq!(i16_pairwise_lane(input, 124, 2, true), -11);
-    assert_eq!(i16_pairwise_lane(input, 125, 0, false), 256);
-    assert_eq!(i16_pairwise_lane(input, 125, 2, false), 501);
+    assert_eq!(lane(lhs, rhs, 110, 0, true), -128);
+    assert_eq!(lane(lhs, rhs, 110, 1, true), 127);
+    assert_eq!(lane(lhs, rhs, 110, 2, false), 0);
+    assert_eq!(lane(lhs, rhs, 110, 3, false), 255);
 }
 
 #[test]
-fn i32x4_pairwise_add_extends_adjacent_i16_lanes() {
-    let input = [-32_768, -32_768, 32_767, 32_767, -3_000, 4_000, -1, -2];
+fn i8x16_sub_wraps_each_byte_lane() {
+    let lhs = [
+        -128, 0, 127, -1, 10, 20, 30, 40, 50, 60, 70, 80, 90, 100, 110, 120,
+    ];
+    let rhs = [
+        1, 1, -1, 1, 20, 30, 40, 50, 60, 70, 80, 90, 100, 110, 120, 127,
+    ];
 
-    assert_eq!(i32_pairwise_lane(input, 126, 0), -65_536);
-    assert_eq!(i32_pairwise_lane(input, 126, 2), 1_000);
-    assert_eq!(i32_pairwise_lane(input, 127, 0), 65_536);
-    assert_eq!(i32_pairwise_lane(input, 127, 2), 66_536);
+    assert_eq!(lane(lhs, rhs, 113, 0, true), 127);
+    assert_eq!(lane(lhs, rhs, 113, 1, false), 255);
+    assert_eq!(lane(lhs, rhs, 113, 2, true), -128);
+    assert_eq!(lane(lhs, rhs, 113, 3, false), 254);
 }
 
 #[test]
-fn pairwise_add_executes_inside_structured_control() {
+fn i8x16_wrapping_arithmetic_executes_inside_structured_control() {
     let mut code = vec![0x02, 0x7f];
-    push_i8x16(&mut code, [-7, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
-    simd(&mut code, 124);
-    simd(&mut code, 24);
-    code.push(0);
+    push_i8x16(&mut code, [127; 16]);
+    push_i8x16(&mut code, [1; 16]);
+    simd(&mut code, 110);
+    simd(&mut code, 21);
+    code.push(7);
     code.push(0x0b);
-    assert_eq!(run_i32(&code), -5);
+    assert_eq!(run_i32(&code), -128);
 }
 
 #[test]
-fn validator_rejects_pairwise_type_confusion() {
+fn validator_rejects_i8x16_wrapping_type_confusion() {
     let mut code = Vec::new();
-    push_i32(&mut code, 1);
-    simd(&mut code, 124);
-    simd(&mut code, 24);
+    push_i8x16(&mut code, [1; 16]);
+    push_i32(&mut code, 2);
+    simd(&mut code, 110);
+    simd(&mut code, 22);
     code.push(0);
 
     let parsed = parse_module(&module(&code)).expect("type-confusion fixture parses");
