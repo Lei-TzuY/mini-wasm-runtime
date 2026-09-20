@@ -7,9 +7,7 @@ use std::{
 
 use wasm_parser::parse_module;
 use wasm_runtime::{HostRegistry, Instance as MiniInstance, MemoryHandle, Value};
-use wasm_wasi::{
-    WasiPreview1, ERRNO_SUCCESS, RIGHTS_FD_READ, RIGHTS_FD_SEEK, RIGHTS_FD_WRITE,
-};
+use wasm_wasi::{WasiPreview1, ERRNO_SUCCESS, RIGHTS_FD_READ, RIGHTS_FD_SEEK, RIGHTS_FD_WRITE};
 use wasmtime::{Engine, Linker, Memory, MemoryType, Module as ReferenceModule, Store};
 use wasmtime_wasi::{
     p1::{self, WasiP1Ctx},
