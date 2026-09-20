@@ -7,9 +7,7 @@ use std::{
 
 use wasm_parser::parse_module;
 use wasm_runtime::{HostRegistry, Instance as MiniInstance, MemoryHandle, Value};
-use wasm_wasi::{
-    WasiPreview1, ERRNO_BADF, ERRNO_SUCCESS, FILETYPE_REGULAR_FILE, RIGHTS_FD_READ,
-};
+use wasm_wasi::{WasiPreview1, ERRNO_BADF, ERRNO_SUCCESS, FILETYPE_REGULAR_FILE, RIGHTS_FD_READ};
 use wasmtime::{Engine, Linker, Memory, MemoryType, Module as ReferenceModule, Store};
 use wasmtime_wasi::{
     p1::{self, WasiP1Ctx},
@@ -244,7 +242,8 @@ fn run_reference(engine: &Engine, bytes: &[u8]) -> Trace {
     fs::write(second.path().join("data.bin"), b"payload")
         .expect("seed Wasmtime preopen-close file");
 
-    let module = ReferenceModule::new(engine, bytes).expect("compile preopen-close Wasmtime module");
+    let module =
+        ReferenceModule::new(engine, bytes).expect("compile preopen-close Wasmtime module");
     let mut builder = WasiCtxBuilder::new();
     builder
         .preopened_dir(first.path(), "/first", DirPerms::all(), FilePerms::all())
