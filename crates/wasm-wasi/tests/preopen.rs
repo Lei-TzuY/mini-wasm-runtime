@@ -29,6 +29,13 @@ fn section(module: &mut Vec<u8>, id: u8, payload: &[u8]) {
     module.extend_from_slice(payload);
 }
 
+fn function_type(payload: &mut Vec<u8>, params: &[u8]) {
+    payload.push(0x60);
+    u32leb(payload, params.len() as u32);
+    payload.extend_from_slice(params);
+    payload.extend([1, 0x7f]);
+}
+
 fn i32_const(out: &mut Vec<u8>, value: u32) {
     out.push(0x41);
     let mut value = value as i32;
