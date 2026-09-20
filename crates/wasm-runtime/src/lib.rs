@@ -4710,6 +4710,25 @@ fn execute_simd(
             }
             stack.push(Value::V128(Rc::new(result)));
         }
+        160 | 161 => {
+            let value = numeric::v128_from_stack(stack)?;
+            let mut result = [0u8; 16];
+            for lane in 0..4 {
+                let start = lane * 4;
+                let input = i32::from_le_bytes(
+                    value[start..start + 4]
+                        .try_into()
+                        .expect("i32x4 lane width"),
+                );
+                let output = match subopcode {
+                    160 => input.wrapping_abs(),
+                    161 => input.wrapping_neg(),
+                    _ => unreachable!("matched i32x4 unary opcode"),
+                };
+                result[start..start + 4].copy_from_slice(&output.to_le_bytes());
+            }
+            stack.push(Value::V128(Rc::new(result)));
+        }
         163 => {
             let value = numeric::v128_from_stack(stack)?;
             let all_true = value
@@ -5264,6 +5283,60 @@ fn execute_simd(
                     _ => unreachable!("matched i32x4 wrapping arithmetic opcode"),
                 };
                 result[start..start + 4].copy_from_slice(&value.to_le_bytes());
+            }
+            stack.push(Value::V128(Rc::new(result)));
+        }
+        182..=185 => {
+            let rhs = numeric::v128_from_stack(stack)?;
+            let lhs = numeric::v128_from_stack(stack)?;
+            let mut result = [0u8; 16];
+            for lane in 0..4 {
+                let start = lane * 4;
+                let lhs_raw =
+                    u32::from_le_bytes(lhs[start..start + 4].try_into().expect("i32x4 lane width"));
+                let rhs_raw =
+                    u32::from_le_bytes(rhs[start..start + 4].try_into().expect("i32x4 lane width"));
+                let output = match subopcode {
+                    182 => (lhs_raw as i32).min(rhs_raw as i32) as u32,
+                    183 => lhs_raw.min(rhs_raw),
+                    184 => (lhs_raw as i32).max(rhs_raw as i32) as u32,
+                    185 => lhs_raw.max(rhs_raw),
+                    _ => unreachable!("matched i32x4 min/max opcode"),
+                };
+                result[start..start + 4].copy_from_slice(&output.to_le_bytes());
+            }
+            stack.push(Value::V128(Rc::new(result)));
+        }
+        186 => {
+            let rhs = numeric::v128_from_stack(stack)?;
+            let lhs = numeric::v128_from_stack(stack)?;
+            let mut result = [0u8; 16];
+            for output_lane in 0..4 {
+                let start = output_lane * 4;
+                let lhs_first = i16::from_le_bytes(
+                    lhs[start..start + 2]
+                        .try_into()
+                        .expect("i16x8 first dot lane width"),
+                );
+                let lhs_second = i16::from_le_bytes(
+                    lhs[start + 2..start + 4]
+                        .try_into()
+                        .expect("i16x8 second dot lane width"),
+                );
+                let rhs_first = i16::from_le_bytes(
+                    rhs[start..start + 2]
+                        .try_into()
+                        .expect("i16x8 first dot lane width"),
+                );
+                let rhs_second = i16::from_le_bytes(
+                    rhs[start + 2..start + 4]
+                        .try_into()
+                        .expect("i16x8 second dot lane width"),
+                );
+                let first_product = i32::from(lhs_first) * i32::from(rhs_first);
+                let second_product = i32::from(lhs_second) * i32::from(rhs_second);
+                let output = first_product.wrapping_add(second_product);
+                result[start..start + 4].copy_from_slice(&output.to_le_bytes());
             }
             stack.push(Value::V128(Rc::new(result)));
         }
