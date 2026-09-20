@@ -1,5 +1,7 @@
 use wasm_parser::{parse_module, ValueType};
-use wasm_runtime::{Instance, RuntimeError, RuntimeLimits, Value};
+use wasm_runtime::{
+    HostCapabilities, HostRegistry, Instance, RuntimeError, RuntimeLimits, Value,
+};
 use wasm_validator::ValidationError;
 
 fn u32leb(out: &mut Vec<u8>, mut value: u32) {
@@ -179,4 +181,101 @@ fn tail_call_result_type_must_match_the_current_function_result() {
             }
         )) if expected == vec![ValueType::I32] && actual == vec![ValueType::I64]
     ));
+}
+
+
+fn name(out: &mut Vec<u8>, value: &str) {
+    u32leb(out, value.len() as u32);
+    out.extend_from_slice(value.as_bytes());
+}
+
+fn multi_value_tail_module() -> Vec<u8> {
+    let mut module = b"\0asm\x01\0\0\0".to_vec();
+    section(
+        &mut module,
+        1,
+        &[1, 0x60, 1, 0x7f, 2, 0x7f, 0x7e],
+    );
+    section(&mut module, 3, &[2, 0, 0]);
+    section(&mut module, 7, &[1, 3, b'r', b'u', b'n', 0, 1]);
+
+    let target = [
+        0, // local declaration count
+        0x20, 0, // local.get 0
+        0x42, 9, // i64.const 9
+        0x0b,
+    ];
+    let caller = [
+        0, // local declaration count
+        0x20, 0, // local.get 0
+        0x12, 0, // return_call function 0
+        0x0b,
+    ];
+    let mut code = vec![2];
+    for body in [&target[..], &caller[..]] {
+        u32leb(&mut code, body.len() as u32);
+        code.extend_from_slice(body);
+    }
+    section(&mut module, 10, &code);
+    module
+}
+
+fn imported_tail_module() -> Vec<u8> {
+    let mut module = b"\0asm\x01\0\0\0".to_vec();
+    section(&mut module, 1, &[1, 0x60, 1, 0x7f, 1, 0x7f]);
+
+    let mut imports = vec![1];
+    name(&mut imports, "env");
+    name(&mut imports, "host");
+    imports.extend([0, 0]);
+    section(&mut module, 2, &imports);
+
+    section(&mut module, 3, &[1, 0]);
+    section(&mut module, 7, &[1, 3, b'r', b'u', b'n', 0, 1]);
+    let body = [
+        0, // local declaration count
+        0x20, 0, // local.get 0
+        0x12, 0, // return_call imported function 0
+        0x0b,
+    ];
+    section(&mut module, 10, &one_body_section(&body));
+    module
+}
+
+#[test]
+fn direct_tail_call_forwards_ordered_multi_value_results() {
+    let module = parse_module(&multi_value_tail_module()).expect("multi-value tail module parses");
+    let mut instance = Instance::new(module).expect("multi-value tail module validates");
+
+    assert_eq!(
+        instance
+            .invoke_export_values("run", &[Value::I32(7)])
+            .expect("multi-value tail call executes"),
+        vec![Value::I32(7), Value::I64(9)]
+    );
+}
+
+#[test]
+fn direct_tail_call_can_finish_in_an_imported_host_function() {
+    let module = parse_module(&imported_tail_module()).expect("imported tail module parses");
+    let mut hosts = HostRegistry::new();
+    hosts
+        .register_values(
+            "env",
+            "host",
+            vec![ValueType::I32],
+            vec![ValueType::I32],
+            HostCapabilities::NONE,
+            |_context, args| Ok(vec![Value::I32(args[0].as_i32().wrapping_add(5))]),
+        )
+        .unwrap();
+
+    let mut instance =
+        Instance::with_config(module, hosts, shallow_stack_limits()).expect("tail host binding");
+    assert_eq!(
+        instance
+            .invoke_export("run", &[Value::I32(37)])
+            .expect("tail host call executes"),
+        Some(Value::I32(42))
+    );
 }
