@@ -106,10 +106,9 @@ fn module_bytes() -> Vec<u8> {
 }
 
 fn mini_errno(instance: &mut MiniInstance, export: &str) -> i32 {
-    match instance
-        .invoke_export(export, &[])
-        .unwrap_or_else(|error| panic!("mini WASI clock/entropy call {export:?} trapped: {error:?}"))
-    {
+    match instance.invoke_export(export, &[]).unwrap_or_else(|error| {
+        panic!("mini WASI clock/entropy call {export:?} trapped: {error:?}")
+    }) {
         Some(Value::I32(errno)) => errno,
         other => panic!("mini WASI clock/entropy call {export:?} returned {other:?}"),
     }
@@ -225,17 +224,9 @@ fn write_u64(memory: &mut [u8], address: usize, value: u64) {
 
 fn expected_trace() -> Trace {
     let mut memory = vec![0_u8; SNAPSHOT_BYTES];
-    write_u64(
-        &mut memory,
-        REALTIME_RES_PTR,
-        REALTIME_RESOLUTION_NS,
-    );
+    write_u64(&mut memory, REALTIME_RES_PTR, REALTIME_RESOLUTION_NS);
     write_u64(&mut memory, REALTIME_TIME_PTR, REALTIME_TIME_NS);
-    write_u64(
-        &mut memory,
-        MONOTONIC_RES_PTR,
-        MONOTONIC_RESOLUTION_NS,
-    );
+    write_u64(&mut memory, MONOTONIC_RES_PTR, MONOTONIC_RESOLUTION_NS);
     write_u64(&mut memory, MONOTONIC_TIME_PTR, MONOTONIC_TIME_NS);
     memory[RANDOM_FIRST_PTR..RANDOM_FIRST_PTR + 6].copy_from_slice(&ENTROPY[..6]);
     memory[RANDOM_SECOND_PTR..RANDOM_SECOND_PTR + 4].copy_from_slice(&ENTROPY[6..]);
