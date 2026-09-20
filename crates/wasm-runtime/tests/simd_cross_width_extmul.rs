@@ -110,7 +110,9 @@ fn i32_extmul_lane(lhs: [i16; 8], rhs: [i16; 8], subopcode: u32, lane: u8) -> i3
 
 #[test]
 fn i16x8_extmul_covers_low_high_signed_unsigned_products() {
-    let lhs = [-128, 127, -2, 3, 4, 5, 6, 7, 8, -9, 10, -11, 12, -13, 14, -15];
+    let lhs = [
+        -128, 127, -2, 3, 4, 5, 6, 7, 8, -9, 10, -11, 12, -13, 14, -15,
+    ];
     let rhs = [2, 2, -3, 4, 5, 6, 7, 8, -2, 3, -4, 5, -6, 7, -8, 9];
 
     assert_eq!(i16_extmul_lane(lhs, rhs, 156, 0, true), -256);
