@@ -165,8 +165,13 @@ fn validator_rejects_i64x2_unary_and_reduction_type_confusion() {
             code.push(0);
         }
 
-        let result_type = if matches!(subopcode, 192 | 193) { 0x7e } else { 0x7f };
-        let parsed = parse_module(&module(result_type, &code)).expect("type-confusion fixture parses");
+        let result_type = if matches!(subopcode, 192 | 193) {
+            0x7e
+        } else {
+            0x7f
+        };
+        let parsed =
+            parse_module(&module(result_type, &code)).expect("type-confusion fixture parses");
         assert!(matches!(
             Instance::new(parsed),
             Err(RuntimeError::Validation(
