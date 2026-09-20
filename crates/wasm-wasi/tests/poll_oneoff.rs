@@ -1,8 +1,6 @@
 use wasm_parser::parse_module;
 use wasm_runtime::{HostRegistry, Instance, MemoryHandle, Value};
-use wasm_wasi::{
-    WasiClockId, WasiPreview1, ERRNO_FAULT, ERRNO_INVAL, ERRNO_NOTSUP, ERRNO_SUCCESS,
-};
+use wasm_wasi::{WasiClockId, WasiPreview1, ERRNO_FAULT, ERRNO_INVAL, ERRNO_NOTSUP, ERRNO_SUCCESS};
 
 const SUBSCRIPTION_SIZE: usize = 48;
 const EVENT_SIZE: usize = 32;
@@ -51,21 +49,7 @@ fn poll_module(input: u32, output: u32, count: u32, nevents: u32) -> Vec<u8> {
     section(
         &mut module,
         1,
-        &[
-            2,
-            0x60,
-            4,
-            0x7f,
-            0x7f,
-            0x7f,
-            0x7f,
-            1,
-            0x7f,
-            0x60,
-            0,
-            1,
-            0x7f,
-        ],
+        &[2, 0x60, 4, 0x7f, 0x7f, 0x7f, 0x7f, 1, 0x7f, 0x60, 0, 1, 0x7f],
     );
 
     let mut imports = vec![2];
@@ -96,7 +80,13 @@ fn poll_module(input: u32, output: u32, count: u32, nevents: u32) -> Vec<u8> {
     module
 }
 
-fn subscription(userdata: u64, clock_id: u32, timeout: u64, precision: u64, flags: u16) -> [u8; SUBSCRIPTION_SIZE] {
+fn subscription(
+    userdata: u64,
+    clock_id: u32,
+    timeout: u64,
+    precision: u64,
+    flags: u16,
+) -> [u8; SUBSCRIPTION_SIZE] {
     let mut bytes = [0u8; SUBSCRIPTION_SIZE];
     bytes[0..8].copy_from_slice(&userdata.to_le_bytes());
     bytes[8] = EVENTTYPE_CLOCK;
@@ -140,7 +130,9 @@ fn ready_clock_subscriptions_emit_exact_preview1_events() {
         .write(input + SUBSCRIPTION_SIZE as u32, &second)
         .unwrap();
     memory.write(output, &[0xaa; EVENT_SIZE * 2]).unwrap();
-    memory.write(nevents, &0xdead_beefu32.to_le_bytes()).unwrap();
+    memory
+        .write(nevents, &0xdead_beefu32.to_le_bytes())
+        .unwrap();
 
     let wasi = WasiPreview1::new()
         .with_clock(WasiClockId::Realtime, 1, 1_000)
@@ -153,12 +145,9 @@ fn ready_clock_subscriptions_emit_exact_preview1_events() {
         2
     );
 
-    for (index, expected_userdata) in [
-        0x1122_3344_5566_7788u64,
-        0x8877_6655_4433_2211u64,
-    ]
-    .into_iter()
-    .enumerate()
+    for (index, expected_userdata) in [0x1122_3344_5566_7788u64, 0x8877_6655_4433_2211u64]
+        .into_iter()
+        .enumerate()
     {
         let event = memory
             .read(output + (index * EVENT_SIZE) as u32, EVENT_SIZE)
@@ -176,17 +165,20 @@ fn future_timer_fails_closed_without_partial_output() {
     let input = 64u32;
     let output = 256u32;
     let nevents = 400u32;
-    memory
-        .write(input, &subscription(7, 1, 1, 0, 0))
-        .unwrap();
+    memory.write(input, &subscription(7, 1, 1, 0, 0)).unwrap();
     memory.write(output, &[0xaa; EVENT_SIZE]).unwrap();
-    memory.write(nevents, &0xdead_beefu32.to_le_bytes()).unwrap();
+    memory
+        .write(nevents, &0xdead_beefu32.to_le_bytes())
+        .unwrap();
 
     let wasi = WasiPreview1::new().with_clock(WasiClockId::Monotonic, 1, 500);
     let mut vm = instantiate(&poll_module(input, output, 1, nevents), &memory, &wasi);
 
     assert_eq!(errno(&mut vm), ERRNO_NOTSUP);
-    assert_eq!(memory.read(output, EVENT_SIZE).unwrap(), vec![0xaa; EVENT_SIZE]);
+    assert_eq!(
+        memory.read(output, EVENT_SIZE).unwrap(),
+        vec![0xaa; EVENT_SIZE]
+    );
     assert_eq!(
         u32::from_le_bytes(memory.read(nevents, 4).unwrap().try_into().unwrap()),
         0xdead_beef
@@ -195,10 +187,7 @@ fn future_timer_fails_closed_without_partial_output() {
 
 #[test]
 fn invalid_clock_or_flags_fail_closed() {
-    for subscription in [
-        subscription(1, 9, 0, 0, 0),
-        subscription(1, 0, 0, 0, 2),
-    ] {
+    for subscription in [subscription(1, 9, 0, 0, 0), subscription(1, 0, 0, 0, 2)] {
         let memory = MemoryHandle::new(1, Some(1)).unwrap();
         memory.write(64, &subscription).unwrap();
         memory.write(256, &[0xbb; EVENT_SIZE]).unwrap();
@@ -207,7 +196,10 @@ fn invalid_clock_or_flags_fail_closed() {
         let wasi = WasiPreview1::new().with_clock(WasiClockId::Realtime, 1, 100);
         let mut vm = instantiate(&poll_module(64, 256, 1, 400), &memory, &wasi);
         assert_eq!(errno(&mut vm), ERRNO_INVAL);
-        assert_eq!(memory.read(256, EVENT_SIZE).unwrap(), vec![0xbb; EVENT_SIZE]);
+        assert_eq!(
+            memory.read(256, EVENT_SIZE).unwrap(),
+            vec![0xbb; EVENT_SIZE]
+        );
         assert_eq!(
             u32::from_le_bytes(memory.read(400, 4).unwrap().try_into().unwrap()),
             0xfeed_face
