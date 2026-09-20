@@ -90,4 +90,3 @@ fn validator_rejects_i32x4_splat_type_confusion() {
         ))
     ));
 }
-
