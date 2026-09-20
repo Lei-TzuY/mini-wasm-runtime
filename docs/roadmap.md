@@ -209,6 +209,7 @@ The runtime has moved beyond a generic future-WASI placeholder into an executabl
 
 ## Phase 8 — bounded proposal expansion
 
+- [x] exported state embedding lookup across memory/global/table exports, with name+kind fail-closed resolution, live shared GlobalHandle/TableHandle backing, exported-memory composition with indexed memory32/memory64 access, and pinned Wasmtime host-mutation differential evidence
 - [x] multi-memory instance embedding access with indexed size/read/write across owned/imported memory32 and memory64 backing, full-width `u64` byte addresses, legacy memory-0 compatibility, atomic bounds failures, and pinned Wasmtime mixed-width differential evidence
 - [x] multi-memory host-boundary integration with capability-scoped indexed HostContext memory count/size/read/write access across owned and imported memories, legacy memory-0 compatibility, fail-closed invalid indices, focused regressions, and Wasmtime differential evidence
 - SIMD `i8x16` same-width integer ALU is closed across wrapping `add`/`sub`, saturating add/sub, shifts, signed/unsigned min/max, and unsigned rounded average, with byte-lane modulo semantics, typed validation, structured-control scanning, focused regressions, and Wasmtime differential coverage.

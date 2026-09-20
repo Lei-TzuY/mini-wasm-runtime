@@ -104,7 +104,7 @@ Unreachable code follows WebAssembly-style stack polymorphism while still checki
 
 ## `wasm-runtime`
 
-Each `Instance` owns the validated module, a private instance identity, precomputed control maps, optional owned `LinearMemory`, an optional `TableHandle`, a combined vector of global handles, resolved `HostRegistry`, and `RuntimeLimits`.
+Each `Instance` owns the validated module, a private instance identity, precomputed control maps, ordered table and linear-memory index spaces, a combined vector of global handles, resolved `HostRegistry`, and `RuntimeLimits`.
 
 Structured-control discovery is isolated in `crates/wasm-runtime/src/control.rs`.
 That module scans validated bytecode once, decodes instruction immediates only far
@@ -185,13 +185,15 @@ The linear-memory implementation uses 64-KiB pages, widened effective-address ch
 
 Embedders can inspect or mutate any instantiated owned/imported memory by index through `Instance::memory_count`, `memory_size_pages_at`, `read_memory_at`, and `write_memory_at`. These indexed methods use `u64` byte addresses so the embedding boundary composes with memory64 while preserving the legacy borrowed `memory()` view of owned memory 0. Imported memories keep shared `MemoryHandle` identity, so host/guest mutations remain aliased.
 
+Validated exports also form an embedding boundary rather than a function-only namespace. `Instance::exported_memory_index` resolves an exported memory name into the same indexed memory API; `exported_global` and `exported_table` return cloned live `GlobalHandle` / `TableHandle` values that retain the instance's backing state. Missing names and wrong-kind lookups fail closed before returning an unrelated index or handle.
+
 ### Host binding and capability boundary
 
 `HostRegistry` currently holds four executable binding classes:
 
 1. typed host functions using i32/i64/f32/f64 parameter/result vectors;
 2. numeric `GlobalHandle` bindings, immutable or mutable;
-3. `TableHandle` bindings for the current single-table `funcref` subset;
+3. `TableHandle` bindings across the instantiated `funcref` table index space;
 4. shared `MemoryHandle` bindings across the instantiated memory index space.
 
 `HostRegistry::register` preserves the original `Option<Value>` zero-or-one-result callback API. `HostRegistry::register_values` accepts callbacks returning `Vec<Value>` and is the multi-result host ABI. Internally both paths normalize to ordered result vectors before runtime validation.
@@ -211,7 +213,6 @@ After supported imports are resolved and state/segments are initialized, an opti
 - multiple live instances sharing one `TableHandle`
 - cross-instance function-reference dispatch
 - thread-safe/shared-memory global, table, or linear-memory handles
-- multiple tables
 - passive/declarative element modes
 - passive or explicit-memory-index data modes
 - i64/f32/f64 memory load/store families

@@ -835,6 +835,9 @@ pub enum RuntimeError {
     Decode(ParseError),
     ExportNotFound(String),
     ExportNotFunction(String),
+    ExportNotMemory(String),
+    ExportNotGlobal(String),
+    ExportNotTable(String),
     FunctionOutOfBounds(u32),
     UnsupportedType(ValueType),
     WrongArgumentCount {
@@ -1032,6 +1035,9 @@ impl fmt::Display for RuntimeError {
             Self::Decode(error) => write!(f, "instruction decode failed: {error}"),
             Self::ExportNotFound(name) => write!(f, "export {name:?} not found"),
             Self::ExportNotFunction(name) => write!(f, "export {name:?} is not a function"),
+            Self::ExportNotMemory(name) => write!(f, "export {name:?} is not a memory"),
+            Self::ExportNotGlobal(name) => write!(f, "export {name:?} is not a global"),
+            Self::ExportNotTable(name) => write!(f, "export {name:?} is not a table"),
             Self::FunctionOutOfBounds(index) => write!(f, "function index {index} is out of bounds"),
             Self::UnsupportedType(ty) => write!(f, "runtime does not yet execute type {ty:?}"),
             Self::WrongArgumentCount { expected, actual } => {
@@ -1821,17 +1827,50 @@ impl Instance {
         self.invoke_function(function_index, args, 0, &mut budget)
     }
 
-    fn exported_function_index(&self, name: &str) -> Result<u32, RuntimeError> {
+    fn exported_index(&self, name: &str, kind: ExportKind) -> Result<u32, RuntimeError> {
         let export = self
             .module
             .exports
             .iter()
             .find(|export| export.name == name)
             .ok_or_else(|| RuntimeError::ExportNotFound(name.to_owned()))?;
-        if export.kind != ExportKind::Function {
-            return Err(RuntimeError::ExportNotFunction(name.to_owned()));
+        if export.kind != kind {
+            return Err(match kind {
+                ExportKind::Function => RuntimeError::ExportNotFunction(name.to_owned()),
+                ExportKind::Memory => RuntimeError::ExportNotMemory(name.to_owned()),
+                ExportKind::Global => RuntimeError::ExportNotGlobal(name.to_owned()),
+                ExportKind::Table => RuntimeError::ExportNotTable(name.to_owned()),
+            });
         }
         Ok(export.index)
+    }
+
+    fn exported_function_index(&self, name: &str) -> Result<u32, RuntimeError> {
+        self.exported_index(name, ExportKind::Function)
+    }
+
+    pub fn exported_memory_index(&self, name: &str) -> Result<u32, RuntimeError> {
+        let index = self.exported_index(name, ExportKind::Memory)?;
+        self.memories
+            .get(index as usize)
+            .ok_or(RuntimeError::MemoryIndexOutOfBounds(index))?;
+        Ok(index)
+    }
+
+    pub fn exported_global(&self, name: &str) -> Result<GlobalHandle, RuntimeError> {
+        let index = self.exported_index(name, ExportKind::Global)?;
+        self.globals
+            .get(index as usize)
+            .cloned()
+            .ok_or(RuntimeError::GlobalOutOfBounds(index))
+    }
+
+    pub fn exported_table(&self, name: &str) -> Result<TableHandle, RuntimeError> {
+        let index = self.exported_index(name, ExportKind::Table)?;
+        self.tables
+            .get(index as usize)
+            .cloned()
+            .ok_or(RuntimeError::TableIndexOutOfBounds(index))
     }
 
     pub fn memory(&self) -> Option<&LinearMemory> {
