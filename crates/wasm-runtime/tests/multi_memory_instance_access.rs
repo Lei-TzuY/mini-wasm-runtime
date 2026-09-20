@@ -1,6 +1,4 @@
-use wasm_parser::{
-    DataMode, DataSegment, Import, ImportDesc, MemoryLimits, MemoryType, Module,
-};
+use wasm_parser::{DataMode, DataSegment, Import, ImportDesc, MemoryLimits, MemoryType, Module};
 use wasm_runtime::{HostRegistry, Instance, MemoryHandle, RuntimeError};
 
 fn memory32(min: u64, max: u64) -> MemoryType {
