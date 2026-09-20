@@ -4864,6 +4864,29 @@ fn execute_simd(
             }
             stack.push(Value::I32(mask));
         }
+        199..=202 => {
+            let value = numeric::v128_from_stack(stack)?;
+            let source_start = if matches!(subopcode, 199 | 201) { 0 } else { 2 };
+            let signed = matches!(subopcode, 199 | 200);
+            let mut result = [0u8; 16];
+            for output_lane in 0..2 {
+                let source_lane = source_start + output_lane;
+                let start = source_lane * 4;
+                let raw = u32::from_le_bytes(
+                    value[start..start + 4]
+                        .try_into()
+                        .expect("i32x4 lane width"),
+                );
+                let extended = if signed {
+                    i64::from(raw as i32) as u64
+                } else {
+                    u64::from(raw)
+                };
+                let output_start = output_lane * 8;
+                result[output_start..output_start + 8].copy_from_slice(&extended.to_le_bytes());
+            }
+            stack.push(Value::V128(Rc::new(result)));
+        }
         203..=205 => {
             let shift = (numeric::i32_from_stack(stack)? as u32) & 63;
             let value = numeric::v128_from_stack(stack)?;
