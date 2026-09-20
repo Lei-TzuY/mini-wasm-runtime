@@ -206,6 +206,7 @@ The runtime has moved beyond a generic future-WASI placeholder into an executabl
 
 ## Phase 8 — bounded proposal expansion
 
+- SIMD widening/splat memory loads are executable across `v128.load8x8_{s,u}`, `v128.load16x4_{s,u}`, `v128.load32x2_{s,u}`, and `v128.load{8,16,32,64}_splat`, with natural-alignment validation, memory32/memory64 address typing, full-width static offsets, exact-width OOB preflight, focused regressions, and Wasmtime differential coverage.
 - SIMD floating-point rounding is executable across `f32x4.ceil/floor/trunc/nearest` and `f64x2.ceil/floor/trunc/nearest`, including ties-to-even nearest semantics, signed-zero regressions, typed validation, structured-control scanning, and Wasmtime differential coverage.
 - SIMD cross-width saturating narrowing is executable for `i8x16.narrow_i16x8_{s,u}` and `i16x8.narrow_i32x4_{s,u}`, with typed validation, structured-control scanning, regressions, and Wasmtime differential coverage.
 - SIMD cross-width widening is executable for `i16x8.extend_low/high_i8x16_{s,u}`, with signed/unsigned low/high lane semantics, typed validation, structured-control scanning, regressions, and Wasmtime differential coverage.
