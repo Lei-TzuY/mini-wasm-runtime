@@ -206,6 +206,7 @@ The runtime has moved beyond a generic future-WASI placeholder into an executabl
 
 ## Phase 8 — bounded proposal expansion
 
+- SIMD `i64x2` unary/reduction semantics are executable for wrapping `abs`/`neg`, `all_true`, and `bitmask`, with exact lane behavior, typed validation, structured-control scanning, focused regressions, and Wasmtime differential coverage; cross-width `i64x2.extend_*_i32x4_*` remains fail-closed for the next bounded slice.
 - SIMD `i32x4` same-width ALU is closed across wrapping `abs`/`neg`, signed/unsigned `min`/`max`, and signed `dot_i16x8_s`, complementing the existing add/sub/mul, shifts, reductions, comparisons, widening, and extmul surface with exact lane semantics, typed validation, structured-control scanning, focused regressions, and Wasmtime differential coverage.
 - SIMD extended pairwise addition is executable across `i16x8.extadd_pairwise_i8x16_{s,u}` and `i32x4.extadd_pairwise_i16x8_{s,u}`, with adjacent-lane pairing, exact signed/unsigned extension semantics, typed validation, structured-control scanning, focused regressions, and Wasmtime differential coverage.
 - SIMD cross-width extended multiplication is executable across the full `i16x8.extmul_{low,high}_i8x16_{s,u}`, `i32x4.extmul_{low,high}_i16x8_{s,u}`, and existing `i64x2.extmul_{low,high}_i32x4_{s,u}` families, with exact signed/unsigned lane selection, typed validation, structured-control scanning, focused regressions, and Wasmtime differential coverage.
