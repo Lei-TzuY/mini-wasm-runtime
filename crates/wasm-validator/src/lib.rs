@@ -103,6 +103,12 @@ pub enum ValidationError {
         offset: usize,
         type_index: u32,
     },
+    TailCallResultTypeMismatch {
+        function: usize,
+        offset: usize,
+        expected: Vec<ValueType>,
+        actual: Vec<ValueType>,
+    },
     UnsupportedIndirectResultArity {
         function: usize,
         offset: usize,
@@ -379,6 +385,15 @@ impl fmt::Display for ValidationError {
             Self::IndirectTypeIndexOutOfBounds { function, offset, type_index } => write!(
                 f,
                 "function {function} call_indirect at byte {offset} refers to missing type {type_index}"
+            ),
+            Self::TailCallResultTypeMismatch {
+                function,
+                offset,
+                expected,
+                actual,
+            } => write!(
+                f,
+                "function {function} tail call at byte {offset} returns {actual:?}, but the current function returns {expected:?}"
             ),
             Self::UnsupportedIndirectResultArity { function, offset, results } => write!(
                 f,
