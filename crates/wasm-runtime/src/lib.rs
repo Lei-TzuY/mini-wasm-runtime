@@ -1333,18 +1333,26 @@ impl LinearMemory {
         Ok(address as usize..end as usize)
     }
 
-    fn load_v128(&self, address: u64, displacement: u64) -> Result<[u8; 16], RuntimeError> {
+    fn load_fixed<const N: usize>(
+        &self,
+        address: u64,
+        displacement: u64,
+    ) -> Result<[u8; N], RuntimeError> {
         let effective =
             address
                 .checked_add(displacement)
                 .ok_or(RuntimeError::MemoryOutOfBounds {
                     address: u64::MAX,
-                    width: 16,
+                    width: N,
                 })?;
-        let range = self.checked_bulk_range(effective, 16)?;
+        let range = self.checked_bulk_range(effective, N as u64)?;
         Ok(self.bytes[range]
             .try_into()
-            .expect("checked sixteen-byte SIMD range"))
+            .expect("checked fixed-width memory range"))
+    }
+
+    fn load_v128(&self, address: u64, displacement: u64) -> Result<[u8; 16], RuntimeError> {
+        self.load_fixed::<16>(address, displacement)
     }
 
     fn store_v128(
@@ -3520,6 +3528,89 @@ fn execute_simd(
                 memory.load_v128(address, displacement)
             })?;
             stack.push(Value::V128(Rc::new(bytes)));
+        }
+        1..=10 => {
+            let (_, memory_index, displacement) = read_memarg(code, pc)?;
+            ensure_runtime_memory_index(instance, memory_index)?;
+            let address = pop_runtime_bulk_memory_address(instance, stack, memory_index)?;
+            let mut result = [0u8; 16];
+            match subopcode {
+                1 | 2 => {
+                    let input = instance.with_memory_index(memory_index, |memory| {
+                        memory.load_fixed::<8>(address, displacement)
+                    })?;
+                    for (lane, raw) in input.into_iter().enumerate() {
+                        let value = if subopcode == 1 {
+                            (raw as i8 as i16) as u16
+                        } else {
+                            u16::from(raw)
+                        };
+                        let start = lane * 2;
+                        result[start..start + 2].copy_from_slice(&value.to_le_bytes());
+                    }
+                }
+                3 | 4 => {
+                    let input = instance.with_memory_index(memory_index, |memory| {
+                        memory.load_fixed::<8>(address, displacement)
+                    })?;
+                    for (lane, raw) in input.chunks_exact(2).enumerate() {
+                        let source = u16::from_le_bytes(raw.try_into().expect("i16 source lane"));
+                        let value = if subopcode == 3 {
+                            (source as i16 as i32) as u32
+                        } else {
+                            u32::from(source)
+                        };
+                        let start = lane * 4;
+                        result[start..start + 4].copy_from_slice(&value.to_le_bytes());
+                    }
+                }
+                5 | 6 => {
+                    let input = instance.with_memory_index(memory_index, |memory| {
+                        memory.load_fixed::<8>(address, displacement)
+                    })?;
+                    for (lane, raw) in input.chunks_exact(4).enumerate() {
+                        let source = u32::from_le_bytes(raw.try_into().expect("i32 source lane"));
+                        let value = if subopcode == 5 {
+                            (source as i32 as i64) as u64
+                        } else {
+                            u64::from(source)
+                        };
+                        let start = lane * 8;
+                        result[start..start + 8].copy_from_slice(&value.to_le_bytes());
+                    }
+                }
+                7 => {
+                    let input = instance.with_memory_index(memory_index, |memory| {
+                        memory.load_fixed::<1>(address, displacement)
+                    })?;
+                    result.fill(input[0]);
+                }
+                8 => {
+                    let input = instance.with_memory_index(memory_index, |memory| {
+                        memory.load_fixed::<2>(address, displacement)
+                    })?;
+                    for lane in result.chunks_exact_mut(2) {
+                        lane.copy_from_slice(&input);
+                    }
+                }
+                9 => {
+                    let input = instance.with_memory_index(memory_index, |memory| {
+                        memory.load_fixed::<4>(address, displacement)
+                    })?;
+                    for lane in result.chunks_exact_mut(4) {
+                        lane.copy_from_slice(&input);
+                    }
+                }
+                10 => {
+                    let input = instance.with_memory_index(memory_index, |memory| {
+                        memory.load_fixed::<8>(address, displacement)
+                    })?;
+                    result[..8].copy_from_slice(&input);
+                    result[8..].copy_from_slice(&input);
+                }
+                _ => unreachable!("matched SIMD widening/splat load opcode"),
+            }
+            stack.push(Value::V128(Rc::new(result)));
         }
         84..=87 => {
             let (_, memory_index, displacement) = read_memarg(code, pc)?;
