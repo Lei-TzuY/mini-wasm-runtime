@@ -163,11 +163,12 @@ fn validator_rejects_extmul_type_confusion() {
 }
 
 #[test]
-fn pairwise_extension_frontier_remains_fail_closed() {
+fn i8x16_wrapping_add_frontier_remains_fail_closed() {
     let mut code = Vec::new();
     push_i8x16(&mut code, [1; 16]);
-    simd(&mut code, 124);
-    simd(&mut code, 24);
+    push_i8x16(&mut code, [2; 16]);
+    simd(&mut code, 110);
+    simd(&mut code, 21);
     code.push(0);
 
     let parsed = parse_module(&module(&code)).expect("unsupported fixture parses");
@@ -176,7 +177,7 @@ fn pairwise_extension_frontier_remains_fail_closed() {
         Err(RuntimeError::Validation(
             ValidationError::UnsupportedPrefixedOpcode {
                 prefix: 0xfd,
-                subopcode: 124,
+                subopcode: 110,
                 ..
             }
         ))
