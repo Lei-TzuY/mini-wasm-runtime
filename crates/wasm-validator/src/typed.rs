@@ -681,10 +681,25 @@ pub(super) fn validate_code(
             0xfd => {
                 let subopcode = read_u32(code, &mut pc, function, offset)?;
                 match subopcode {
-                    0 | 11 => {
+                    0..=11 => {
                         super::ensure_memory(module, function, offset)?;
-                        let (_, memory_index, _) =
-                            super::read_memarg(code, &mut pc, module, function, offset, 4)?;
+                        let max_alignment = match subopcode {
+                            0 | 11 => 4,
+                            1..=6 => 3,
+                            7 => 0,
+                            8 => 1,
+                            9 => 2,
+                            10 => 3,
+                            _ => unreachable!("matched SIMD memory opcode"),
+                        };
+                        let (_, memory_index, _) = super::read_memarg(
+                            code,
+                            &mut pc,
+                            module,
+                            function,
+                            offset,
+                            max_alignment,
+                        )?;
                         let address_type = if module
                             .memory_type(memory_index)
                             .expect("validated memory index")
@@ -699,7 +714,7 @@ pub(super) fn validate_code(
                             pop_expect(&mut stack, &controls, ValueType::V128, function, offset)?;
                         }
                         pop_expect(&mut stack, &controls, address_type, function, offset)?;
-                        if subopcode == 0 {
+                        if subopcode != 11 {
                             stack.push(ValueType::V128);
                         }
                     }
