@@ -37,10 +37,12 @@ struct EventTrace {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct Trace {
-    errnos: [i32; 4],
+    errnos: [i32; 5],
     opened_fd: u32,
-    pair_nevents: u32,
-    pair_events: Vec<EventTrace>,
+    read_nevents: u32,
+    read_event: EventTrace,
+    write_nevents: u32,
+    write_event: EventTrace,
     seek_position: u64,
     eof_nevents: u32,
     eof_event: EventTrace,
@@ -104,10 +106,10 @@ fn fixture_bytes() -> Vec<u8> {
                 i32.const {FD_PTR}
                 call $path_open)
 
-            (func (export "poll_pair") (result i32)
+            (func (export "poll_one") (result i32)
                 i32.const {INPUT}
                 i32.const {OUTPUT}
-                i32.const 2
+                i32.const 1
                 i32.const {NEVENTS}
                 call $poll_oneoff)
 
@@ -117,14 +119,7 @@ fn fixture_bytes() -> Vec<u8> {
                 i64.const 0
                 i32.const 2
                 i32.const {SEEK_RESULT}
-                call $fd_seek)
-
-            (func (export "poll_eof") (result i32)
-                i32.const {INPUT}
-                i32.const {OUTPUT}
-                i32.const 1
-                i32.const {NEVENTS}
-                call $poll_oneoff))"#,
+                call $fd_seek))"#,
     ))
     .expect("compile poll-fd differential fixture")
 }
@@ -159,17 +154,15 @@ fn event(memory: &[u8], start: usize) -> EventTrace {
     }
 }
 
-fn seed_subscriptions(memory: &MemoryHandle, fd: u32, eof_only: bool) {
-    let read = subscription(0x1111_2222_3333_4444, EVENTTYPE_FD_READ, fd);
-    memory.write(INPUT as u32, &read).unwrap();
-    if !eof_only {
-        let write = subscription(0xaaaa_bbbb_cccc_dddd, EVENTTYPE_FD_WRITE, fd);
-        memory
-            .write((INPUT + SUBSCRIPTION_SIZE) as u32, &write)
-            .unwrap();
-    }
+fn seed_subscription(memory: &MemoryHandle, fd: u32, event_type: u8, userdata: u64) {
     memory
-        .write(OUTPUT as u32, &[0xaa; EVENT_SIZE * 2])
+        .write(
+            INPUT as u32,
+            &subscription(userdata, event_type, fd),
+        )
+        .unwrap();
+    memory
+        .write(OUTPUT as u32, &[0xaa; EVENT_SIZE])
         .unwrap();
     memory
         .write(NEVENTS as u32, &0xdead_beefu32.to_le_bytes())
@@ -184,6 +177,23 @@ fn mini_errno(instance: &mut MiniInstance, export: &str) -> i32 {
         Some(Value::I32(errno)) => errno,
         other => panic!("mini poll-fd call {export:?} returned {other:?}"),
     }
+}
+
+fn mini_poll_one(
+    instance: &mut MiniInstance,
+    memory: &MemoryHandle,
+    fd: u32,
+    event_type: u8,
+    userdata: u64,
+) -> (i32, u32, EventTrace) {
+    seed_subscription(memory, fd, event_type, userdata);
+    let errno = mini_errno(instance, "poll_one");
+    let snapshot = memory.read(0, 512).unwrap();
+    (
+        errno,
+        read_u32(&snapshot, NEVENTS),
+        event(&snapshot, OUTPUT),
+    )
 }
 
 fn run_mini(bytes: &[u8]) -> Trace {
@@ -204,30 +214,42 @@ fn run_mini(bytes: &[u8]) -> Trace {
     let open_errno = mini_errno(&mut instance, "open");
     let fd = read_u32(&memory.read(FD_PTR as u32, 4).unwrap(), 0);
 
-    seed_subscriptions(&memory, fd, false);
-    let pair_errno = mini_errno(&mut instance, "poll_pair");
-    let pair_snapshot = memory.read(0, 512).unwrap();
-    let pair_nevents = read_u32(&pair_snapshot, NEVENTS);
-    let pair_events = vec![
-        event(&pair_snapshot, OUTPUT),
-        event(&pair_snapshot, OUTPUT + EVENT_SIZE),
-    ];
+    let (read_errno, read_nevents, read_event) = mini_poll_one(
+        &mut instance,
+        &memory,
+        fd,
+        EVENTTYPE_FD_READ,
+        0x1111_2222_3333_4444,
+    );
+    let (write_errno, write_nevents, write_event) = mini_poll_one(
+        &mut instance,
+        &memory,
+        fd,
+        EVENTTYPE_FD_WRITE,
+        0xaaaa_bbbb_cccc_dddd,
+    );
 
     let seek_errno = mini_errno(&mut instance, "seek_end");
     let seek_position = read_u64(&memory.read(SEEK_RESULT as u32, 8).unwrap(), 0);
 
-    seed_subscriptions(&memory, fd, true);
-    let eof_errno = mini_errno(&mut instance, "poll_eof");
-    let eof_snapshot = memory.read(0, 512).unwrap();
+    let (eof_errno, eof_nevents, eof_event) = mini_poll_one(
+        &mut instance,
+        &memory,
+        fd,
+        EVENTTYPE_FD_READ,
+        0x1111_2222_3333_4444,
+    );
 
     Trace {
-        errnos: [open_errno, pair_errno, seek_errno, eof_errno],
+        errnos: [open_errno, read_errno, write_errno, seek_errno, eof_errno],
         opened_fd: fd,
-        pair_nevents,
-        pair_events,
+        read_nevents,
+        read_event,
+        write_nevents,
+        write_event,
         seek_position,
-        eof_nevents: read_u32(&eof_snapshot, NEVENTS),
-        eof_event: event(&eof_snapshot, OUTPUT),
+        eof_nevents,
+        eof_event,
     }
 }
 
@@ -255,27 +277,35 @@ fn reference_u64(memory: Memory, store: &Store<WasiP1Ctx>, address: usize) -> u6
     u64::from_le_bytes(bytes)
 }
 
-fn seed_reference(memory: Memory, store: &mut Store<WasiP1Ctx>, fd: u32, eof_only: bool) {
-    let read = subscription(0x1111_2222_3333_4444, EVENTTYPE_FD_READ, fd);
-    memory.write(&mut *store, INPUT, &read).unwrap();
-    if !eof_only {
-        let write = subscription(0xaaaa_bbbb_cccc_dddd, EVENTTYPE_FD_WRITE, fd);
-        memory
-            .write(&mut *store, INPUT + SUBSCRIPTION_SIZE, &write)
-            .unwrap();
-    }
-    memory
-        .write(&mut *store, OUTPUT, &[0xaa; EVENT_SIZE * 2])
-        .unwrap();
-    memory
-        .write(&mut *store, NEVENTS, &0xdead_beefu32.to_le_bytes())
-        .unwrap();
-}
-
 fn reference_snapshot(memory: Memory, store: &Store<WasiP1Ctx>) -> Vec<u8> {
     let mut bytes = vec![0u8; 512];
     memory.read(store, 0, &mut bytes).unwrap();
     bytes
+}
+
+fn reference_poll_one(
+    instance: &wasmtime::Instance,
+    store: &mut Store<WasiP1Ctx>,
+    memory: Memory,
+    fd: u32,
+    event_type: u8,
+    userdata: u64,
+) -> (i32, u32, EventTrace) {
+    let subscription = subscription(userdata, event_type, fd);
+    memory.write(&mut *store, INPUT, &subscription).unwrap();
+    memory
+        .write(&mut *store, OUTPUT, &[0xaa; EVENT_SIZE])
+        .unwrap();
+    memory
+        .write(&mut *store, NEVENTS, &0xdead_beefu32.to_le_bytes())
+        .unwrap();
+    let errno = reference_errno(instance, store, "poll_one");
+    let snapshot = reference_snapshot(memory, store);
+    (
+        errno,
+        read_u32(&snapshot, NEVENTS),
+        event(&snapshot, OUTPUT),
+    )
 }
 
 fn run_reference(engine: &Engine, bytes: &[u8]) -> Trace {
@@ -297,54 +327,68 @@ fn run_reference(engine: &Engine, bytes: &[u8]) -> Trace {
     let open_errno = reference_errno(&instance, &mut store, "open");
     let fd = reference_u32(memory, &store, FD_PTR);
 
-    seed_reference(memory, &mut store, fd, false);
-    let pair_errno = reference_errno(&instance, &mut store, "poll_pair");
-    let pair_snapshot = reference_snapshot(memory, &store);
-    let pair_nevents = read_u32(&pair_snapshot, NEVENTS);
-    let pair_events = vec![
-        event(&pair_snapshot, OUTPUT),
-        event(&pair_snapshot, OUTPUT + EVENT_SIZE),
-    ];
+    let (read_errno, read_nevents, read_event) = reference_poll_one(
+        &instance,
+        &mut store,
+        memory,
+        fd,
+        EVENTTYPE_FD_READ,
+        0x1111_2222_3333_4444,
+    );
+    let (write_errno, write_nevents, write_event) = reference_poll_one(
+        &instance,
+        &mut store,
+        memory,
+        fd,
+        EVENTTYPE_FD_WRITE,
+        0xaaaa_bbbb_cccc_dddd,
+    );
 
     let seek_errno = reference_errno(&instance, &mut store, "seek_end");
     let seek_position = reference_u64(memory, &store, SEEK_RESULT);
 
-    seed_reference(memory, &mut store, fd, true);
-    let eof_errno = reference_errno(&instance, &mut store, "poll_eof");
-    let eof_snapshot = reference_snapshot(memory, &store);
+    let (eof_errno, eof_nevents, eof_event) = reference_poll_one(
+        &instance,
+        &mut store,
+        memory,
+        fd,
+        EVENTTYPE_FD_READ,
+        0x1111_2222_3333_4444,
+    );
 
     Trace {
-        errnos: [open_errno, pair_errno, seek_errno, eof_errno],
+        errnos: [open_errno, read_errno, write_errno, seek_errno, eof_errno],
         opened_fd: fd,
-        pair_nevents,
-        pair_events,
+        read_nevents,
+        read_event,
+        write_nevents,
+        write_event,
         seek_position,
-        eof_nevents: read_u32(&eof_snapshot, NEVENTS),
-        eof_event: event(&eof_snapshot, OUTPUT),
+        eof_nevents,
+        eof_event,
     }
 }
 
 fn expected_trace() -> Trace {
     Trace {
-        errnos: [ERRNO_SUCCESS; 4],
+        errnos: [ERRNO_SUCCESS; 5],
         opened_fd: 4,
-        pair_nevents: 2,
-        pair_events: vec![
-            EventTrace {
-                userdata: 0x1111_2222_3333_4444,
-                error: 0,
-                event_type: EVENTTYPE_FD_READ,
-                nbytes: 1,
-                flags: 0,
-            },
-            EventTrace {
-                userdata: 0xaaaa_bbbb_cccc_dddd,
-                error: 0,
-                event_type: EVENTTYPE_FD_WRITE,
-                nbytes: 1,
-                flags: 0,
-            },
-        ],
+        read_nevents: 1,
+        read_event: EventTrace {
+            userdata: 0x1111_2222_3333_4444,
+            error: 0,
+            event_type: EVENTTYPE_FD_READ,
+            nbytes: 1,
+            flags: 0,
+        },
+        write_nevents: 1,
+        write_event: EventTrace {
+            userdata: 0xaaaa_bbbb_cccc_dddd,
+            error: 0,
+            event_type: EVENTTYPE_FD_WRITE,
+            nbytes: 1,
+            flags: 0,
+        },
         seek_position: INITIAL_BYTES.len() as u64,
         eof_nevents: 1,
         eof_event: EventTrace {
