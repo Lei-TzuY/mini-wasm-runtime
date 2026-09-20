@@ -88,7 +88,9 @@ fn lane(lhs: [i8; 16], rhs: [i8; 16], subopcode: u32, lane: u8, signed: bool) ->
 #[test]
 fn i8x16_add_wraps_each_byte_lane() {
     let lhs = [127, -128, -1, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12];
-    let rhs = [1, -1, 1, -1, 127, 126, 125, 124, 123, 122, 121, 120, 119, 118, 117, 116];
+    let rhs = [
+        1, -1, 1, -1, 127, 126, 125, 124, 123, 122, 121, 120, 119, 118, 117, 116,
+    ];
 
     assert_eq!(lane(lhs, rhs, 110, 0, true), -128);
     assert_eq!(lane(lhs, rhs, 110, 1, true), 127);
@@ -98,8 +100,12 @@ fn i8x16_add_wraps_each_byte_lane() {
 
 #[test]
 fn i8x16_sub_wraps_each_byte_lane() {
-    let lhs = [-128, 0, 127, -1, 10, 20, 30, 40, 50, 60, 70, 80, 90, 100, 110, 120];
-    let rhs = [1, 1, -1, 1, 20, 30, 40, 50, 60, 70, 80, 90, 100, 110, 120, 127];
+    let lhs = [
+        -128, 0, 127, -1, 10, 20, 30, 40, 50, 60, 70, 80, 90, 100, 110, 120,
+    ];
+    let rhs = [
+        1, 1, -1, 1, 20, 30, 40, 50, 60, 70, 80, 90, 100, 110, 120, 127,
+    ];
 
     assert_eq!(lane(lhs, rhs, 113, 0, true), 127);
     assert_eq!(lane(lhs, rhs, 113, 1, false), 255);
