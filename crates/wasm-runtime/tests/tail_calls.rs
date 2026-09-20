@@ -1,7 +1,5 @@
 use wasm_parser::{parse_module, ValueType};
-use wasm_runtime::{
-    HostCapabilities, HostRegistry, Instance, RuntimeError, RuntimeLimits, Value,
-};
+use wasm_runtime::{HostCapabilities, HostRegistry, Instance, RuntimeError, RuntimeLimits, Value};
 use wasm_validator::ValidationError;
 
 fn u32leb(out: &mut Vec<u8>, mut value: u32) {
@@ -39,15 +37,21 @@ fn recursive_module(call_opcode: u8) -> Vec<u8> {
 
     let body = [
         0, // local declaration count
-        0x20, 0, // local.get 0
+        0x20,
+        0,    // local.get 0
         0x45, // i32.eqz
-        0x04, 0x7f, // if (result i32)
-        0x41, 0, // i32.const 0
+        0x04,
+        0x7f, // if (result i32)
+        0x41,
+        0,    // i32.const 0
         0x05, // else
-        0x20, 0, // local.get 0
-        0x41, 1, // i32.const 1
+        0x20,
+        0, // local.get 0
+        0x41,
+        1,    // i32.const 1
         0x6b, // i32.sub
-        call_opcode, 0, // call/return_call function 0
+        call_opcode,
+        0,    // call/return_call function 0
         0x0b, // end if
         0x0b, // end function
     ];
@@ -59,22 +63,14 @@ fn indirect_second_table_module() -> Vec<u8> {
     let mut module = b"\0asm\x01\0\0\0".to_vec();
     section(&mut module, 1, &[1, 0x60, 1, 0x7f, 1, 0x7f]);
     section(&mut module, 3, &[2, 0, 0]);
-    section(
-        &mut module,
-        4,
-        &[2, 0x70, 1, 1, 1, 0x70, 1, 1, 1],
-    );
+    section(&mut module, 4, &[2, 0x70, 1, 1, 1, 0x70, 1, 1, 1]);
     section(&mut module, 7, &[1, 3, b'r', b'u', b'n', 0, 1]);
-    section(
-        &mut module,
-        9,
-        &[1, 2, 1, 0x41, 0, 0x0b, 0, 1, 0],
-    );
+    section(&mut module, 9, &[1, 2, 1, 0x41, 0, 0x0b, 0, 1, 0]);
 
     let target = [
         0, // local declaration count
         0x20, 0, // local.get 0
-        0x41, 1, // i32.const 1
+        0x41, 1,    // i32.const 1
         0x6a, // i32.add
         0x0b,
     ];
@@ -101,8 +97,7 @@ fn mismatched_return_module() -> Vec<u8> {
         &mut module,
         1,
         &[
-            2,
-            0x60, 1, 0x7f, 1, 0x7e, // type 0: (i32) -> i64
+            2, 0x60, 1, 0x7f, 1, 0x7e, // type 0: (i32) -> i64
             0x60, 1, 0x7f, 1, 0x7f, // type 1: (i32) -> i32
         ],
     );
@@ -131,9 +126,8 @@ fn shallow_stack_limits() -> RuntimeLimits {
 #[test]
 fn direct_tail_recursion_reuses_the_current_runtime_frame() {
     let module = parse_module(&recursive_module(0x12)).expect("tail-call module must parse");
-    let mut instance =
-        Instance::with_config(module, Default::default(), shallow_stack_limits())
-            .expect("tail-call module must validate");
+    let mut instance = Instance::with_config(module, Default::default(), shallow_stack_limits())
+        .expect("tail-call module must validate");
 
     assert_eq!(
         instance
@@ -146,9 +140,8 @@ fn direct_tail_recursion_reuses_the_current_runtime_frame() {
 #[test]
 fn ordinary_recursion_still_obeys_the_call_depth_limit() {
     let module = parse_module(&recursive_module(0x10)).expect("ordinary-call module must parse");
-    let mut instance =
-        Instance::with_config(module, Default::default(), shallow_stack_limits())
-            .expect("ordinary-call module must validate");
+    let mut instance = Instance::with_config(module, Default::default(), shallow_stack_limits())
+        .expect("ordinary-call module must validate");
 
     assert!(matches!(
         instance.invoke_export("run", &[Value::I32(2)]),
@@ -158,8 +151,8 @@ fn ordinary_recursion_still_obeys_the_call_depth_limit() {
 
 #[test]
 fn return_call_indirect_dispatches_through_a_nonzero_table() {
-    let module =
-        parse_module(&indirect_second_table_module()).expect("indirect tail-call module must parse");
+    let module = parse_module(&indirect_second_table_module())
+        .expect("indirect tail-call module must parse");
     let mut instance = Instance::new(module).expect("indirect tail-call module must validate");
 
     assert_eq!(
@@ -183,7 +176,6 @@ fn tail_call_result_type_must_match_the_current_function_result() {
     ));
 }
 
-
 fn name(out: &mut Vec<u8>, value: &str) {
     u32leb(out, value.len() as u32);
     out.extend_from_slice(value.as_bytes());
@@ -191,11 +183,7 @@ fn name(out: &mut Vec<u8>, value: &str) {
 
 fn multi_value_tail_module() -> Vec<u8> {
     let mut module = b"\0asm\x01\0\0\0".to_vec();
-    section(
-        &mut module,
-        1,
-        &[1, 0x60, 1, 0x7f, 2, 0x7f, 0x7e],
-    );
+    section(&mut module, 1, &[1, 0x60, 1, 0x7f, 2, 0x7f, 0x7e]);
     section(&mut module, 3, &[2, 0, 0]);
     section(&mut module, 7, &[1, 3, b'r', b'u', b'n', 0, 1]);
 
