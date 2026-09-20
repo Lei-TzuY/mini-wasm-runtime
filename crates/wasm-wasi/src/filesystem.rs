@@ -2492,11 +2492,19 @@ impl Filesystem {
         let mut closed = state.open_files.remove(&fd).is_some();
         closed |= state.open_directories.remove(&fd).is_some();
 
-        if let Some(index) = state.reserved_preopens.iter().position(|candidate| *candidate == fd) {
+        if let Some(index) = state
+            .reserved_preopens
+            .iter()
+            .position(|candidate| *candidate == fd)
+        {
             state.reserved_preopens.remove(index);
             closed = true;
         }
-        if let Some(index) = state.writable_preopens.iter().position(|candidate| *candidate == fd) {
+        if let Some(index) = state
+            .writable_preopens
+            .iter()
+            .position(|candidate| *candidate == fd)
+        {
             state.writable_preopens.remove(index);
         }
 
