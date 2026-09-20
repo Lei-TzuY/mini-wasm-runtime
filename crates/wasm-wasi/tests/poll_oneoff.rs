@@ -49,7 +49,9 @@ fn poll_module(input: u32, output: u32, count: u32, nevents: u32) -> Vec<u8> {
     section(
         &mut module,
         1,
-        &[2, 0x60, 4, 0x7f, 0x7f, 0x7f, 0x7f, 1, 0x7f, 0x60, 0, 1, 0x7f],
+        &[
+            2, 0x60, 4, 0x7f, 0x7f, 0x7f, 0x7f, 1, 0x7f, 0x60, 0, 1, 0x7f,
+        ],
     );
 
     let mut imports = vec![2];
