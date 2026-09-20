@@ -293,6 +293,7 @@ pub(super) fn build_control_map(module: &Module, code: &[u8]) -> Result<ControlM
                     | 121
                     | 122
                     | 123
+                    | 124..=127
                     | 128
                     | 129
                     | 130

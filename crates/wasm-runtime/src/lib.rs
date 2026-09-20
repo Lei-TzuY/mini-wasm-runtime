@@ -4548,6 +4548,50 @@ fn execute_simd(
             }
             stack.push(Value::V128(Rc::new(result)));
         }
+        124..=127 => {
+            let value = numeric::v128_from_stack(stack)?;
+            let mut result = [0u8; 16];
+            match subopcode {
+                124 | 125 => {
+                    for output_lane in 0..8 {
+                        let source_start = output_lane * 2;
+                        let first = value[source_start];
+                        let second = value[source_start + 1];
+                        let sum = if subopcode == 124 {
+                            (i16::from(first as i8) + i16::from(second as i8)) as u16
+                        } else {
+                            u16::from(first) + u16::from(second)
+                        };
+                        let output_start = output_lane * 2;
+                        result[output_start..output_start + 2].copy_from_slice(&sum.to_le_bytes());
+                    }
+                }
+                126 | 127 => {
+                    for output_lane in 0..4 {
+                        let source_start = output_lane * 4;
+                        let first = u16::from_le_bytes(
+                            value[source_start..source_start + 2]
+                                .try_into()
+                                .expect("i16x8 first pairwise lane width"),
+                        );
+                        let second = u16::from_le_bytes(
+                            value[source_start + 2..source_start + 4]
+                                .try_into()
+                                .expect("i16x8 second pairwise lane width"),
+                        );
+                        let sum = if subopcode == 126 {
+                            (i32::from(first as i16) + i32::from(second as i16)) as u32
+                        } else {
+                            u32::from(first) + u32::from(second)
+                        };
+                        let output_start = output_lane * 4;
+                        result[output_start..output_start + 4].copy_from_slice(&sum.to_le_bytes());
+                    }
+                }
+                _ => unreachable!("matched extended pairwise addition opcode"),
+            }
+            stack.push(Value::V128(Rc::new(result)));
+        }
         128 | 129 => {
             let value = numeric::v128_from_stack(stack)?;
             let mut result = [0u8; 16];

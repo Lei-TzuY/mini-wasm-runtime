@@ -206,6 +206,7 @@ The runtime has moved beyond a generic future-WASI placeholder into an executabl
 
 ## Phase 8 — bounded proposal expansion
 
+- SIMD extended pairwise addition is executable across `i16x8.extadd_pairwise_i8x16_{s,u}` and `i32x4.extadd_pairwise_i16x8_{s,u}`, with adjacent-lane pairing, exact signed/unsigned extension semantics, typed validation, structured-control scanning, focused regressions, and Wasmtime differential coverage.
 - SIMD cross-width extended multiplication is executable across the full `i16x8.extmul_{low,high}_i8x16_{s,u}`, `i32x4.extmul_{low,high}_i16x8_{s,u}`, and existing `i64x2.extmul_{low,high}_i32x4_{s,u}` families, with exact signed/unsigned lane selection, typed validation, structured-control scanning, focused regressions, and Wasmtime differential coverage.
 - SIMD widening/splat memory loads are executable across `v128.load8x8_{s,u}`, `v128.load16x4_{s,u}`, `v128.load32x2_{s,u}`, and `v128.load{8,16,32,64}_splat`, with natural-alignment validation, memory32/memory64 address typing, full-width static offsets, exact-width OOB preflight, focused regressions, and Wasmtime differential coverage.
 - SIMD floating-point rounding is executable across `f32x4.ceil/floor/trunc/nearest` and `f64x2.ceil/floor/trunc/nearest`, including ties-to-even nearest semantics, signed-zero regressions, typed validation, structured-control scanning, and Wasmtime differential coverage.
