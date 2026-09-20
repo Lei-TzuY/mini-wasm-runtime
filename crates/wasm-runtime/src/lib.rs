@@ -4563,8 +4563,7 @@ fn execute_simd(
                             u16::from(first) + u16::from(second)
                         };
                         let output_start = output_lane * 2;
-                        result[output_start..output_start + 2]
-                            .copy_from_slice(&sum.to_le_bytes());
+                        result[output_start..output_start + 2].copy_from_slice(&sum.to_le_bytes());
                     }
                 }
                 126 | 127 => {
@@ -4586,8 +4585,7 @@ fn execute_simd(
                             u32::from(first) + u32::from(second)
                         };
                         let output_start = output_lane * 4;
-                        result[output_start..output_start + 4]
-                            .copy_from_slice(&sum.to_le_bytes());
+                        result[output_start..output_start + 4].copy_from_slice(&sum.to_le_bytes());
                     }
                 }
                 _ => unreachable!("matched extended pairwise addition opcode"),
