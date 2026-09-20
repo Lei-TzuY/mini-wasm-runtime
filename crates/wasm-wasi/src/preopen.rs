@@ -1,4 +1,4 @@
-use std::fmt;
+use std::{cell::Cell, fmt, rc::Rc};
 
 use wasm_parser::ValueType;
 use wasm_runtime::{HostCapabilities, HostError, HostRegistry, HostRegistryError, Value};
@@ -44,6 +44,7 @@ impl std::error::Error for WasiPreopenError {}
 struct PreopenDir {
     fd: u32,
     guest_path: Vec<u8>,
+    live: Rc<Cell<bool>>,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -76,6 +77,7 @@ impl PreopenSet {
         self.entries.push(PreopenDir {
             fd,
             guest_path: guest_path.to_vec(),
+            live: Rc::new(Cell::new(true)),
         });
         Ok(fd)
     }
@@ -89,7 +91,16 @@ impl PreopenSet {
 
     fn find(&self, fd: i32) -> Option<&PreopenDir> {
         let fd = fd as u32;
-        self.entries.iter().find(|entry| entry.fd == fd)
+        self.entries
+            .iter()
+            .find(|entry| entry.fd == fd && entry.live.get())
+    }
+
+    pub(crate) fn close(&self, fd: u32) -> bool {
+        let Some(entry) = self.entries.iter().find(|entry| entry.fd == fd) else {
+            return false;
+        };
+        entry.live.replace(false)
     }
 
     pub(crate) fn register(&self, registry: &mut HostRegistry) -> Result<(), HostRegistryError> {
