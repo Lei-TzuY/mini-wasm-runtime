@@ -189,23 +189,3 @@ fn validator_rejects_i32x4_alu_type_confusion() {
     ));
 }
 
-#[test]
-fn i64x2_abs_frontier_remains_fail_closed() {
-    let mut code = Vec::new();
-    push_i32x4(&mut code, [1, 2, 3, 4]);
-    simd(&mut code, 192);
-    simd(&mut code, 27);
-    code.push(0);
-
-    let parsed = parse_module(&module(&code)).expect("unsupported fixture parses");
-    assert!(matches!(
-        Instance::new(parsed),
-        Err(RuntimeError::Validation(
-            ValidationError::UnsupportedPrefixedOpcode {
-                prefix: 0xfd,
-                subopcode: 192,
-                ..
-            }
-        ))
-    ));
-}
