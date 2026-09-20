@@ -169,13 +169,24 @@ fn reference_errno(
         .unwrap_or_else(|error| panic!("Wasmtime clock/entropy call {export:?} trapped: {error}"))
 }
 
+fn reference_entropy_seed() -> Vec<u8> {
+    let mut seed = Vec::with_capacity(ENTROPY.len() * 4);
+    for byte in ENTROPY {
+        // Wasmtime-WASI Preview1 random_get samples Standard<u8>, which draws
+        // one u8 from the low byte of Deterministic::next_u32(). Encode one
+        // desired output byte per four-byte deterministic RNG word.
+        seed.extend_from_slice(&[0, 0, 0, *byte]);
+    }
+    seed
+}
+
 fn run_reference(engine: &Engine, bytes: &[u8]) -> Trace {
     let module =
         ReferenceModule::new(engine, bytes).expect("compile clock/entropy module in Wasmtime");
 
     let mut builder = WasiCtxBuilder::new();
     builder
-        .secure_random(Deterministic::new(ENTROPY.to_vec()))
+        .secure_random(Deterministic::new(reference_entropy_seed()))
         .wall_clock(FixedWallClock {
             resolution: Duration::from_nanos(REALTIME_RESOLUTION_NS),
             now: Duration::from_nanos(REALTIME_TIME_NS),
