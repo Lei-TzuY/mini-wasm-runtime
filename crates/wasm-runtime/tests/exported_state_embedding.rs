@@ -1,6 +1,7 @@
 use wasm_parser::{
     Constant, DataMode, DataSegment, ElementMode, ElementSegment, Export, ExportKind, FuncType,
-    FunctionBody, Global, GlobalType, Limits, MemoryLimits, MemoryType, Module, TableType, ValueType,
+    FunctionBody, Global, GlobalType, Limits, MemoryLimits, MemoryType, Module, TableType,
+    ValueType,
 };
 use wasm_runtime::{GlobalHandleError, Instance, RuntimeError, Value};
 
@@ -102,7 +103,12 @@ fn exported_state_lookups_resolve_live_backing() {
     let table = instance.exported_table("tab").unwrap();
     assert!(table.get(0).unwrap().is_some());
     table.set(0, None).unwrap();
-    assert!(instance.exported_table("tab").unwrap().get(0).unwrap().is_none());
+    assert!(instance
+        .exported_table("tab")
+        .unwrap()
+        .get(0)
+        .unwrap()
+        .is_none());
 }
 
 #[test]
