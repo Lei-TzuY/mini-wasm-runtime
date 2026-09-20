@@ -92,9 +92,9 @@ fn validator_rejects_i32x4_splat_type_confusion() {
 }
 
 #[test]
-fn next_simd_rounding_subopcode_remains_fail_closed() {
+fn remaining_i8x16_wrapping_add_frontier_remains_fail_closed() {
     let bytes = module(&[
-        0xfd, 0x6a, // f32x4.nearest is the next unsupported SIMD capability
+        0xfd, 0x6e, // i8x16.add remains outside this slice
     ]);
     let parsed = parse_module(&bytes).expect("unsupported-SIMD fixture must parse");
     assert!(matches!(
@@ -102,7 +102,7 @@ fn next_simd_rounding_subopcode_remains_fail_closed() {
         Err(RuntimeError::Validation(
             ValidationError::UnsupportedPrefixedOpcode {
                 prefix: 0xfd,
-                subopcode: 106,
+                subopcode: 110,
                 ..
             }
         ))
