@@ -201,7 +201,8 @@ The runtime has moved beyond a generic future-WASI placeholder into an executabl
 - [x] deterministic opened-directory-relative hard-link differential/interop evidence against pinned Wasmtime-WASI 37.0.3 using isolated sibling directories, comparing relative create/link/unlink errno results, directory-entry names/types, relational inode identity, source-name removal, alias survival, and final pathname disappearance
 - [x] deterministic symbolic-link lifecycle differential/interop evidence against pinned Wasmtime-WASI 37.0.3 using an isolated writable preopen, comparing symlink creation/readlink target bytes, symbolic-link `fd_readdir` type exposure, opened-directory-relative behavior, unlink/path disappearance, and explicit non-following pathname semantics
 - [x] deterministic non-following pathname-metadata differential/interop evidence against pinned Wasmtime-WASI 37.0.3 using an isolated writable preopen, comparing portable regular-file type/size/link-count state, relational hard-link inode identity, directory and symbolic-link metadata, and opened-directory-relative child metadata without depending on host-specific inode/device/timestamp values
-- [ ] broaden WASI differential/interop coverage to clocks/entropy with controllable reference providers and additional filesystem semantics where host resources can be isolated deterministically
+- [x] deterministic WASI clock/entropy differential/interop evidence against pinned Wasmtime-WASI 37.0.3 using injected secure entropy plus fixed realtime/monotonic providers, comparing exact errno results, sequential random bytes, clock resolutions, and timestamps without ambient host nondeterminism
+- [ ] broaden WASI differential/interop coverage to additional filesystem semantics where host resources can be isolated deterministically
 
 
 ## Phase 8 — bounded proposal expansion
