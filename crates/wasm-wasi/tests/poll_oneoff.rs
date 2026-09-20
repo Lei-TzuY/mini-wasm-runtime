@@ -7,7 +7,6 @@ const EVENT_SIZE: usize = 32;
 const EVENTTYPE_CLOCK: u8 = 0;
 const EVENTTYPE_FD_READ: u8 = 1;
 const EVENTTYPE_FD_WRITE: u8 = 2;
-const EVENTRWFLAGS_FD_READWRITE_HANGUP: u16 = 1;
 const SUBCLOCKFLAGS_ABSTIME: u16 = 1;
 
 fn u32leb(out: &mut Vec<u8>, mut value: u32) {
