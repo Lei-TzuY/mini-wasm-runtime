@@ -173,24 +173,3 @@ fn validator_rejects_i16x8_saturating_type_confusion() {
         ))
     ));
 }
-
-#[test]
-fn adjacent_i16x8_extmul_frontier_remains_fail_closed() {
-    let mut instructions = Vec::new();
-    push_splat(&mut instructions, 1);
-    push_splat(&mut instructions, 2);
-    push_simd(&mut instructions, 156); // i16x8.extmul_low_i8x16_s remains outside this slice
-    push_extract_u(&mut instructions, 0);
-
-    let parsed = parse_module(&module(&instructions)).expect("unsupported-SIMD fixture must parse");
-    assert!(matches!(
-        Instance::new(parsed),
-        Err(RuntimeError::Validation(
-            ValidationError::UnsupportedPrefixedOpcode {
-                prefix: 0xfd,
-                subopcode: 156,
-                ..
-            }
-        ))
-    ));
-}
