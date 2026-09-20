@@ -160,12 +160,8 @@ fn host_context_indexed_access_preserves_imported_memory_aliasing() {
             },
         )
         .unwrap();
-    hosts
-        .register_memory("env", "m0", memory0.clone())
-        .unwrap();
-    hosts
-        .register_memory("env", "m1", memory1.clone())
-        .unwrap();
+    hosts.register_memory("env", "m0", memory0.clone()).unwrap();
+    hosts.register_memory("env", "m1", memory1.clone()).unwrap();
 
     let mut instance = Instance::with_hosts(imported_two_memory_module(), hosts).unwrap();
     assert_eq!(
@@ -215,8 +211,7 @@ fn indexed_host_memory_access_fails_closed_for_capability_and_index_errors() {
             },
         )
         .unwrap();
-    let mut instance =
-        Instance::with_hosts(defined_two_memory_module(), invalid_index).unwrap();
+    let mut instance = Instance::with_hosts(defined_two_memory_module(), invalid_index).unwrap();
     assert!(matches!(
         instance.invoke_export("run", &[]),
         Err(RuntimeError::HostCallFailed {
