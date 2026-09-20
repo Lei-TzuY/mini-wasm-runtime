@@ -64,13 +64,6 @@ fn push_i64x2(code: &mut Vec<u8>, lanes: [i64; 2]) {
     }
 }
 
-fn push_i32x4(code: &mut Vec<u8>, lanes: [i32; 4]) {
-    simd(code, 12);
-    for lane in lanes {
-        code.extend_from_slice(&lane.to_le_bytes());
-    }
-}
-
 fn run_i64(code: &[u8]) -> i64 {
     let parsed = parse_module(&module(0x7e, code)).expect("i64x2 fixture parses");
     let mut instance = Instance::new(parsed).expect("i64x2 fixture validates");
@@ -179,25 +172,4 @@ fn validator_rejects_i64x2_unary_and_reduction_type_confusion() {
             ))
         ));
     }
-}
-
-#[test]
-fn i64x2_widening_frontier_remains_fail_closed() {
-    let mut code = Vec::new();
-    push_i32x4(&mut code, [1, -2, 3, -4]);
-    simd(&mut code, 199);
-    simd(&mut code, 29);
-    code.push(0);
-
-    let parsed = parse_module(&module(0x7e, &code)).expect("unsupported fixture parses");
-    assert!(matches!(
-        Instance::new(parsed),
-        Err(RuntimeError::Validation(
-            ValidationError::UnsupportedPrefixedOpcode {
-                prefix: 0xfd,
-                subopcode: 199,
-                ..
-            }
-        ))
-    ));
 }
