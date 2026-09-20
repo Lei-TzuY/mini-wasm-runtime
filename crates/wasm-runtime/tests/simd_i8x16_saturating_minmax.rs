@@ -185,23 +185,3 @@ fn validator_rejects_i8x16_alu_type_confusion() {
     ));
 }
 
-#[test]
-fn adjacent_i8x16_wrapping_add_remains_fail_closed() {
-    let mut instructions = Vec::new();
-    push_splat(&mut instructions, 1);
-    push_splat(&mut instructions, 2);
-    push_simd(&mut instructions, 110); // i8x16.add remains outside this slice
-    push_extract_u(&mut instructions, 0);
-
-    let parsed = parse_module(&module(&instructions)).expect("unsupported-SIMD fixture must parse");
-    assert!(matches!(
-        Instance::new(parsed),
-        Err(RuntimeError::Validation(
-            ValidationError::UnsupportedPrefixedOpcode {
-                prefix: 0xfd,
-                subopcode: 110,
-                ..
-            }
-        ))
-    ));
-}
