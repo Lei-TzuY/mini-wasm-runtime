@@ -9,6 +9,7 @@
 mod base;
 mod clock;
 mod filesystem;
+mod poll;
 mod preopen;
 
 pub use base::{
@@ -353,6 +354,7 @@ impl WasiPreview1 {
         )?;
 
         self.clocks.register(registry)?;
+        poll::register(registry, self.clocks)?;
 
         let exit_code = self.exit_code.clone();
         registry.register_values(
