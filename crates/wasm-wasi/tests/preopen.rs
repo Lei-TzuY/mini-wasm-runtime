@@ -218,7 +218,6 @@ fn preopen_configuration_is_bounded_before_registration() {
     ));
 }
 
-
 fn preopen_close_liveness_module() -> Vec<u8> {
     let mut module = b"\0asm\x01\0\0\0".to_vec();
 
