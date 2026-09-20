@@ -70,10 +70,8 @@ fn indexed_instance_access_matches_wasmtime_for_mixed_memory32_memory64() {
 
     let mut first = [0_u8; 1];
     let mut second = [0_u8; 1];
-    m0.read(&store, 8, &mut first)
-        .expect("read Wasmtime m0");
-    m1.read(&store, 8, &mut second)
-        .expect("read Wasmtime m1");
+    m0.read(&store, 8, &mut first).expect("read Wasmtime m0");
+    m1.read(&store, 8, &mut second).expect("read Wasmtime m1");
     assert_eq!(first, [b'A']);
     assert_eq!(second, [b'Z']);
     assert_eq!(load0.call(&mut store, ()).unwrap(), i32::from(b'A'));
