@@ -520,26 +520,51 @@ enum HostMemory<'a> {
 }
 
 pub struct HostContext<'a> {
-    memory: Option<HostMemory<'a>>,
+    memories: Vec<HostMemory<'a>>,
     capabilities: HostCapabilities,
 }
 
 impl HostContext<'_> {
+    pub fn memory_count(&self) -> usize {
+        self.memories.len()
+    }
+
     pub fn memory_size_pages(&self) -> Result<u32, HostError> {
+        self.memory_size_pages_at(0)
+    }
+
+    pub fn memory_size_pages_at(&self, memory_index: u32) -> Result<u32, HostError> {
         if !self.capabilities.memory_read {
             return Err(HostError::CapabilityDenied("memory.read"));
         }
-        match self.memory.as_ref().ok_or(HostError::MemoryUnavailable)? {
+        match self
+            .memories
+            .get(memory_index as usize)
+            .ok_or(HostError::MemoryUnavailable)?
+        {
             HostMemory::Owned(memory) => Ok(memory.size_pages()),
             HostMemory::Shared(memory) => Ok(memory.size_pages()),
         }
     }
 
     pub fn read_memory(&self, address: u32, length: usize) -> Result<Vec<u8>, HostError> {
+        self.read_memory_at(0, address, length)
+    }
+
+    pub fn read_memory_at(
+        &self,
+        memory_index: u32,
+        address: u32,
+        length: usize,
+    ) -> Result<Vec<u8>, HostError> {
         if !self.capabilities.memory_read {
             return Err(HostError::CapabilityDenied("memory.read"));
         }
-        match self.memory.as_ref().ok_or(HostError::MemoryUnavailable)? {
+        match self
+            .memories
+            .get(memory_index as usize)
+            .ok_or(HostError::MemoryUnavailable)?
+        {
             HostMemory::Owned(memory) => {
                 let range = memory.checked_host_range(address, length)?;
                 Ok(memory.bytes[range].to_vec())
@@ -556,10 +581,23 @@ impl HostContext<'_> {
     }
 
     pub fn write_memory(&mut self, address: u32, bytes: &[u8]) -> Result<(), HostError> {
+        self.write_memory_at(0, address, bytes)
+    }
+
+    pub fn write_memory_at(
+        &mut self,
+        memory_index: u32,
+        address: u32,
+        bytes: &[u8],
+    ) -> Result<(), HostError> {
         if !self.capabilities.memory_write {
             return Err(HostError::CapabilityDenied("memory.write"));
         }
-        match self.memory.as_mut().ok_or(HostError::MemoryUnavailable)? {
+        match self
+            .memories
+            .get_mut(memory_index as usize)
+            .ok_or(HostError::MemoryUnavailable)?
+        {
             HostMemory::Owned(memory) => {
                 let range = memory.checked_host_range(address, bytes.len())?;
                 memory.bytes[range].copy_from_slice(bytes);
@@ -2213,13 +2251,15 @@ impl Instance {
                 module: import.module.clone(),
                 name: import.name.clone(),
             })?;
-        let context_memory = match memories.first_mut() {
-            Some(RuntimeMemory::Owned(memory)) => Some(HostMemory::Owned(memory)),
-            Some(RuntimeMemory::Imported(memory)) => Some(HostMemory::Shared(memory.clone())),
-            None => None,
-        };
+        let context_memories = memories
+            .iter_mut()
+            .map(|memory| match memory {
+                RuntimeMemory::Owned(memory) => HostMemory::Owned(memory),
+                RuntimeMemory::Imported(memory) => HostMemory::Shared(memory.clone()),
+            })
+            .collect();
         let mut context = HostContext {
-            memory: context_memory,
+            memories: context_memories,
             capabilities: host.capabilities,
         };
         let result =
