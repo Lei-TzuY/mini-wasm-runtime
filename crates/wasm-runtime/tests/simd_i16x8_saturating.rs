@@ -173,4 +173,3 @@ fn validator_rejects_i16x8_saturating_type_confusion() {
         ))
     ));
 }
-
