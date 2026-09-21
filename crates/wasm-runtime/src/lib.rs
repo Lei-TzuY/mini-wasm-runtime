@@ -1725,9 +1725,25 @@ pub struct Instance {
     limits: RuntimeLimits,
 }
 
+struct GuestFrame {
+    locals: Vec<Value>,
+    local_types: Vec<ValueType>,
+    stack: Vec<Value>,
+    pc: usize,
+    code: Vec<u8>,
+    result_types: Vec<ValueType>,
+    controls: Vec<ExecControlFrame>,
+    control_map: ControlMap,
+}
+
 enum FunctionOutcome {
     Return(Vec<Value>),
     TailCall {
+        function_index: u32,
+        args: Vec<Value>,
+    },
+    Call {
+        continuation: Box<GuestFrame>,
         function_index: u32,
         args: Vec<Value>,
     },
@@ -2409,43 +2425,82 @@ impl Instance {
         depth: usize,
         budget: &mut ExecutionBudget,
     ) -> Result<Vec<Value>, RuntimeError> {
+        let call_depth_limit = self.limits.max_call_depth.min(MAX_CALL_DEPTH);
+        let imported = self.module.function_import_count();
         let mut current_function = function_index;
         let mut current_args = args.to_vec();
+        let mut current_depth = depth;
+        let mut current_frame: Option<Box<GuestFrame>> = None;
+        let mut callers = Vec::<Box<GuestFrame>>::new();
+
         loop {
-            match self.invoke_function_frame(current_function, &current_args, depth, budget)? {
-                FunctionOutcome::Return(results) => return Ok(results),
+            let outcome = if let Some(frame) = current_frame.take() {
+                self.execute_guest_frame(*frame, budget)?
+            } else {
+                let function = current_function as usize;
+                if function < imported {
+                    FunctionOutcome::Return(self.invoke_host(function, &current_args, budget)?)
+                } else {
+                    if current_depth >= call_depth_limit {
+                        return Err(RuntimeError::CallDepthExceeded {
+                            limit: call_depth_limit,
+                        });
+                    }
+                    let frame = self.prepare_guest_frame(current_function, &current_args)?;
+                    self.execute_guest_frame(frame, budget)?
+                }
+            };
+
+            match outcome {
+                FunctionOutcome::Return(results) => {
+                    if let Some(mut caller) = callers.pop() {
+                        current_depth =
+                            current_depth
+                                .checked_sub(1)
+                                .ok_or(RuntimeError::ControlInvariant(
+                                    "guest call stack depth underflow",
+                                ))?;
+                        caller.stack.extend(results);
+                        current_frame = Some(caller);
+                    } else {
+                        return Ok(results);
+                    }
+                }
                 FunctionOutcome::TailCall {
                     function_index,
                     args,
                 } => {
                     current_function = function_index;
                     current_args = args;
+                    current_frame = None;
+                }
+                FunctionOutcome::Call {
+                    continuation,
+                    function_index,
+                    args,
+                } => {
+                    callers.push(continuation);
+                    current_depth =
+                        current_depth
+                            .checked_add(1)
+                            .ok_or(RuntimeError::ControlInvariant(
+                                "guest call stack depth overflow",
+                            ))?;
+                    current_function = function_index;
+                    current_args = args;
+                    current_frame = None;
                 }
             }
         }
     }
 
-    fn invoke_function_frame(
-        &mut self,
+    fn prepare_guest_frame(
+        &self,
         function_index: u32,
         args: &[Value],
-        depth: usize,
-        budget: &mut ExecutionBudget,
-    ) -> Result<FunctionOutcome, RuntimeError> {
+    ) -> Result<GuestFrame, RuntimeError> {
         let function = function_index as usize;
         let imported = self.module.function_import_count();
-        if function < imported {
-            return self
-                .invoke_host(function, args, budget)
-                .map(FunctionOutcome::Return);
-        }
-        let call_depth_limit = self.limits.max_call_depth.min(MAX_CALL_DEPTH);
-        if depth >= call_depth_limit {
-            return Err(RuntimeError::CallDepthExceeded {
-                limit: call_depth_limit,
-            });
-        }
-
         let defined = function
             .checked_sub(imported)
             .ok_or(RuntimeError::FunctionOutOfBounds(function_index))?;
@@ -2468,15 +2523,13 @@ impl Instance {
             local_types.extend(std::iter::repeat(local_type).take(count));
         }
 
-        let mut stack = Vec::<Value>::new();
-        let mut pc = 0usize;
-        let code = &body.code;
+        let code = body.code;
         let result_types = ty.results.clone();
         let function_end = code
             .len()
             .checked_sub(1)
             .ok_or(RuntimeError::ControlInvariant("function body is empty"))?;
-        let mut controls = vec![ExecControlFrame {
+        let controls = vec![ExecControlFrame {
             kind: ControlKind::Function,
             body_pc: 0,
             end_pc: function_end,
@@ -2484,6 +2537,35 @@ impl Instance {
             param_types: Vec::new(),
             result_types: result_types.clone(),
         }];
+
+        Ok(GuestFrame {
+            locals,
+            local_types,
+            stack: Vec::new(),
+            pc: 0,
+            code,
+            result_types,
+            controls,
+            control_map,
+        })
+    }
+
+    fn execute_guest_frame(
+        &mut self,
+        frame: GuestFrame,
+        budget: &mut ExecutionBudget,
+    ) -> Result<FunctionOutcome, RuntimeError> {
+        let GuestFrame {
+            mut locals,
+            local_types,
+            mut stack,
+            mut pc,
+            code: frame_code,
+            result_types,
+            mut controls,
+            control_map,
+        } = frame;
+        let code = &frame_code;
 
         while pc < code.len() {
             budget.consume_instruction()?;
@@ -2612,25 +2694,20 @@ impl Instance {
                         return Err(RuntimeError::StackUnderflow);
                     }
                     let call_args = stack.split_off(stack.len() - param_count);
-                    let mut outcome =
-                        self.invoke_function_frame(callee, &call_args, depth + 1, budget)?;
-                    let results = loop {
-                        match outcome {
-                            FunctionOutcome::Return(results) => break results,
-                            FunctionOutcome::TailCall {
-                                function_index,
-                                args,
-                            } => {
-                                outcome = self.invoke_function_frame(
-                                    function_index,
-                                    &args,
-                                    depth + 1,
-                                    budget,
-                                )?;
-                            }
-                        }
-                    };
-                    stack.extend(results);
+                    return Ok(FunctionOutcome::Call {
+                        continuation: Box::new(GuestFrame {
+                            locals,
+                            local_types,
+                            stack,
+                            pc,
+                            code: frame_code,
+                            result_types,
+                            controls,
+                            control_map,
+                        }),
+                        function_index: callee,
+                        args: call_args,
+                    });
                 }
                 0x11 => {
                     let expected_type_index = read_u32_immediate(code, &mut pc)?;
@@ -2646,25 +2723,20 @@ impl Instance {
                         return Err(RuntimeError::StackUnderflow);
                     }
                     let call_args = stack.split_off(stack.len() - param_count);
-                    let mut outcome =
-                        self.invoke_function_frame(callee, &call_args, depth + 1, budget)?;
-                    let results = loop {
-                        match outcome {
-                            FunctionOutcome::Return(results) => break results,
-                            FunctionOutcome::TailCall {
-                                function_index,
-                                args,
-                            } => {
-                                outcome = self.invoke_function_frame(
-                                    function_index,
-                                    &args,
-                                    depth + 1,
-                                    budget,
-                                )?;
-                            }
-                        }
-                    };
-                    stack.extend(results);
+                    return Ok(FunctionOutcome::Call {
+                        continuation: Box::new(GuestFrame {
+                            locals,
+                            local_types,
+                            stack,
+                            pc,
+                            code: frame_code,
+                            result_types,
+                            controls,
+                            control_map,
+                        }),
+                        function_index: callee,
+                        args: call_args,
+                    });
                 }
                 0x12 => {
                     let callee = read_u32_immediate(code, &mut pc)?;
