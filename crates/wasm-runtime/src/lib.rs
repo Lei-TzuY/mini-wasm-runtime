@@ -2612,7 +2612,24 @@ impl Instance {
                         return Err(RuntimeError::StackUnderflow);
                     }
                     let call_args = stack.split_off(stack.len() - param_count);
-                    let results = self.invoke_function(callee, &call_args, depth + 1, budget)?;
+                    let mut outcome =
+                        self.invoke_function_frame(callee, &call_args, depth + 1, budget)?;
+                    let results = loop {
+                        match outcome {
+                            FunctionOutcome::Return(results) => break results,
+                            FunctionOutcome::TailCall {
+                                function_index,
+                                args,
+                            } => {
+                                outcome = self.invoke_function_frame(
+                                    function_index,
+                                    &args,
+                                    depth + 1,
+                                    budget,
+                                )?;
+                            }
+                        }
+                    };
                     stack.extend(results);
                 }
                 0x11 => {
@@ -2629,7 +2646,24 @@ impl Instance {
                         return Err(RuntimeError::StackUnderflow);
                     }
                     let call_args = stack.split_off(stack.len() - param_count);
-                    let results = self.invoke_function(callee, &call_args, depth + 1, budget)?;
+                    let mut outcome =
+                        self.invoke_function_frame(callee, &call_args, depth + 1, budget)?;
+                    let results = loop {
+                        match outcome {
+                            FunctionOutcome::Return(results) => break results,
+                            FunctionOutcome::TailCall {
+                                function_index,
+                                args,
+                            } => {
+                                outcome = self.invoke_function_frame(
+                                    function_index,
+                                    &args,
+                                    depth + 1,
+                                    budget,
+                                )?;
+                            }
+                        }
+                    };
                     stack.extend(results);
                 }
                 0x12 => {
