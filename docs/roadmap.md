@@ -210,6 +210,7 @@ The runtime has moved beyond a generic future-WASI placeholder into an executabl
 
 ## Phase 8 — bounded proposal expansion
 
+- [x] tail-call proposal execution for `return_call` / `return_call_indirect` through a same-depth function-frame trampoline, preserving exact caller/callee result vectors, nonzero-table indirect dispatch, imported-host tail targets, multi-value forwarding, instruction fuel, and the existing `MAX_CALL_DEPTH` invariant for ordinary recursive calls, with deterministic regressions and pinned Wasmtime differential evidence
 - [x] exported state embedding lookup across memory/global/table exports, with name+kind fail-closed resolution, live shared GlobalHandle/TableHandle backing, exported-memory composition with indexed memory32/memory64 access, and pinned Wasmtime host-mutation differential evidence
 - [x] multi-memory instance embedding access with indexed size/read/write across owned/imported memory32 and memory64 backing, full-width `u64` byte addresses, legacy memory-0 compatibility, atomic bounds failures, and pinned Wasmtime mixed-width differential evidence
 - [x] multi-memory host-boundary integration with capability-scoped indexed HostContext memory count/size/read/write access across owned and imported memories, legacy memory-0 compatibility, fail-closed invalid indices, focused regressions, and Wasmtime differential evidence

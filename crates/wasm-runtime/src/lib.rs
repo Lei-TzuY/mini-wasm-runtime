@@ -1725,6 +1725,30 @@ pub struct Instance {
     limits: RuntimeLimits,
 }
 
+struct GuestFrame {
+    locals: Vec<Value>,
+    local_types: Vec<ValueType>,
+    stack: Vec<Value>,
+    pc: usize,
+    code: Vec<u8>,
+    result_types: Vec<ValueType>,
+    controls: Vec<ExecControlFrame>,
+    control_map: ControlMap,
+}
+
+enum FunctionOutcome {
+    Return(Vec<Value>),
+    TailCall {
+        function_index: u32,
+        args: Vec<Value>,
+    },
+    Call {
+        continuation: Box<GuestFrame>,
+        function_index: u32,
+        args: Vec<Value>,
+    },
+}
+
 impl Instance {
     pub fn new(module: Module) -> Result<Self, RuntimeError> {
         Self::with_config(module, HostRegistry::new(), RuntimeLimits::default())
@@ -2272,6 +2296,37 @@ impl Instance {
         }
     }
 
+    fn resolve_indirect_callee(
+        &self,
+        expected_type_index: u32,
+        table_index: u32,
+        element_index: u32,
+    ) -> Result<(u32, FuncType), RuntimeError> {
+        let callee = self
+            .tables
+            .get(table_index as usize)
+            .ok_or(RuntimeError::TableIndexOutOfBounds(table_index))?
+            .function_index_for_instance(element_index, &self.identity)
+            .map_err(|error| map_table_element_error(error, element_index))?
+            .ok_or(RuntimeError::UninitializedTableElement(element_index))?;
+        let expected_type = self
+            .module
+            .types
+            .get(expected_type_index as usize)
+            .cloned()
+            .ok_or(RuntimeError::ControlInvariant(
+                "validated call_indirect type is missing",
+            ))?;
+        let actual_type = self.function_type(callee)?;
+        if actual_type != expected_type {
+            return Err(RuntimeError::IndirectCallTypeMismatch {
+                expected_type: expected_type_index,
+                function_index: callee,
+            });
+        }
+        Ok((callee, expected_type))
+    }
+
     fn function_type(&self, function_index: u32) -> Result<FuncType, RuntimeError> {
         let function = function_index as usize;
         let imported = self.module.function_import_count();
@@ -2370,18 +2425,82 @@ impl Instance {
         depth: usize,
         budget: &mut ExecutionBudget,
     ) -> Result<Vec<Value>, RuntimeError> {
+        let call_depth_limit = self.limits.max_call_depth.min(MAX_CALL_DEPTH);
+        let imported = self.module.function_import_count();
+        let mut current_function = function_index;
+        let mut current_args = args.to_vec();
+        let mut current_depth = depth;
+        let mut current_frame: Option<Box<GuestFrame>> = None;
+        let mut callers = Vec::<Box<GuestFrame>>::new();
+
+        loop {
+            let outcome = if let Some(frame) = current_frame.take() {
+                self.execute_guest_frame(*frame, budget)?
+            } else {
+                let function = current_function as usize;
+                if function < imported {
+                    FunctionOutcome::Return(self.invoke_host(function, &current_args, budget)?)
+                } else {
+                    if current_depth >= call_depth_limit {
+                        return Err(RuntimeError::CallDepthExceeded {
+                            limit: call_depth_limit,
+                        });
+                    }
+                    let frame = self.prepare_guest_frame(current_function, &current_args)?;
+                    self.execute_guest_frame(frame, budget)?
+                }
+            };
+
+            match outcome {
+                FunctionOutcome::Return(results) => {
+                    if let Some(mut caller) = callers.pop() {
+                        current_depth =
+                            current_depth
+                                .checked_sub(1)
+                                .ok_or(RuntimeError::ControlInvariant(
+                                    "guest call stack depth underflow",
+                                ))?;
+                        caller.stack.extend(results);
+                        current_frame = Some(caller);
+                    } else {
+                        return Ok(results);
+                    }
+                }
+                FunctionOutcome::TailCall {
+                    function_index,
+                    args,
+                } => {
+                    current_function = function_index;
+                    current_args = args;
+                    current_frame = None;
+                }
+                FunctionOutcome::Call {
+                    continuation,
+                    function_index,
+                    args,
+                } => {
+                    callers.push(continuation);
+                    current_depth =
+                        current_depth
+                            .checked_add(1)
+                            .ok_or(RuntimeError::ControlInvariant(
+                                "guest call stack depth overflow",
+                            ))?;
+                    current_function = function_index;
+                    current_args = args;
+                    current_frame = None;
+                }
+            }
+        }
+    }
+
+    fn prepare_guest_frame(
+        &self,
+        function_index: u32,
+        args: &[Value],
+    ) -> Result<GuestFrame, RuntimeError> {
         let function = function_index as usize;
         let imported = self.module.function_import_count();
-        if function < imported {
-            return self.invoke_host(function, args, budget);
-        }
-        let call_depth_limit = self.limits.max_call_depth.min(MAX_CALL_DEPTH);
-        if depth >= call_depth_limit {
-            return Err(RuntimeError::CallDepthExceeded {
-                limit: call_depth_limit,
-            });
-        }
-
         let defined = function
             .checked_sub(imported)
             .ok_or(RuntimeError::FunctionOutOfBounds(function_index))?;
@@ -2404,15 +2523,13 @@ impl Instance {
             local_types.extend(std::iter::repeat(local_type).take(count));
         }
 
-        let mut stack = Vec::<Value>::new();
-        let mut pc = 0usize;
-        let code = &body.code;
+        let code = body.code;
         let result_types = ty.results.clone();
         let function_end = code
             .len()
             .checked_sub(1)
             .ok_or(RuntimeError::ControlInvariant("function body is empty"))?;
-        let mut controls = vec![ExecControlFrame {
+        let controls = vec![ExecControlFrame {
             kind: ControlKind::Function,
             body_pc: 0,
             end_pc: function_end,
@@ -2420,6 +2537,35 @@ impl Instance {
             param_types: Vec::new(),
             result_types: result_types.clone(),
         }];
+
+        Ok(GuestFrame {
+            locals,
+            local_types,
+            stack: Vec::new(),
+            pc: 0,
+            code,
+            result_types,
+            controls,
+            control_map,
+        })
+    }
+
+    fn execute_guest_frame(
+        &mut self,
+        frame: GuestFrame,
+        budget: &mut ExecutionBudget,
+    ) -> Result<FunctionOutcome, RuntimeError> {
+        let GuestFrame {
+            mut locals,
+            local_types,
+            mut stack,
+            mut pc,
+            code: frame_code,
+            result_types,
+            mut controls,
+            control_map,
+        } = frame;
+        let code = &frame_code;
 
         while pc < code.len() {
             budget.consume_instruction()?;
@@ -2548,42 +2694,91 @@ impl Instance {
                         return Err(RuntimeError::StackUnderflow);
                     }
                     let call_args = stack.split_off(stack.len() - param_count);
-                    let results = self.invoke_function(callee, &call_args, depth + 1, budget)?;
-                    stack.extend(results);
+                    return Ok(FunctionOutcome::Call {
+                        continuation: Box::new(GuestFrame {
+                            locals,
+                            local_types,
+                            stack,
+                            pc,
+                            code: frame_code,
+                            result_types,
+                            controls,
+                            control_map,
+                        }),
+                        function_index: callee,
+                        args: call_args,
+                    });
                 }
                 0x11 => {
                     let expected_type_index = read_u32_immediate(code, &mut pc)?;
                     let table_index = read_u32_immediate(code, &mut pc)?;
                     let element_index = numeric::i32_from_stack(&mut stack)? as u32;
-                    let callee = self
-                        .tables
-                        .get(table_index as usize)
-                        .ok_or(RuntimeError::TableIndexOutOfBounds(table_index))?
-                        .function_index_for_instance(element_index, &self.identity)
-                        .map_err(|error| map_table_element_error(error, element_index))?
-                        .ok_or(RuntimeError::UninitializedTableElement(element_index))?;
-                    let expected_type = self
-                        .module
-                        .types
-                        .get(expected_type_index as usize)
-                        .cloned()
-                        .ok_or(RuntimeError::ControlInvariant(
-                            "validated call_indirect type is missing",
-                        ))?;
-                    let actual_type = self.function_type(callee)?;
-                    if actual_type != expected_type {
-                        return Err(RuntimeError::IndirectCallTypeMismatch {
-                            expected_type: expected_type_index,
-                            function_index: callee,
-                        });
-                    }
+                    let (callee, expected_type) = self.resolve_indirect_callee(
+                        expected_type_index,
+                        table_index,
+                        element_index,
+                    )?;
                     let param_count = expected_type.params.len();
                     if stack.len() < param_count {
                         return Err(RuntimeError::StackUnderflow);
                     }
                     let call_args = stack.split_off(stack.len() - param_count);
-                    let results = self.invoke_function(callee, &call_args, depth + 1, budget)?;
-                    stack.extend(results);
+                    return Ok(FunctionOutcome::Call {
+                        continuation: Box::new(GuestFrame {
+                            locals,
+                            local_types,
+                            stack,
+                            pc,
+                            code: frame_code,
+                            result_types,
+                            controls,
+                            control_map,
+                        }),
+                        function_index: callee,
+                        args: call_args,
+                    });
+                }
+                0x12 => {
+                    let callee = read_u32_immediate(code, &mut pc)?;
+                    let callee_type = self.function_type(callee)?;
+                    if callee_type.results != result_types {
+                        return Err(RuntimeError::ControlInvariant(
+                            "validated return_call result type mismatch",
+                        ));
+                    }
+                    let param_count = callee_type.params.len();
+                    if stack.len() < param_count {
+                        return Err(RuntimeError::StackUnderflow);
+                    }
+                    let args = stack.split_off(stack.len() - param_count);
+                    return Ok(FunctionOutcome::TailCall {
+                        function_index: callee,
+                        args,
+                    });
+                }
+                0x13 => {
+                    let expected_type_index = read_u32_immediate(code, &mut pc)?;
+                    let table_index = read_u32_immediate(code, &mut pc)?;
+                    let element_index = numeric::i32_from_stack(&mut stack)? as u32;
+                    let (callee, expected_type) = self.resolve_indirect_callee(
+                        expected_type_index,
+                        table_index,
+                        element_index,
+                    )?;
+                    if expected_type.results != result_types {
+                        return Err(RuntimeError::ControlInvariant(
+                            "validated return_call_indirect result type mismatch",
+                        ));
+                    }
+                    let param_count = expected_type.params.len();
+                    if stack.len() < param_count {
+                        return Err(RuntimeError::StackUnderflow);
+                    }
+                    let args = stack.split_off(stack.len() - param_count);
+                    return Ok(FunctionOutcome::TailCall {
+                        function_index: callee,
+                        args,
+                    });
                 }
                 0x1a => {
                     let _ = stack.pop().ok_or(RuntimeError::StackUnderflow)?;
@@ -3067,7 +3262,7 @@ impl Instance {
             });
         }
         validate_values(&result_types, &stack)?;
-        Ok(stack)
+        Ok(FunctionOutcome::Return(stack))
     }
 }
 

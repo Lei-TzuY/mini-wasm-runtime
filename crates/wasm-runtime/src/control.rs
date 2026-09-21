@@ -131,7 +131,7 @@ pub(super) fn build_control_map(module: &Module, code: &[u8]) -> Result<ControlM
                     ));
                 }
             }
-            0x0c | 0x0d | 0x10 | 0x20..=0x26 | 0x3f | 0x40 => {
+            0x0c | 0x0d | 0x10 | 0x12 | 0x20..=0x26 | 0x3f | 0x40 => {
                 let _ = read_u32_immediate(code, &mut pc)?;
             }
             0x0e => {
@@ -141,7 +141,7 @@ pub(super) fn build_control_map(module: &Module, code: &[u8]) -> Result<ControlM
                 }
                 let _ = read_u32_immediate(code, &mut pc)?;
             }
-            0x11 => {
+            0x11 | 0x13 => {
                 let _ = read_u32_immediate(code, &mut pc)?;
                 let _ = read_u32_immediate(code, &mut pc)?;
             }

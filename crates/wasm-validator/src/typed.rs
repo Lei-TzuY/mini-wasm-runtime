@@ -202,6 +202,51 @@ pub(super) fn validate_code(
                 pop_expect(&mut stack, &controls, ValueType::I32, function, offset)?;
                 apply_call_signature(&mut stack, &controls, ty, function, offset)?;
             }
+            0x12 => {
+                let target = read_u32(code, &mut pc, function, offset)?;
+                let Some(ty) = function_type(module, target) else {
+                    return Err(ValidationError::CallTargetOutOfBounds {
+                        function,
+                        offset,
+                        target,
+                    });
+                };
+                apply_tail_call_signature(
+                    &mut stack,
+                    &mut controls,
+                    ty,
+                    function_results,
+                    function,
+                    offset,
+                )?;
+            }
+            0x13 => {
+                let type_index = read_u32(code, &mut pc, function, offset)?;
+                let table_index = read_u32(code, &mut pc, function, offset)?;
+                if table_index as usize >= module.table_count() {
+                    return Err(ValidationError::TableIndexOutOfBounds {
+                        function,
+                        offset,
+                        table_index,
+                    });
+                }
+                let Some(ty) = module.types.get(type_index as usize) else {
+                    return Err(ValidationError::IndirectTypeIndexOutOfBounds {
+                        function,
+                        offset,
+                        type_index,
+                    });
+                };
+                pop_expect(&mut stack, &controls, ValueType::I32, function, offset)?;
+                apply_tail_call_signature(
+                    &mut stack,
+                    &mut controls,
+                    ty,
+                    function_results,
+                    function,
+                    offset,
+                )?;
+            }
             0x1a => {
                 let _ = pop_any(&mut stack, &controls, function, offset)?;
             }
@@ -1431,6 +1476,29 @@ fn apply_call_signature(
         pop_expect(stack, controls, param, function, offset)?;
     }
     stack.extend(ty.results.iter().copied());
+    Ok(())
+}
+
+fn apply_tail_call_signature(
+    stack: &mut Vec<ValueType>,
+    controls: &mut [ControlFrame],
+    ty: &FuncType,
+    function_results: &[ValueType],
+    function: usize,
+    offset: usize,
+) -> Result<(), ValidationError> {
+    if ty.results != function_results {
+        return Err(ValidationError::TailCallResultTypeMismatch {
+            function,
+            offset,
+            expected: function_results.to_vec(),
+            actual: ty.results.clone(),
+        });
+    }
+    for &param in ty.params.iter().rev() {
+        pop_expect(stack, controls, param, function, offset)?;
+    }
+    mark_unreachable(stack, controls);
     Ok(())
 }
 
