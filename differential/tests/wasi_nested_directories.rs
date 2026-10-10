@@ -50,7 +50,7 @@ struct RemovedHandleTrace {
     errnos: [i32; 8],
     entries_after_remove: Vec<PortableDirent>,
     entries_after_recreate: Vec<PortableDirent>,
-    output_preserved: bool,
+    output_tail_preserved: bool,
     failed_open_output_preserved: bool,
     replacement_file_survives: bool,
     stale_create_did_not_publish: bool,
@@ -306,8 +306,11 @@ fn run_mini(bytes: &[u8]) -> NestedDirectoryTrace {
     );
     let (recreated_read_errno, entries_after_recreate) =
         mini_readdir(&mut instance, &memory, directory_fd);
-    let output_preserved =
-        memory.read(BUFFER, BUFFER_LEN as usize).unwrap() == vec![0x5a; BUFFER_LEN as usize];
+    let used = mini_u32(&memory, BUFUSED);
+    let output_tail_preserved = memory
+        .read(BUFFER + used, (BUFFER_LEN - used) as usize)
+        .unwrap()
+        == vec![0x5a; (BUFFER_LEN - used) as usize];
     memory
         .write(FILE_FD_OUT, &0xdead_beefu32.to_le_bytes())
         .unwrap();
@@ -361,7 +364,7 @@ fn run_mini(bytes: &[u8]) -> NestedDirectoryTrace {
         ],
         entries_after_remove,
         entries_after_recreate,
-        output_preserved,
+        output_tail_preserved,
         failed_open_output_preserved,
         replacement_file_survives: wasi.file_snapshot("/sandbox", "docs/note.txt")
             == Some(Vec::new()),
@@ -579,8 +582,10 @@ fn run_reference(engine: &Engine, bytes: &[u8]) -> NestedDirectoryTrace {
     );
     let (recreated_read_errno, entries_after_recreate) =
         reference_readdir(&instance, &mut store, memory, directory_fd);
-    let output_preserved = memory.data(&store)[BUFFER as usize..(BUFFER + BUFFER_LEN) as usize]
-        == vec![0x5a; BUFFER_LEN as usize];
+    let used = reference_u32(memory, &mut store, BUFUSED);
+    let output_tail_preserved = memory.data(&store)
+        [(BUFFER + used) as usize..(BUFFER + BUFFER_LEN) as usize]
+        == vec![0x5a; (BUFFER_LEN - used) as usize];
     memory
         .write(
             &mut store,
@@ -646,7 +651,7 @@ fn run_reference(engine: &Engine, bytes: &[u8]) -> NestedDirectoryTrace {
         ],
         entries_after_remove,
         entries_after_recreate,
-        output_preserved,
+        output_tail_preserved,
         failed_open_output_preserved,
         replacement_file_survives: fs::read(root.path().join("docs/note.txt"))
             .is_ok_and(|bytes| bytes.is_empty()),
@@ -741,9 +746,27 @@ fn nested_directory_lifecycle_matches_wasmtime_preview1() {
                 ERRNO_NOENT,
                 ERRNO_SUCCESS,
             ],
-            entries_after_remove: Vec::new(),
-            entries_after_recreate: Vec::new(),
-            output_preserved: true,
+            entries_after_remove: vec![
+                PortableDirent {
+                    filetype: FILETYPE_DIRECTORY,
+                    name: b".".to_vec(),
+                },
+                PortableDirent {
+                    filetype: FILETYPE_DIRECTORY,
+                    name: b"..".to_vec(),
+                },
+            ],
+            entries_after_recreate: vec![
+                PortableDirent {
+                    filetype: FILETYPE_DIRECTORY,
+                    name: b".".to_vec(),
+                },
+                PortableDirent {
+                    filetype: FILETYPE_DIRECTORY,
+                    name: b"..".to_vec(),
+                },
+            ],
+            output_tail_preserved: true,
             failed_open_output_preserved: true,
             replacement_file_survives: true,
             stale_create_did_not_publish: true,

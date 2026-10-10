@@ -812,18 +812,15 @@ impl Filesystem {
         if rights & RIGHTS_FD_READDIR == 0 {
             return Err(ReaddirError::NotCapable);
         }
-        if state
+        let directory_is_linked = !state
             .open_directories
             .get(&fd)
-            .is_some_and(|directory| !open_directory_is_linked(&state, directory))
-        {
-            return Ok(Vec::new());
-        }
+            .is_some_and(|directory| !open_directory_is_linked(&state, directory));
 
         for file in state
             .mounted_files
             .iter()
-            .filter(|file| file.preopen_fd == preopen_fd)
+            .filter(|file| directory_is_linked && file.preopen_fd == preopen_fd)
         {
             let Some(remainder) = relative_to_directory(&base, &file.relative_path) else {
                 continue;
@@ -845,7 +842,7 @@ impl Filesystem {
         for directory in state
             .mounted_directories
             .iter()
-            .filter(|directory| directory.preopen_fd == preopen_fd)
+            .filter(|directory| directory_is_linked && directory.preopen_fd == preopen_fd)
         {
             if let Some(name) = immediate_child_name(&base, &directory.relative_path) {
                 children.push((name.to_vec(), directory.inode, FILETYPE_DIRECTORY));
@@ -854,7 +851,7 @@ impl Filesystem {
         for file in state
             .mounted_files
             .iter()
-            .filter(|file| file.preopen_fd == preopen_fd)
+            .filter(|file| directory_is_linked && file.preopen_fd == preopen_fd)
         {
             if let Some(name) = immediate_child_name(&base, &file.relative_path) {
                 children.push((name.to_vec(), file.inode, FILETYPE_REGULAR_FILE));
@@ -863,7 +860,7 @@ impl Filesystem {
         for symlink in state
             .mounted_symlinks
             .iter()
-            .filter(|symlink| symlink.preopen_fd == preopen_fd)
+            .filter(|symlink| directory_is_linked && symlink.preopen_fd == preopen_fd)
         {
             if let Some(name) = immediate_child_name(&base, &symlink.relative_path) {
                 children.push((name.to_vec(), symlink.inode, FILETYPE_SYMBOLIC_LINK));

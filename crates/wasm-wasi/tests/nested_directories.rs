@@ -456,6 +456,7 @@ fn removed_open_directory() -> (MemoryHandle, WasiPreview1, Instance, u32) {
 #[test]
 fn removed_directory_descriptor_does_not_enumerate_a_recreated_path() {
     let (memory, _wasi, mut vm, old_fd) = removed_open_directory();
+    let mut original_entries = Vec::new();
     for recreate in [false, true] {
         if recreate {
             assert_eq!(errno(&mut vm, "mkdir", &path_args(3, 96, 4)), ERRNO_SUCCESS);
@@ -474,16 +475,39 @@ fn removed_directory_descriptor_does_not_enumerate_a_recreated_path() {
             errno(&mut vm, "readdir", &readdir_args(old_fd, 512, 512, 0, 40)),
             ERRNO_SUCCESS
         );
+        let used = read_u32(&memory.read(40, 4).unwrap(), 0);
+        let entries = parse_complete_dirents(&memory.read(512, used as usize).unwrap());
         assert_eq!(
-            read_u32(&memory.read(40, 4).unwrap(), 0),
-            0,
-            "removed handle must enumerate its own empty directory"
-        );
-        assert_eq!(
-            memory.read(512, 512).unwrap(),
-            vec![0x5a; 512],
+            entries
+                .iter()
+                .map(|entry| entry.name.as_slice())
+                .collect::<Vec<_>>(),
+            vec![b".".as_slice(), b"..".as_slice()],
             "removed handle must not expose replacement entries"
         );
+        assert!(entries
+            .iter()
+            .all(|entry| entry.filetype == FILETYPE_DIRECTORY));
+        if recreate {
+            assert_eq!(
+                entries, original_entries,
+                "removed handle changed inode identity"
+            );
+        } else {
+            original_entries = entries;
+        }
+        assert_eq!(
+            memory.read(512 + used, 512 - used as usize).unwrap(),
+            vec![0x5a; 512 - used as usize],
+            "readdir must preserve bytes beyond its synthetic entries"
+        );
+        memory.write(512, &[0x5a; 512]).unwrap();
+        assert_eq!(
+            errno(&mut vm, "readdir", &readdir_args(old_fd, 512, 512, 2, 40)),
+            ERRNO_SUCCESS
+        );
+        assert_eq!(read_u32(&memory.read(40, 4).unwrap(), 0), 0);
+        assert_eq!(memory.read(512, 512).unwrap(), vec![0x5a; 512]);
     }
 }
 
