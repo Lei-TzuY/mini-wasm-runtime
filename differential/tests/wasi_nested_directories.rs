@@ -8,9 +8,9 @@ use std::{
 use wasm_parser::parse_module;
 use wasm_runtime::{HostRegistry, Instance as MiniInstance, MemoryHandle, Value};
 use wasm_wasi::{
-    WasiPreview1, ERRNO_NOTEMPTY, ERRNO_SUCCESS, FILETYPE_DIRECTORY, FILETYPE_REGULAR_FILE,
-    OFLAGS_CREAT, OFLAGS_DIRECTORY, RIGHTS_FD_READDIR, RIGHTS_PATH_CREATE_FILE, RIGHTS_PATH_OPEN,
-    RIGHTS_PATH_UNLINK_FILE,
+    WasiPreview1, ERRNO_NOENT, ERRNO_NOTEMPTY, ERRNO_SUCCESS, FILETYPE_DIRECTORY,
+    FILETYPE_REGULAR_FILE, OFLAGS_CREAT, OFLAGS_DIRECTORY, RIGHTS_FD_READDIR,
+    RIGHTS_PATH_CREATE_FILE, RIGHTS_PATH_OPEN, RIGHTS_PATH_UNLINK_FILE,
 };
 use wasmtime::{Engine, Linker, Memory, MemoryType, Module as ReferenceModule, Store};
 use wasmtime_wasi::{
@@ -42,6 +42,18 @@ struct NestedDirectoryTrace {
     nested_after_file_create: Vec<PortableDirent>,
     root_after_remove: Vec<PortableDirent>,
     reference_directory_removed: bool,
+    removed_handle: RemovedHandleTrace,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct RemovedHandleTrace {
+    errnos: [i32; 8],
+    entries_after_remove: Vec<PortableDirent>,
+    entries_after_recreate: Vec<PortableDirent>,
+    output_preserved: bool,
+    failed_open_output_preserved: bool,
+    replacement_file_survives: bool,
+    stale_create_did_not_publish: bool,
 }
 
 struct IsolatedDirectory {
@@ -88,6 +100,8 @@ fn module_bytes() -> Vec<u8> {
                 (func $fd_readdir (param i32 i32 i32 i64 i32) (result i32)))
             (import "wasi_snapshot_preview1" "path_unlink_file"
                 (func $unlink (param i32 i32 i32) (result i32)))
+            (import "wasi_snapshot_preview1" "fd_close"
+                (func $close (param i32) (result i32)))
             (import "env" "memory" (memory 1 1))
             (export "memory" (memory 0))
 
@@ -113,6 +127,8 @@ fn module_bytes() -> Vec<u8> {
                 local.get $fd local.get $buf local.get $len i64.const 0 local.get $used call $fd_readdir)
             (func (export "unlink") (param $fd i32) (param $path i32) (param $len i32) (result i32)
                 local.get $fd local.get $path local.get $len call $unlink)
+            (func (export "close") (param $fd i32) (result i32)
+                local.get $fd call $close)
         )
         "#,
     )
@@ -263,6 +279,95 @@ fn run_mini(bytes: &[u8]) -> NestedDirectoryTrace {
     );
     let (final_readdir_errno, root_after_remove) = mini_readdir(&mut instance, &memory, 3);
 
+    let (removed_read_errno, entries_after_remove) =
+        mini_readdir(&mut instance, &memory, directory_fd);
+    let recreated_errno = mini_call(
+        &mut instance,
+        "mkdir",
+        &[Value::I32(3), Value::I32(DOCS_PTR as i32), Value::I32(4)],
+    );
+    memory
+        .write(1060, b"docs/note.txt")
+        .expect("write replacement path");
+    memory
+        .write(1080, b"ghost.txt")
+        .expect("write stale create path");
+    let replacement_create_errno = mini_call(
+        &mut instance,
+        "open",
+        &[
+            Value::I32(3),
+            Value::I32(1060),
+            Value::I32(13),
+            Value::I32(OFLAGS_CREAT as i32),
+            Value::I64(0),
+            Value::I32(FILE_FD_OUT as i32),
+        ],
+    );
+    let (recreated_read_errno, entries_after_recreate) =
+        mini_readdir(&mut instance, &memory, directory_fd);
+    let output_preserved =
+        memory.read(BUFFER, BUFFER_LEN as usize).unwrap() == vec![0x5a; BUFFER_LEN as usize];
+    memory
+        .write(FILE_FD_OUT, &0xdead_beefu32.to_le_bytes())
+        .unwrap();
+    let stale_open_errno = mini_call(
+        &mut instance,
+        "open",
+        &[
+            Value::I32(directory_fd as i32),
+            Value::I32(NOTE_PTR as i32),
+            Value::I32(8),
+            Value::I32(0),
+            Value::I64(0),
+            Value::I32(FILE_FD_OUT as i32),
+        ],
+    );
+    let first_output_preserved = mini_u32(&memory, FILE_FD_OUT) == 0xdead_beef;
+    let stale_create_errno = mini_call(
+        &mut instance,
+        "open",
+        &[
+            Value::I32(directory_fd as i32),
+            Value::I32(1080),
+            Value::I32(9),
+            Value::I32(OFLAGS_CREAT as i32),
+            Value::I64(0),
+            Value::I32(FILE_FD_OUT as i32),
+        ],
+    );
+    let failed_open_output_preserved =
+        first_output_preserved && mini_u32(&memory, FILE_FD_OUT) == 0xdead_beef;
+    let stale_unlink_errno = mini_call(
+        &mut instance,
+        "unlink",
+        &[
+            Value::I32(directory_fd as i32),
+            Value::I32(NOTE_PTR as i32),
+            Value::I32(8),
+        ],
+    );
+    let close_errno = mini_call(&mut instance, "close", &[Value::I32(directory_fd as i32)]);
+    let removed_handle = RemovedHandleTrace {
+        errnos: [
+            removed_read_errno,
+            recreated_errno,
+            replacement_create_errno,
+            recreated_read_errno,
+            stale_open_errno,
+            stale_create_errno,
+            stale_unlink_errno,
+            close_errno,
+        ],
+        entries_after_remove,
+        entries_after_recreate,
+        output_preserved,
+        failed_open_output_preserved,
+        replacement_file_survives: wasi.file_snapshot("/sandbox", "docs/note.txt")
+            == Some(Vec::new()),
+        stale_create_did_not_publish: wasi.file_snapshot("/sandbox", "docs/ghost.txt").is_none(),
+    };
+
     NestedDirectoryTrace {
         errnos: [
             mkdir_errno,
@@ -279,6 +384,7 @@ fn run_mini(bytes: &[u8]) -> NestedDirectoryTrace {
         nested_after_file_create,
         root_after_remove,
         reference_directory_removed: true,
+        removed_handle,
     }
 }
 
@@ -440,6 +546,113 @@ fn run_reference(engine: &Engine, bytes: &[u8]) -> NestedDirectoryTrace {
         reference_readdir(&instance, &mut store, memory, 3);
     let reference_directory_removed = !root.path().join("docs").exists();
 
+    let (removed_read_errno, entries_after_remove) =
+        reference_readdir(&instance, &mut store, memory, directory_fd);
+    let recreated_errno = reference_call(
+        &instance,
+        &mut store,
+        "mkdir",
+        &[
+            wasmtime::Val::I32(3),
+            wasmtime::Val::I32(DOCS_PTR as i32),
+            wasmtime::Val::I32(4),
+        ],
+    );
+    memory
+        .write(&mut store, 1060, b"docs/note.txt")
+        .expect("write replacement path");
+    memory
+        .write(&mut store, 1080, b"ghost.txt")
+        .expect("write stale create path");
+    let replacement_create_errno = reference_call(
+        &instance,
+        &mut store,
+        "open",
+        &[
+            wasmtime::Val::I32(3),
+            wasmtime::Val::I32(1060),
+            wasmtime::Val::I32(13),
+            wasmtime::Val::I32(OFLAGS_CREAT as i32),
+            wasmtime::Val::I64(0),
+            wasmtime::Val::I32(FILE_FD_OUT as i32),
+        ],
+    );
+    let (recreated_read_errno, entries_after_recreate) =
+        reference_readdir(&instance, &mut store, memory, directory_fd);
+    let output_preserved = memory.data(&store)[BUFFER as usize..(BUFFER + BUFFER_LEN) as usize]
+        == vec![0x5a; BUFFER_LEN as usize];
+    memory
+        .write(
+            &mut store,
+            FILE_FD_OUT as usize,
+            &0xdead_beefu32.to_le_bytes(),
+        )
+        .unwrap();
+    let stale_open_errno = reference_call(
+        &instance,
+        &mut store,
+        "open",
+        &[
+            wasmtime::Val::I32(directory_fd as i32),
+            wasmtime::Val::I32(NOTE_PTR as i32),
+            wasmtime::Val::I32(8),
+            wasmtime::Val::I32(0),
+            wasmtime::Val::I64(0),
+            wasmtime::Val::I32(FILE_FD_OUT as i32),
+        ],
+    );
+    let first_output_preserved = reference_u32(memory, &store, FILE_FD_OUT) == 0xdead_beef;
+    let stale_create_errno = reference_call(
+        &instance,
+        &mut store,
+        "open",
+        &[
+            wasmtime::Val::I32(directory_fd as i32),
+            wasmtime::Val::I32(1080),
+            wasmtime::Val::I32(9),
+            wasmtime::Val::I32(OFLAGS_CREAT as i32),
+            wasmtime::Val::I64(0),
+            wasmtime::Val::I32(FILE_FD_OUT as i32),
+        ],
+    );
+    let failed_open_output_preserved =
+        first_output_preserved && reference_u32(memory, &store, FILE_FD_OUT) == 0xdead_beef;
+    let stale_unlink_errno = reference_call(
+        &instance,
+        &mut store,
+        "unlink",
+        &[
+            wasmtime::Val::I32(directory_fd as i32),
+            wasmtime::Val::I32(NOTE_PTR as i32),
+            wasmtime::Val::I32(8),
+        ],
+    );
+    let close_errno = reference_call(
+        &instance,
+        &mut store,
+        "close",
+        &[wasmtime::Val::I32(directory_fd as i32)],
+    );
+    let removed_handle = RemovedHandleTrace {
+        errnos: [
+            removed_read_errno,
+            recreated_errno,
+            replacement_create_errno,
+            recreated_read_errno,
+            stale_open_errno,
+            stale_create_errno,
+            stale_unlink_errno,
+            close_errno,
+        ],
+        entries_after_remove,
+        entries_after_recreate,
+        output_preserved,
+        failed_open_output_preserved,
+        replacement_file_survives: fs::read(root.path().join("docs/note.txt"))
+            .is_ok_and(|bytes| bytes.is_empty()),
+        stale_create_did_not_publish: !root.path().join("docs/ghost.txt").exists(),
+    };
+
     NestedDirectoryTrace {
         errnos: [
             mkdir_errno,
@@ -456,6 +669,7 @@ fn run_reference(engine: &Engine, bytes: &[u8]) -> NestedDirectoryTrace {
         nested_after_file_create,
         root_after_remove,
         reference_directory_removed,
+        removed_handle,
     }
 }
 
@@ -516,11 +730,29 @@ fn nested_directory_lifecycle_matches_wasmtime_preview1() {
             },
         ],
         reference_directory_removed: true,
+        removed_handle: RemovedHandleTrace {
+            errnos: [
+                ERRNO_SUCCESS,
+                ERRNO_SUCCESS,
+                ERRNO_SUCCESS,
+                ERRNO_SUCCESS,
+                ERRNO_NOENT,
+                ERRNO_NOENT,
+                ERRNO_NOENT,
+                ERRNO_SUCCESS,
+            ],
+            entries_after_remove: Vec::new(),
+            entries_after_recreate: Vec::new(),
+            output_preserved: true,
+            failed_open_output_preserved: true,
+            replacement_file_survives: true,
+            stale_create_did_not_publish: true,
+        },
     };
 
-    assert_eq!(mini, expected, "mini nested-directory trace drifted");
     assert_eq!(
         reference, expected,
         "Wasmtime nested-directory trace drifted"
     );
+    assert_eq!(mini, expected, "mini nested-directory trace drifted");
 }
