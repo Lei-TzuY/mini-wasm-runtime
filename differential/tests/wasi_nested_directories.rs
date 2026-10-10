@@ -582,7 +582,7 @@ fn run_reference(engine: &Engine, bytes: &[u8]) -> NestedDirectoryTrace {
     );
     let (recreated_read_errno, entries_after_recreate) =
         reference_readdir(&instance, &mut store, memory, directory_fd);
-    let used = reference_u32(memory, &mut store, BUFUSED);
+    let used = reference_u32(memory, &store, BUFUSED);
     let output_tail_preserved = memory.data(&store)
         [(BUFFER + used) as usize..(BUFFER + BUFFER_LEN) as usize]
         == vec![0x5a; (BUFFER_LEN - used) as usize];
