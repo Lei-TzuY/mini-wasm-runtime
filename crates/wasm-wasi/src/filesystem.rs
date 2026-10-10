@@ -282,6 +282,7 @@ enum PathFilestatError {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum ResolveDirectoryError {
     BadFd,
+    NotFound,
     NotCapable,
     NameTooLong,
 }
@@ -686,6 +687,7 @@ impl Filesystem {
             .resolve_directory_path(dir_fd, path, RIGHTS_PATH_FILESTAT_SET_TIMES)
             .map_err(|error| match error {
                 ResolveDirectoryError::BadFd => PathFilestatError::BadFd,
+                ResolveDirectoryError::NotFound => PathFilestatError::NotFound,
                 ResolveDirectoryError::NotCapable => PathFilestatError::NotCapable,
                 ResolveDirectoryError::NameTooLong => PathFilestatError::NameTooLong,
             })?;
@@ -726,6 +728,7 @@ impl Filesystem {
             .resolve_directory_path(dir_fd, path, RIGHTS_PATH_FILESTAT_GET)
             .map_err(|error| match error {
                 ResolveDirectoryError::BadFd => PathFilestatError::BadFd,
+                ResolveDirectoryError::NotFound => PathFilestatError::NotFound,
                 ResolveDirectoryError::NotCapable => PathFilestatError::NotCapable,
                 ResolveDirectoryError::NameTooLong => PathFilestatError::NameTooLong,
             })?;
@@ -809,11 +812,15 @@ impl Filesystem {
         if rights & RIGHTS_FD_READDIR == 0 {
             return Err(ReaddirError::NotCapable);
         }
+        let directory_is_linked = !state
+            .open_directories
+            .get(&fd)
+            .is_some_and(|directory| !open_directory_is_linked(&state, directory));
 
         for file in state
             .mounted_files
             .iter()
-            .filter(|file| file.preopen_fd == preopen_fd)
+            .filter(|file| directory_is_linked && file.preopen_fd == preopen_fd)
         {
             let Some(remainder) = relative_to_directory(&base, &file.relative_path) else {
                 continue;
@@ -835,7 +842,7 @@ impl Filesystem {
         for directory in state
             .mounted_directories
             .iter()
-            .filter(|directory| directory.preopen_fd == preopen_fd)
+            .filter(|directory| directory_is_linked && directory.preopen_fd == preopen_fd)
         {
             if let Some(name) = immediate_child_name(&base, &directory.relative_path) {
                 children.push((name.to_vec(), directory.inode, FILETYPE_DIRECTORY));
@@ -844,7 +851,7 @@ impl Filesystem {
         for file in state
             .mounted_files
             .iter()
-            .filter(|file| file.preopen_fd == preopen_fd)
+            .filter(|file| directory_is_linked && file.preopen_fd == preopen_fd)
         {
             if let Some(name) = immediate_child_name(&base, &file.relative_path) {
                 children.push((name.to_vec(), file.inode, FILETYPE_REGULAR_FILE));
@@ -853,7 +860,7 @@ impl Filesystem {
         for symlink in state
             .mounted_symlinks
             .iter()
-            .filter(|symlink| symlink.preopen_fd == preopen_fd)
+            .filter(|symlink| directory_is_linked && symlink.preopen_fd == preopen_fd)
         {
             if let Some(name) = immediate_child_name(&base, &symlink.relative_path) {
                 children.push((name.to_vec(), symlink.inode, FILETYPE_SYMBOLIC_LINK));
@@ -2003,6 +2010,13 @@ impl Filesystem {
         if rights & required_right != required_right {
             return Err(ResolveDirectoryError::NotCapable);
         }
+        if state
+            .open_directories
+            .get(&fd)
+            .is_some_and(|directory| !open_directory_is_linked(&state, directory))
+        {
+            return Err(ResolveDirectoryError::NotFound);
+        }
         let full_path = join_relative(&base, path);
         if full_path.len() > MAX_RELATIVE_PATH_BYTES {
             return Err(ResolveDirectoryError::NameTooLong);
@@ -2454,6 +2468,7 @@ impl Filesystem {
             match self.resolve_directory_path(dir_fd, path, RIGHTS_PATH_UNLINK_FILE) {
                 Ok(resolved) => resolved,
                 Err(ResolveDirectoryError::BadFd) => return Err(UnlinkError::BadFd),
+                Err(ResolveDirectoryError::NotFound) => return Err(UnlinkError::NotFound),
                 Err(ResolveDirectoryError::NotCapable) => return Err(UnlinkError::NotCapable),
                 Err(ResolveDirectoryError::NameTooLong) => return Err(UnlinkError::NameTooLong),
             };
@@ -2667,6 +2682,11 @@ fn directory_inode(state: &FilesystemState, preopen_fd: u32, path: &[u8]) -> Opt
         .map(|directory| directory.inode)
 }
 
+fn open_directory_is_linked(state: &FilesystemState, directory: &OpenDirectory) -> bool {
+    // A pathname can be reused after rmdir; an open capability stays bound to its inode.
+    directory_inode(state, directory.preopen_fd, &directory.relative_path) == Some(directory.inode)
+}
+
 fn directory_rights(state: &FilesystemState, fd: u32) -> Option<u64> {
     if state.reserved_preopens.contains(&fd) {
         let mut rights = RIGHTS_FD_READDIR | RIGHTS_PATH_OPEN | RIGHTS_PATH_FILESTAT_GET;
@@ -2776,6 +2796,7 @@ fn immediate_child_name<'a>(base: &[u8], path: &'a [u8]) -> Option<&'a [u8]> {
 fn open_resolve_error(error: ResolveDirectoryError) -> OpenError {
     match error {
         ResolveDirectoryError::BadFd | ResolveDirectoryError::NotCapable => OpenError::NotCapable,
+        ResolveDirectoryError::NotFound => OpenError::NotFound,
         ResolveDirectoryError::NameTooLong => OpenError::NameTooLong,
     }
 }
@@ -2783,6 +2804,7 @@ fn open_resolve_error(error: ResolveDirectoryError) -> OpenError {
 fn link_resolve_error(error: ResolveDirectoryError) -> LinkError {
     match error {
         ResolveDirectoryError::BadFd => LinkError::BadFd,
+        ResolveDirectoryError::NotFound => LinkError::NotFound,
         ResolveDirectoryError::NotCapable => LinkError::NotCapable,
         ResolveDirectoryError::NameTooLong => LinkError::NameTooLong,
     }
@@ -2791,6 +2813,7 @@ fn link_resolve_error(error: ResolveDirectoryError) -> LinkError {
 fn symlink_resolve_error(error: ResolveDirectoryError) -> SymlinkError {
     match error {
         ResolveDirectoryError::BadFd => SymlinkError::BadFd,
+        ResolveDirectoryError::NotFound => SymlinkError::NotFound,
         ResolveDirectoryError::NotCapable => SymlinkError::NotCapable,
         ResolveDirectoryError::NameTooLong => SymlinkError::NameTooLong,
     }
@@ -2811,6 +2834,7 @@ fn symlink_errno(error: SymlinkError) -> i32 {
 fn directory_resolve_error(error: ResolveDirectoryError) -> DirectoryMutationError {
     match error {
         ResolveDirectoryError::BadFd => DirectoryMutationError::BadFd,
+        ResolveDirectoryError::NotFound => DirectoryMutationError::NotFound,
         ResolveDirectoryError::NotCapable => DirectoryMutationError::NotCapable,
         ResolveDirectoryError::NameTooLong => DirectoryMutationError::NameTooLong,
     }

@@ -418,3 +418,176 @@ fn readonly_preopens_cannot_mutate_directory_namespace() {
         vec![b".".to_vec(), b"..".to_vec()]
     );
 }
+
+fn removed_open_directory() -> (MemoryHandle, WasiPreview1, Instance, u32) {
+    let memory = MemoryHandle::new(1, Some(1)).unwrap();
+    for (address, path) in [
+        (96, "docs"),
+        (112, "note.txt"),
+        (128, "ghost.txt"),
+        (144, "child"),
+    ] {
+        memory.write(address, path.as_bytes()).unwrap();
+    }
+    let wasi = WasiPreview1::new()
+        .with_writable_preopen("/sandbox")
+        .unwrap();
+    let mut vm = instantiate(&memory, &wasi);
+    assert_eq!(errno(&mut vm, "mkdir", &path_args(3, 96, 4)), ERRNO_SUCCESS);
+    let rights = RIGHTS_FD_READDIR
+        | RIGHTS_PATH_OPEN
+        | RIGHTS_PATH_CREATE_FILE
+        | RIGHTS_PATH_CREATE_DIRECTORY
+        | RIGHTS_PATH_REMOVE_DIRECTORY
+        | RIGHTS_PATH_UNLINK_FILE;
+    assert_eq!(
+        errno(
+            &mut vm,
+            "open",
+            &open_args(3, 96, 4, OFLAGS_DIRECTORY, rights, 32)
+        ),
+        ERRNO_SUCCESS
+    );
+    let old_fd = read_u32(&memory.read(32, 4).unwrap(), 0);
+    assert_eq!(errno(&mut vm, "rmdir", &path_args(3, 96, 4)), ERRNO_SUCCESS);
+    (memory, wasi, vm, old_fd)
+}
+
+#[test]
+fn removed_directory_descriptor_does_not_enumerate_a_recreated_path() {
+    let (memory, _wasi, mut vm, old_fd) = removed_open_directory();
+    let mut original_entries = Vec::new();
+    for recreate in [false, true] {
+        if recreate {
+            assert_eq!(errno(&mut vm, "mkdir", &path_args(3, 96, 4)), ERRNO_SUCCESS);
+            memory.write(160, b"docs/note.txt").unwrap();
+            assert_eq!(
+                errno(
+                    &mut vm,
+                    "open",
+                    &open_args(3, 160, 13, OFLAGS_CREAT, RIGHTS_FD_READ, 36)
+                ),
+                ERRNO_SUCCESS
+            );
+        }
+        memory.write(512, &[0x5a; 512]).unwrap();
+        assert_eq!(
+            errno(&mut vm, "readdir", &readdir_args(old_fd, 512, 512, 0, 40)),
+            ERRNO_SUCCESS
+        );
+        let used = read_u32(&memory.read(40, 4).unwrap(), 0);
+        let entries = parse_complete_dirents(&memory.read(512, used as usize).unwrap());
+        assert_eq!(
+            entries
+                .iter()
+                .map(|entry| entry.name.as_slice())
+                .collect::<Vec<_>>(),
+            vec![b".".as_slice(), b"..".as_slice()],
+            "removed handle must not expose replacement entries"
+        );
+        assert!(entries
+            .iter()
+            .all(|entry| entry.filetype == FILETYPE_DIRECTORY));
+        if recreate {
+            assert_eq!(
+                entries, original_entries,
+                "removed handle changed inode identity"
+            );
+        } else {
+            original_entries = entries;
+        }
+        assert_eq!(
+            memory.read(512 + used, 512 - used as usize).unwrap(),
+            vec![0x5a; 512 - used as usize],
+            "readdir must preserve bytes beyond its synthetic entries"
+        );
+        memory.write(512, &[0x5a; 512]).unwrap();
+        assert_eq!(
+            errno(&mut vm, "readdir", &readdir_args(old_fd, 512, 512, 2, 40)),
+            ERRNO_SUCCESS
+        );
+        assert_eq!(read_u32(&memory.read(40, 4).unwrap(), 0), 0);
+        assert_eq!(memory.read(512, 512).unwrap(), vec![0x5a; 512]);
+    }
+}
+
+#[test]
+fn removed_directory_descriptor_cannot_open_or_mutate_a_recreated_path() {
+    let (memory, wasi, mut vm, old_fd) = removed_open_directory();
+    assert_eq!(errno(&mut vm, "mkdir", &path_args(3, 96, 4)), ERRNO_SUCCESS);
+    let rights = RIGHTS_FD_READDIR
+        | RIGHTS_PATH_OPEN
+        | RIGHTS_PATH_CREATE_FILE
+        | RIGHTS_PATH_CREATE_DIRECTORY
+        | RIGHTS_PATH_REMOVE_DIRECTORY
+        | RIGHTS_PATH_UNLINK_FILE;
+    assert_eq!(
+        errno(
+            &mut vm,
+            "open",
+            &open_args(3, 96, 4, OFLAGS_DIRECTORY, rights, 36)
+        ),
+        ERRNO_SUCCESS
+    );
+    let new_fd = read_u32(&memory.read(36, 4).unwrap(), 0);
+    assert_ne!(old_fd, new_fd);
+    assert_eq!(
+        errno(
+            &mut vm,
+            "open",
+            &open_args(new_fd, 112, 8, OFLAGS_CREAT, RIGHTS_FD_READ, 44)
+        ),
+        ERRNO_SUCCESS
+    );
+    assert_eq!(
+        errno(&mut vm, "mkdir", &path_args(new_fd, 144, 5)),
+        ERRNO_SUCCESS
+    );
+
+    for (name, args) in [
+        (
+            "open",
+            open_args(old_fd, 112, 8, 0, RIGHTS_FD_READ, 48).to_vec(),
+        ),
+        (
+            "open",
+            open_args(old_fd, 128, 9, OFLAGS_CREAT, RIGHTS_FD_READ, 48).to_vec(),
+        ),
+        ("mkdir", path_args(old_fd, 128, 9).to_vec()),
+        ("rmdir", path_args(old_fd, 144, 5).to_vec()),
+        ("unlink", path_args(old_fd, 112, 8).to_vec()),
+    ] {
+        memory.write(48, &0xdead_beefu32.to_le_bytes()).unwrap();
+        assert_eq!(
+            errno(&mut vm, name, &args),
+            ERRNO_NOENT,
+            "removed descriptor must not rebind during {name}"
+        );
+        assert_eq!(read_u32(&memory.read(48, 4).unwrap(), 0), 0xdead_beef);
+    }
+    assert_eq!(
+        wasi.file_snapshot("/sandbox", "docs/note.txt"),
+        Some(Vec::new())
+    );
+    assert_eq!(wasi.file_snapshot("/sandbox", "docs/ghost.txt"), None);
+    assert_eq!(
+        read_dir(&memory, &mut vm, new_fd, 512, 40)
+            .into_iter()
+            .map(|entry| entry.name)
+            .collect::<Vec<_>>(),
+        vec![
+            b".".to_vec(),
+            b"..".to_vec(),
+            b"child".to_vec(),
+            b"note.txt".to_vec()
+        ]
+    );
+    assert_eq!(
+        errno(&mut vm, "unlink", &path_args(new_fd, 112, 8)),
+        ERRNO_SUCCESS
+    );
+    assert_eq!(
+        errno(&mut vm, "rmdir", &path_args(new_fd, 144, 5)),
+        ERRNO_SUCCESS
+    );
+}
